@@ -21,6 +21,7 @@ import argparse
 import contextlib
 from pathlib import Path
 
+from dubeval import network
 from dubeval.evaluate import DEFAULT_WHISPER_MODEL
 from dubeval.jobs import Cancelled, Progress
 from dubeval.perso_api import PersoError
@@ -201,6 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     link was evaluated, 2 when any link failed (the summary is written either way).
     """
     use_utf8_console()
+    network.use_system_settings()                  # the computer's certificates and proxy, as browsers use them
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["serve"]:
         return _serve(argv[1:])

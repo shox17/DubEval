@@ -41,6 +41,7 @@ problem time ranges to jump there.
 
 | Problem | What to do |
 |---|---|
+| On a company network, model downloads or Perso links fail while the browser works | Update to 0.1.1 or later: DubEval now uses the computer's trusted certificates and proxy, as browsers do. If it still says the network blocked its secure connection or its proxy, ask IT to allow the sites DubEval uses: `huggingface.co` (models), `files.pythonhosted.org` (GPU speed-up), `registry.ollama.ai` and `github.com` (local translation model, updates), `api.perso.ai` and `portal-media.perso.ai` (Perso links), and the translation check's provider if you use one. Or use another network. The real error is in `%APPDATA%\DubEval\logs`. |
 | `pip install` fails on `mediapipe` or `numpy` | Use Python 3.14 (`python3 --version`). If a pinned version still has no wheel for your system, install from the version ranges instead: `pip install -e ".[dev]"`. |
 | "The dub's language was guessed as …, only …% sure" | Run again with the language set, for example `--target-lang uz`. |
 | "This link opens a web page, not a video file" | Install the links extra (`pip install "dubeval[links]"`) to evaluate YouTube and other pages, or download the video and pass the file. |

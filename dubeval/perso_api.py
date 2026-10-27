@@ -6,11 +6,17 @@ no credits. Flow: parse_share_url -> get_shared_project -> download_media for th
 import os
 import re
 import time
+import logging
 from pathlib import Path
 from typing import Callable
 from urllib.parse import parse_qs, quote, urlsplit, urlunsplit
 
 import requests
+
+from dubeval import network
+
+log = logging.getLogger(__name__)
+NOT_REACHED = "Could not reach Perso. Check your internet connection."
 
 API_BASE = os.getenv("PERSO_API_BASE", "https://api.perso.ai")
 MEDIA_BASE = os.getenv("PERSO_MEDIA_BASE", "https://portal-media.perso.ai")
@@ -86,8 +92,9 @@ def _public_get(session, url: str, sleep: Callable[[float], None], retries: int 
         try:
             resp = session.request("GET", url, headers={}, timeout=kwargs.pop("timeout", 60), **kwargs)
         except requests.RequestException as e:
+            log.warning("Perso request failed (attempt %d): %s", attempt + 1, e)
             if attempt == retries:
-                raise PersoError("Could not reach Perso. Check your internet connection.")
+                raise PersoError(network.describe(e, NOT_REACHED)) from e
             sleep(2 ** attempt)
             continue
         if (resp.status_code == 429 or resp.status_code >= 500) and attempt < retries:
@@ -134,8 +141,12 @@ def download_media(path: str, out_path: str, session=None, sleep: Callable[[floa
                         f.write(chunk)
                 os.replace(tmp, target)
             return out_path
-        except (requests.RequestException, PersoError):
+        except (requests.RequestException, PersoError) as e:
+            log.warning("Perso download failed (attempt %d): %s", attempt + 1, e)
             if attempt == 2:
+                if isinstance(e, requests.RequestException):
+                    raise PersoError(network.describe(e, "Downloading the videos from Perso failed. Try again in a "
+                                                         "minute.")) from e
                 raise
             sleep(2 * (attempt + 1))
     return out_path

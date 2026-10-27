@@ -21,7 +21,7 @@ import zlib
 from pathlib import Path
 from typing import Callable, Optional
 
-from dubeval import asr, local_judge, meaning
+from dubeval import asr, local_judge, meaning, network
 
 log = logging.getLogger(__name__)
 
@@ -282,7 +282,7 @@ def install(pack_id: str, progress: Callable[[str, float], None] = lambda messag
             raise
         except Exception as e:                              # network trouble: keep the partial file for next time
             log.warning("Download of %s failed: %s", f["url"], e)
-            raise RuntimeError(DOWNLOAD_FAILED) from e
+            raise RuntimeError(network.describe(e, DOWNLOAD_FAILED)) from e
         done_before += f["bytes"]
     progress("Installing...", 0.98)
     for f in pack["files"]:

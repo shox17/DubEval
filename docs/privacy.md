@@ -9,7 +9,9 @@ DubEval runs on your own computer. Here is exactly what stays there and what lea
   the folder set by `DUBEVAL_DATA`.
 - Your API keys, in your local `.env` file.
 
-DubEval sends no usage statistics or crash reports.
+DubEval sends no usage statistics or crash reports. It connects the way your browser does: through this computer's
+proxy, trusting the certificates this computer trusts (`dubeval/network.py`; `DUBEVAL_SYSTEM_NETWORK=0` turns this
+off).
 
 ## Leaves your computer
 | What | Where to | When |

@@ -17,6 +17,8 @@ from urllib.parse import urlsplit
 import requests
 import imageio_ffmpeg
 
+from dubeval import network
+
 log = logging.getLogger(__name__)
 
 FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
@@ -119,7 +121,7 @@ def _download(url: str, folder: Path, session, sleep) -> str:
         except (requests.RequestException, RuntimeError) as e:
             log.warning("Download attempt %d failed: %s", attempt + 1, e)
             if attempt == 2:
-                raise ValueError(DOWNLOAD_FAILED) from e
+                raise ValueError(network.describe(e, DOWNLOAD_FAILED)) from e
             sleep(2 * (attempt + 1))
     return str(target)
 

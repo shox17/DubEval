@@ -104,7 +104,7 @@ yt-dlp (optional: videos from YouTube and other pages)
 Python packages
   Installed by pip from requirements.txt, each under its own license (for
   example jiwer: Apache 2.0; librosa: ISC; NumPy,
-  PyTorch: BSD; FastAPI, onnxruntime, requests: MIT/Apache 2.0).
+  PyTorch: BSD; FastAPI, onnxruntime, requests, truststore: MIT/Apache 2.0).
 
 FFmpeg
   Provided by the imageio-ffmpeg package (BSD-2-Clause), which supplies an

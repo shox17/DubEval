@@ -60,6 +60,12 @@ def no_model_downloads(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_system_network_settings(monkeypatch):
+    """cli.main would trust the system's certificates and set the system proxy for the whole test process: not here."""
+    monkeypatch.setenv("DUBEVAL_SYSTEM_NETWORK", "0")
+
+
+@pytest.fixture(autouse=True)
 def no_real_api_keys(monkeypatch):
     """Tests never see real keys (the app loads .env): every provider key is removed from the environment."""
     for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"):

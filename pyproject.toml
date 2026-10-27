@@ -36,6 +36,7 @@ dependencies = [
     "imageio-ffmpeg>=0.5",
     "python-dotenv>=1.0",
     "requests>=2.31",
+    "truststore>=0.10",                          # the system's trusted certificates (company networks)
     "onnxruntime>=1.17",
     "tokenizers>=0.15",                          # the meaning screen's ONNX pack
     "faster-whisper>=1.1",

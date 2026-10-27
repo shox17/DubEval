@@ -131,6 +131,8 @@ tools/build_meaning_onnx.py  Dev tool: BGE-M3 → int8 ONNX pack (model.onnx + t
 desktop/                     Electron app: main.js starts `python -m dubeval web --port 0`, reads the launch link,
                              opens it in a sandboxed window (status.html while starting); updater.js (electron-updater,
                              GitHub Releases) + preload.js (window.dubevalShell: updates only); README.md there
+dubeval/network.py           The computer's trusted certificates (truststore) and proxy (WinHTTP, PAC) at start-up;
+                             describe() turns a blocked connection into a plain message
 dubeval/paths.py             DATA_DIR (DUBEVAL_DATA, default ./data): output, cache, history, votes, jobs
 dubeval/feedback.py          Reviewer votes (real problem / false alarm) per interval; per-check summary
 dubeval/history.py           Records every evaluation to data/history.jsonl; summarize() and the history text view

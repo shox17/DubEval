@@ -12,6 +12,7 @@ numpy==2.4.6
 imageio-ffmpeg==0.6.0
 python-dotenv==1.2.4
 requests==2.34.2
+truststore==0.10.5             # the system's trusted certificates (company networks)
 onnxruntime==1.31.0            # voice quality (DNSMOS), voice similarity, the meaning screen's ONNX pack
 tokenizers==0.23.3             # the meaning screen's tokenizer
 pydantic==2.14.1               # the report format (dubeval/schema.py)

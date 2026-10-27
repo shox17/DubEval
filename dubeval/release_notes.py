@@ -4,6 +4,24 @@ Add the new version's lines here (en, ko, pt, es) whenever TOOL_VERSION changes;
 """
 
 NOTES = {
+    "0.1.1": {
+        "en": ["Works on company networks: downloads and Perso links now use this computer's trusted certificates and "
+               "proxy, as your browser does.",
+               "When a network still blocks DubEval, the message says so and what to ask your IT team, instead of "
+               "\"check your internet connection\"."],
+        "ko": ["회사 네트워크에서도 작동합니다: 다운로드와 Perso 링크가 브라우저처럼 이 컴퓨터의 신뢰하는 인증서와 프록시를 "
+               "사용합니다.",
+               "네트워크가 여전히 DubEval을 막으면 \"인터넷 연결을 확인하세요\" 대신 그 사실과 IT 팀에 요청할 내용을 "
+               "알려 줍니다."],
+        "pt": ["Funciona em redes corporativas: downloads e links da Perso agora usam os certificados confiáveis e o "
+               "proxy deste computador, como o navegador.",
+               "Quando uma rede ainda bloqueia o DubEval, a mensagem diz isso e o que pedir à equipe de TI, em vez de "
+               "\"verifique sua conexão\"."],
+        "es": ["Funciona en redes corporativas: las descargas y los enlaces de Perso ahora usan los certificados de "
+               "confianza y el proxy de este equipo, como el navegador.",
+               "Cuando una red sigue bloqueando DubEval, el mensaje lo dice y qué pedirle a tu equipo de TI, en lugar "
+               "de \"revisa tu conexión\"."],
+    },
     "0.1.0": {
         "en": ["Evaluate a dub against its original: timing, voice, meaning and sound, with every problem on a timeline.",
                "Every evaluation is kept on the Evaluations screen, with a picture: open, rename or delete it; a page you've started filling in is kept as a draft.",
