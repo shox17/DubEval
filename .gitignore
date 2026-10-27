@@ -1,0 +1,51 @@
+# Secrets: never commit API keys. .env.example is the template to copy.
+.env
+.env.*
+!.env.example
+.claude/settings.local.json
+
+# Python
+eval_env/
+.venv/
+.venv-*/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+# setuptools output (pip install .)
+/build/
+
+# Downloaded videos, cached speech recognition, reports and results are written on every run:
+# data/ (app runs and the per-link cache in data/cache/) and output/ (the CLI's default --out folder).
+data/
+output/
+.cache/
+# Test media stays local (see tests/conftest.py); keeping videos out of git keeps clones small.
+tests/data/
+# Never commit media anywhere in the repo: git keeps it in history forever.
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.m4a
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Desktop app (desktop/): dependencies and builds are made on each machine
+desktop/node_modules/
+desktop/dist/
+desktop/resources/

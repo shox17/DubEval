@@ -1,0 +1,79 @@
+# Runs the fast, offline test suite on Linux, macOS and Windows for every push and pull request.
+# Tests never call Perso, Gemini or Claude and never download models (see tests/conftest.py), so no secrets are needed.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PYTHONUTF8: "1"                 # Windows consoles default to a legacy code page
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"            # what the desktop app ships
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Linux libraries for OpenCV / MediaPipe
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
+
+      - name: Install (pinned, else from pyproject ranges)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          # CPU PyTorch: the tests never run models, and the default Linux wheel brings ~2.5 GB of GPU libraries.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          # The pins were verified on Windows; if one has no wheel for this platform, install from pyproject's
+          # version ranges instead so the suite still runs (and say so in the log).
+          pip install -r requirements-dev.txt || {
+            echo "::warning::Pinned install failed on ${{ runner.os }}; installing from pyproject ranges."
+            pip install ".[dev]"
+          }
+          pip install --no-deps -e .
+
+      - name: Fast tests
+        run: python -m pytest -m "not slow" -q
+
+  # Fails the build if a credential was ever committed, on this branch or anywhere in the history behind it.
+  # gitleaks is downloaded from its own release and checked against its published SHA-256, instead of a
+  # marketplace action, so no third-party action gets the repository token. (Same approach as PersoDub's CI.)
+  secrets:
+    name: secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0            # the whole history, not just the latest commit
+      - name: Install gitleaks
+        run: |
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL "$url" -o gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+      - name: Scan
+        run: ./gitleaks git . --redact --no-banner   # --redact keeps any leaked value out of the public log

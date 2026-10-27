@@ -1,0 +1,9 @@
+-r requirements.txt
+# Development only (not shipped): PyTorch (install the build for your hardware first, see README), the original
+# Whisper, the original BGE-M3, and what tools/build_meaning_onnx.py needs to build the meaning pack.
+torch==2.11.0
+openai-whisper==20250625       # DUBEVAL_ASR=openai-whisper
+sentence-transformers==6.2.0   # the meaning screen with the original model, to compare with the ONNX pack
+onnx==1.23.2
+pytest==9.1.1
+httpx==0.28.1                 # FastAPI test client

@@ -1,0 +1,20 @@
+# docker compose up            → the web interface on http://localhost:8501 (open the link it prints)
+# docker compose --profile api up   → also the REST API on http://localhost:8000 (set DUBEVAL_API_TOKEN in .env)
+services:
+  app:
+    build: .
+    image: dubeval
+    ports: ["127.0.0.1:8501:8501"]
+    env_file: [{path: .env, required: false}]
+    volumes: [dubeval-data:/data]
+  api:
+    image: dubeval
+    profiles: [api]
+    command: ["python", "qa.py", "serve", "--host", "0.0.0.0"]
+    ports: ["8000:8000"]
+    env_file: [{path: .env, required: false}]
+    volumes: [dubeval-data:/data]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+volumes:
+  dubeval-data:

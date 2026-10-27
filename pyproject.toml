@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dubeval"
+version = "0.1.0"
+description = "Open-source quality evaluation for dubbed videos: length and timing, translation meaning, and where the problems are."
+readme = "README.md"
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Shokhrukh Ochilov" }]
+requires-python = ">=3.11"
+keywords = ["dubbing", "evaluation", "speech", "translation", "whisper", "quality-assurance"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Multimedia :: Video",
+]
+# The engine. Version ranges here; the exact versions CI and the desktop app use are pinned in requirements*.txt.
+dependencies = [
+    "numpy>=1.26",
+    "librosa>=0.10",
+    "jiwer>=3.0",
+    "imageio-ffmpeg>=0.5",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+    "onnxruntime>=1.17",
+    "tokenizers>=0.15",                          # the meaning screen's ONNX pack
+    "faster-whisper>=1.1",
+    "mediapipe>=0.10",
+    "pydantic>=2.5",                             # the report format (dubeval/schema.py)
+]
+
+[project.optional-dependencies]
+openai-whisper = ["openai-whisper>=20240930"]   # the original Whisper, as an alternative recognizer
+links = ["yt-dlp>=2024.1"]                       # evaluate videos from YouTube and other pages
+claude = ["anthropic>=0.40"]                     # Claude as the translation judge
+meaning = ["sentence-transformers>=3.0"]         # the meaning screen with the original BGE-M3 (PyTorch, ~4.4 GB);
+                                                 # without it the screen uses the ONNX pack (tools/build_meaning_onnx.py)
+api = ["fastapi>=0.110", "uvicorn>=0.27", "python-multipart>=0.0.9"]   # dubeval web, qa.py serve
+pack = ["torch>=2.2", "transformers>=4.40", "onnx>=1.17"]              # build the meaning screen's ONNX pack
+all = ["dubeval[openai-whisper,links,claude,meaning,api]"]
+dev = ["dubeval[all,pack]", "pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+dubeval = "dubeval.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/shox17/DubEval"
+Issues = "https://github.com/shox17/DubEval/issues"
+
+[tool.setuptools]
+packages = ["dubeval"]
+
+[tool.setuptools.package-data]
+dubeval = ["models/*.onnx", "models/*.task", "models/README.md", "web/*", "web/fonts/*"]

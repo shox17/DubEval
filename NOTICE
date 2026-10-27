@@ -1,0 +1,113 @@
+DubEval
+Copyright (c) 2026 ESTsoft corp.
+Licensed under the GNU Affero General Public License, version 3 or (at your
+option) any later version (see LICENSE).
+
+"Perso" and "PersoDub" are trademarks of ESTsoft corp. DubEval's license covers
+its code; it grants no right to use those names or logos.
+
+The desktop app's icon (desktop/build/icon.png and icon.ico) is DubEval's own,
+drawn for this project, and is covered by DubEval's license.
+
+This product includes software and models developed by third parties, listed
+below.
+
+
+================================================================================
+Code reused from other projects
+================================================================================
+
+- dubeval/web/style.css (the web interface's look: palette, type sizes, radii,
+  the desk/panel layout, buttons, fields, cards and drop zone) and
+  desktop/status.html (colours): adapted from PersoDub's static/css/app.css,
+  https://github.com/stronghamjji/PersoDub, Copyright (c) 2026 ESTsoft corp.,
+  AGPL-3.0-or-later. Modified: rewritten for DubEval's pages; the colour values
+  and component styles are taken over.
+
+Onest typeface (dubeval/web/fonts/: latin and latin-ext, weights 400/500/600)
+  Copyright 2021 The Onest Project Authors, https://github.com/simpals/onest,
+  from @fontsource/onest as bundled in PersoDub. SIL Open Font License 1.1
+  (dubeval/web/fonts/OFL-Onest.txt).
+
+When more code from PersoDub (https://github.com/stronghamjji/PersoDub,
+Copyright (c) 2026 ESTsoft corp., AGPL-3.0-or-later) or any other project is
+copied or adapted into DubEval, list it here: the files, the source project,
+its copyright line and its license, and say that it was modified.
+
+
+================================================================================
+Redistributed artifacts
+================================================================================
+
+These files ship inside this repository (dubeval/models/), so they are covered by
+this notice.
+
+DNSMOS P.835 model (dubeval/models/dnsmos_sig_bak_ovr.onnx)
+  Microsoft DNS Challenge, DNSMOS/DNSMOS/sig_bak_ovr.onnx
+  https://github.com/microsoft/DNS-Challenge
+  Licensed under the Creative Commons Attribution 4.0 International License
+  (CC BY 4.0). Unmodified.
+  Reference: C. K. A. Reddy, V. Gopal, R. Cutler, "DNSMOS P.835: A
+  non-intrusive perceptual objective speech quality metric to evaluate noise
+  suppressors", ICASSP 2022.
+
+MediaPipe Face Landmarker model (dubeval/models/face_landmarker.task)
+  Google MediaPipe
+  https://developers.google.com/mediapipe
+  Licensed under the Apache License, Version 2.0. Unmodified.
+
+
+================================================================================
+Downloaded at run time (not redistributed here)
+================================================================================
+
+These are fetched from their own upstream sources when first used.
+
+WeSpeaker ResNet34-LM speaker model (voice similarity)
+  https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM
+  Licensed under CC BY 4.0. Downloaded once and checked against a pinned
+  SHA-256 (dubeval/speaker.py).
+
+faster-whisper and CTranslate2 (speech recognition, the default)
+  https://github.com/SYSTRAN/faster-whisper, https://github.com/OpenNMT/CTranslate2
+  Licensed under the MIT License. The converted Whisper models are downloaded
+  from Hugging Face (Systran/faster-whisper-*), MIT License.
+
+OpenAI Whisper models (speech recognition, optional)
+  https://github.com/openai/whisper
+  Code and model weights licensed under the MIT License, Copyright (c) 2022
+  OpenAI. dubeval/languages.py copies its table of language names
+  (whisper/tokenizer.py, LANGUAGES).
+
+BGE-M3 sentence model (optional: the offline meaning screen)
+  https://huggingface.co/BAAI/bge-m3, MIT License. Downloaded on request as the
+  int8 ONNX export at https://huggingface.co/Xenova/bge-m3 (MIT), or built by
+  tools/build_meaning_onnx.py (onnxruntime and Hugging Face
+  tokenizers: MIT / Apache License 2.0), or in development with
+  sentence-transformers (https://github.com/UKPLab/sentence-transformers,
+  Apache License 2.0).
+
+NVIDIA cuBLAS (optional: speech recognition on an NVIDIA GPU)
+  Downloaded on request from NVIDIA's nvidia-cublas-cu12 package on PyPI; not
+  shipped with DubEval. Governed by NVIDIA's license for that package.
+
+Qwen3 and Ollama (optional: the local translation judge)
+  https://huggingface.co/Qwen, https://ollama.com. Qwen3 models: Apache License
+  2.0; Ollama: MIT License (its libraries' licenses come with it in
+  lib/ollama). Not shipped with DubEval: downloaded on request (Settings →
+  Models) from Ollama's GitHub release and model registry, unchanged.
+
+yt-dlp (optional: videos from YouTube and other pages)
+  https://github.com/yt-dlp/yt-dlp
+  Released into the public domain (The Unlicense).
+
+Python packages
+  Installed by pip from requirements.txt, each under its own license (for
+  example jiwer: Apache 2.0; librosa: ISC; NumPy,
+  PyTorch: BSD; FastAPI, onnxruntime, requests: MIT/Apache 2.0).
+
+FFmpeg
+  Provided by the imageio-ffmpeg package (BSD-2-Clause), which supplies an
+  FFmpeg binary. FFmpeg itself is licensed under the LGPL or GPL depending on
+  the build; see https://ffmpeg.org/legal.html. Check the exact build before
+  redistributing it (for example in a Docker image or a desktop installer).

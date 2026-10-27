@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DubEval</title>
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="/static/style.css">
+<script type="module" src="/static/app.js"></script>
+</head>
+<body class="booting">
+<!-- Shown until the page has its texts and first screen (app.js main), like the desktop shell's starting page. -->
+<div class="boot" id="boot" role="status" aria-live="polite">
+  <div class="boot-box">
+    <div class="boot-brand"><img src="/static/icon.png" alt=""><span>DubEval</span></div>
+    <h1 id="boot-title"></h1>
+    <div class="boot-bar"></div>
+    <p id="boot-text"></p>
+  </div>
+</div>
+<div class="app">
+  <!-- An empty strip on the desk: in the desktop app it is the window's title bar (drag it to move the window; the
+       window buttons are drawn on its right), as in PersoDub. -->
+  <header class="topbar">
+  </header>
+  <div class="shell">
+    <nav class="side" aria-label="DubEval">
+      <!-- As PersoDub's Home has it: the product's name as a pale pill, and its GitHub repository under it. -->
+      <div class="side-brand">
+        <a class="side-pill repo-link" href="#" target="_blank" rel="noopener">Dubbing Evaluation</a>
+        <a class="side-gh repo-link" href="#" target="_blank" rel="noopener">
+          <span class="side-gh-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.4 1.1 2.9.8.1-.6.4-1.1.6-1.3-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.8 1a9.5 9.5 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.8V21c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></svg></span><span class="side-label" id="nav-github"></span>
+        </a>
+      </div>
+      <a class="side-new" id="nav-new" href="#/new">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span class="side-label"></span>
+      </a>
+      <a class="side-item" id="nav-home" href="#/">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v11H3z"/></svg>
+        <span class="side-label"></span>
+      </a>
+      <a class="side-item" id="nav-history" href="#/history">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+        <span class="side-label"></span>
+      </a>
+      <a class="side-item" id="nav-settings" href="#/settings">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3 1a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.7a7 7 0 0 0-2 1.2l-2.3-1-2 3.4 2 1.5a7 7 0 0 0 0 2.4l-2 1.5 2 3.4 2.3-1a7 7 0 0 0 2 1.2L10 21h4l.6-2.7a7 7 0 0 0 2-1.2l2.3 1 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg>
+        <span class="side-label"></span>
+      </a>
+      <span class="grow"></span>
+      <button class="side-fb" id="nav-help" type="button">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+        <span class="side-label"></span>
+      </button>
+      <button class="side-fb" id="nav-feedback" type="button">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>
+        <span class="side-label"></span>
+      </button>
+      <button class="side-promo" id="nav-whats-new" type="button">
+        <span class="dot" aria-hidden="true"></span><b class="side-label"></b>
+      </button>
+    </nav>
+    <div class="side-resize" id="side-resize" role="separator" aria-orientation="vertical" tabindex="0"></div>
+    <main id="app" class="work" aria-live="polite"></main>
+  </div>
+</div>
+</body>
+</html>

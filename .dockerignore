@@ -1,0 +1,16 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+eval_env/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+data/
+output/
+tests/data/
+.claude/
+.DS_Store

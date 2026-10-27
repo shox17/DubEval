@@ -1,0 +1,77 @@
+name: Bug report
+description: Something in DubEval broke or gave a wrong result
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please don't attach videos you don't have the right to share, and never paste API keys.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what DubEval did instead.
+      placeholder: I ran `python qa.py compare <A> <B>` on two dubs of the same video, and it said they were different videos.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Command line (qa.py)
+        - Web interface (dubeval web)
+        - REST API (qa.py serve)
+        - Docker
+        - Somewhere else
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of problem
+      options:
+        - It crashed or stopped with an error
+        - A result looks wrong (false alarm or missed problem)
+        - Installation or setup
+        - Something else
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: DubEval version
+      description: Shown in the report footer, or the latest commit you're on.
+      placeholder: "1.0.0 or commit abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Computer
+      options:
+        - Windows
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: languages
+    attributes:
+      label: Languages
+      description: Original and dub language, and where the dub came from (service or human actors).
+      placeholder: English → Korean, AI voice clone from Perso
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output or report
+      description: The error message, or the relevant part of `report.txt` / `report.json`. Remove anything private.
+      render: text

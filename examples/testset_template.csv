@@ -1,0 +1,8 @@
+# DubEval test-set sheet: one row per original and dub. Run it with:  dubeval batch testset.csv --out out/testset
+# Paths may be relative to this file, or links. Labels: good, check (or needs review), poor; leave empty if unsure.
+# label = your overall verdict; length_label / meaning_label = your verdicts for length/timing and for meaning.
+# Never commit the videos, and keep this filled-in sheet out of git if its paths or notes are private.
+pair_id,service,dub_type,source_lang,target_lang,original,dub,original_track,dub_track,label,length_label,meaning_label,reviewer,video_source_license,notes
+p001,perso,ai_clone,en,ko,videos/p001_en.mp4,videos/p001_ko.mp4,,,good,good,check,,own video,
+p002,elevenlabs,ai_clone,en,ko,videos/p002_en.mp4,videos/p002_ko.mp4,,,,,,,CC BY 4.0,
+p003,human,human,en,ko,videos/p003_film.mkv,videos/p003_film.mkv,0,1,,,,,internal testing only,two audio tracks in one file

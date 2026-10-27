@@ -1,0 +1,22 @@
+# DubEval's runtime: exact versions verified with Python 3.14 on Windows (NVIDIA GPU). No PyTorch: speech
+# recognition runs on CTranslate2 (the GPU through NVIDIA's cuBLAS, see dubeval/asr.py) and the meaning screen on
+# onnxruntime (dubeval/meaning.py). This is what the desktop app and the Docker image ship. pyproject.toml lists the
+# ranges DubEval accepts. For development (tests, the original Whisper, building the meaning pack):
+# pip install -r requirements-dev.txt
+faster-whisper==1.2.1          # speech recognition
+ctranslate2==4.8.3
+librosa==0.11.0
+jiwer==4.0.0
+mediapipe==1.1.1               # brings opencv-contrib-python (provides cv2); don't add opencv-python too
+numpy==2.4.6
+imageio-ffmpeg==0.6.0
+python-dotenv==1.2.4
+requests==2.34.2
+onnxruntime==1.31.0            # voice quality (DNSMOS), voice similarity, the meaning screen's ONNX pack
+tokenizers==0.23.3             # the meaning screen's tokenizer
+pydantic==2.14.1               # the report format (dubeval/schema.py)
+yt-dlp==2026.8.19              # links to YouTube and other pages
+fastapi==0.156.4               # web interface and REST API
+uvicorn==0.54.0
+python-multipart==0.0.32       # file uploads in the web interface
+anthropic==1.17.0              # optional translation check (Claude); runs without a key

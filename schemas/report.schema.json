@@ -1,0 +1,538 @@
+{
+  "$defs": {
+    "Counts": {
+      "additionalProperties": true,
+      "description": "How many measures got each level.",
+      "properties": {
+        "check": {
+          "title": "Check",
+          "type": "integer"
+        },
+        "good": {
+          "title": "Good",
+          "type": "integer"
+        },
+        "not_measured": {
+          "title": "Not Measured",
+          "type": "integer"
+        },
+        "poor": {
+          "title": "Poor",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "good",
+        "check",
+        "poor",
+        "not_measured"
+      ],
+      "title": "Counts",
+      "type": "object"
+    },
+    "Interval": {
+      "additionalProperties": true,
+      "description": "A problem as a time range of the video, in seconds.",
+      "properties": {
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "category_label": {
+          "title": "Category Label",
+          "type": "string"
+        },
+        "check": {
+          "description": "The measure that found it",
+          "title": "Check",
+          "type": "string"
+        },
+        "check_label": {
+          "title": "Check Label",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "dub": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which dub (A, B, ...) in a comparison",
+          "title": "Dub"
+        },
+        "end": {
+          "title": "End",
+          "type": "number"
+        },
+        "merged": {
+          "default": 1,
+          "description": "How many findings were merged into this range",
+          "title": "Merged",
+          "type": "integer"
+        },
+        "severity": {
+          "enum": [
+            "check",
+            "poor"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "category",
+        "category_label",
+        "severity",
+        "check",
+        "check_label",
+        "description"
+      ],
+      "title": "Interval",
+      "type": "object"
+    },
+    "Metric": {
+      "additionalProperties": true,
+      "description": "One measure: its level, the value behind it, and plain explanations.",
+      "properties": {
+        "display": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value as shown to a person",
+          "title": "Display"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "good",
+            "check",
+            "poor",
+            "info",
+            "not_measured"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "message": {
+          "description": "What was found, what it means for a viewer, what to do",
+          "title": "Message",
+          "type": "string"
+        },
+        "thresholds": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the level is graded",
+          "title": "Thresholds"
+        },
+        "value": {
+          "default": null,
+          "description": "The measured number or flag; null when not measured",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "level",
+        "message"
+      ],
+      "title": "Metric",
+      "type": "object"
+    },
+    "NotMeasured": {
+      "additionalProperties": true,
+      "description": "A measure that couldn't be taken, and why.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "reason"
+      ],
+      "title": "NotMeasured",
+      "type": "object"
+    },
+    "Overall": {
+      "additionalProperties": true,
+      "description": "The verdict: any Poor → poor; otherwise any Check → check; otherwise good.",
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/Counts"
+        },
+        "headline": {
+          "title": "Headline",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "level": {
+          "enum": [
+            "good",
+            "check",
+            "poor"
+          ],
+          "title": "Level",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "label",
+        "headline",
+        "counts"
+      ],
+      "title": "Overall",
+      "type": "object"
+    },
+    "Project": {
+      "additionalProperties": true,
+      "description": "What was evaluated.",
+      "properties": {
+        "duration_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Sec"
+        },
+        "evaluated_video": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluated Video"
+        },
+        "is_lipsync": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Lipsync"
+        },
+        "perso_seq": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Perso Seq"
+        },
+        "share_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Perso share link, when the input was one",
+          "title": "Share Url"
+        },
+        "source_language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Language"
+        },
+        "target_language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Language"
+        },
+        "target_language_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Language Code"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "whisper_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Whisper Model"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "Project",
+      "type": "object"
+    },
+    "Report": {
+      "additionalProperties": true,
+      "description": "The report: verdict, every measure, every problem interval, in one interface language.",
+      "properties": {
+        "lang": {
+          "enum": [
+            "en",
+            "ko",
+            "pt",
+            "es"
+          ],
+          "title": "Lang",
+          "type": "string"
+        },
+        "method": {
+          "additionalProperties": true,
+          "title": "Method",
+          "type": "object"
+        },
+        "not_measured": {
+          "items": {
+            "$ref": "#/$defs/NotMeasured"
+          },
+          "title": "Not Measured",
+          "type": "array"
+        },
+        "overall": {
+          "$ref": "#/$defs/Overall"
+        },
+        "possible_asr_errors": {
+          "description": "Issues that are probably misheard words, not dub errors",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Possible Asr Errors",
+          "type": "array"
+        },
+        "problem_intervals": {
+          "items": {
+            "$ref": "#/$defs/Interval"
+          },
+          "title": "Problem Intervals",
+          "type": "array"
+        },
+        "problem_seconds": {
+          "description": "Seconds of the video covered by problem intervals",
+          "title": "Problem Seconds",
+          "type": "number"
+        },
+        "project": {
+          "$ref": "#/$defs/Project"
+        },
+        "report_version": {
+          "title": "Report Version",
+          "type": "integer"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/Section"
+          },
+          "title": "Sections",
+          "type": "array"
+        },
+        "things_to_check": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Things To Check",
+          "type": "array"
+        }
+      },
+      "required": [
+        "report_version",
+        "lang",
+        "project",
+        "overall",
+        "sections",
+        "problem_intervals",
+        "possible_asr_errors",
+        "problem_seconds",
+        "things_to_check",
+        "not_measured",
+        "method"
+      ],
+      "title": "Report",
+      "type": "object"
+    },
+    "Section": {
+      "additionalProperties": true,
+      "description": "A group of measures (timing and audio, speech, alignment, translation, file, lip movement).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/Metric"
+          },
+          "title": "Metrics",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "metrics"
+      ],
+      "title": "Section",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "The whole report.json: the report plus the raw measurements it was built from.",
+  "properties": {
+    "format": {
+      "const": "dubeval-report",
+      "title": "Format",
+      "type": "string"
+    },
+    "format_version": {
+      "description": "Goes up when a field is renamed or removed",
+      "title": "Format Version",
+      "type": "integer"
+    },
+    "report": {
+      "$ref": "#/$defs/Report"
+    },
+    "results": {
+      "additionalProperties": true,
+      "description": "The raw measurements (see docs/architecture.md, results schema)",
+      "title": "Results",
+      "type": "object"
+    },
+    "tool_version": {
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "format",
+    "format_version",
+    "tool_version",
+    "report",
+    "results"
+  ],
+  "title": "DubEval report (format 1)",
+  "type": "object"
+}

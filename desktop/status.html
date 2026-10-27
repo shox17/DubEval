@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>DubEval</title>
+<style>
+/* PersoDub's palette, like the web interface (see NOTICE). */
+:root { --bg: #0e131b; --card: #1c2129; --text: #eaf0fd; --muted: #9ea5b0; --line: #30363f; --accent: #166CFB; --poor: #f47b74;
+  color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text);
+  font: 13px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+main { width: min(560px, calc(100vw - 32px)); background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 28px; }
+h1 { font-size: 20px; margin: 0 0 6px; }
+p { margin: 6px 0; color: var(--muted); }
+.spinner { width: 28px; height: 28px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 1s linear infinite; margin-bottom: 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.error h1 { color: var(--poor); }
+/* Starting: as PersoDub's start, and the same as the web page's own boot screen (style.css .boot). */
+.starting main { background: none; border: none; width: min(700px, calc(100vw - 64px)); padding: 0; }
+.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; font-weight: 700; font-size: 16px; }
+.brand img { width: 34px; height: 34px; border-radius: 8px; }
+.starting h1 { font-size: 28px; margin-bottom: 18px; }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; position: relative; }
+.bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 32%; border-radius: 4px; background: var(--accent);
+  animation: slide 1.6s ease-in-out infinite; }
+@keyframes slide { from { left: -32%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .bar::after { animation: none; left: 0; width: 100%; opacity: .5; } }
+.starting .spinner { display: none; }
+/* The window has no Windows title bar: this strip is where it is dragged (the page's own top bar does it later). */
+.drag { position: fixed; top: 0; left: 0; right: 0; height: 36px; -webkit-app-region: drag; }
+pre { background: #232831; border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 220px;
+  overflow: auto; font-size: 12px; white-space: pre-wrap; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="drag"></div>
+<main id="box"><div class="brand"><img alt="" src="data:image/png;base64,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"><span>DubEval</span></div>
+<div class="spinner"></div><h1 id="title"></h1><div class="bar" id="bar"></div><p id="text"></p></main>
+<script>
+// The desktop shell's own texts (the web interface brings its own). state: starting | no-python | timeout | failed | stopped.
+const TEXT = {
+  starting: {
+    en: ["Starting DubEval…", "Loading the speech and video tools. The first start can take up to a minute."],
+    ko: ["DubEval 시작 중…", "음성·영상 도구를 불러오고 있습니다. 처음 시작할 때는 1분 정도 걸릴 수 있습니다."],
+    pt: ["Iniciando o DubEval…", "Carregando as ferramentas de fala e vídeo. A primeira vez pode levar até um minuto."],
+    es: ["Iniciando DubEval…", "Cargando las herramientas de habla y video. La primera vez puede tardar hasta un minuto."],
+  },
+  "no-python": {
+    en: ["DubEval's engine wasn't found", "The Python environment with DubEval is missing. Reinstall DubEval, or for a development copy create .venv in the project folder."],
+    ko: ["DubEval 엔진을 찾을 수 없습니다", "DubEval이 설치된 Python 환경이 없습니다. DubEval을 다시 설치하거나, 개발용이라면 프로젝트 폴더에 .venv를 만드세요."],
+    pt: ["O motor do DubEval não foi encontrado", "Falta o ambiente Python com o DubEval. Reinstale o DubEval ou, numa cópia de desenvolvimento, crie a .venv na pasta do projeto."],
+    es: ["No se encontró el motor de DubEval", "Falta el entorno de Python con DubEval. Reinstala DubEval o, en una copia de desarrollo, crea .venv en la carpeta del proyecto."],
+  },
+  timeout: {
+    en: ["DubEval is taking too long to start", "Close DubEval and open it again. If it keeps happening, send the lines below with your report."],
+    ko: ["DubEval 시작이 너무 오래 걸립니다", "DubEval을 닫고 다시 여세요. 계속 그러면 아래 내용을 함께 알려 주세요."],
+    pt: ["O DubEval está demorando demais para iniciar", "Feche o DubEval e abra de novo. Se continuar, envie as linhas abaixo junto com o seu relato."],
+    es: ["DubEval tarda demasiado en iniciar", "Cierra DubEval y vuelve a abrirlo. Si sigue pasando, envía las líneas de abajo con tu reporte."],
+  },
+  failed: {
+    en: ["DubEval couldn't start", "Close DubEval and open it again. If it keeps happening, send the lines below with your report."],
+    ko: ["DubEval을 시작할 수 없습니다", "DubEval을 닫고 다시 여세요. 계속 그러면 아래 내용을 함께 알려 주세요."],
+    pt: ["O DubEval não conseguiu iniciar", "Feche o DubEval e abra de novo. Se continuar, envie as linhas abaixo junto com o seu relato."],
+    es: ["DubEval no pudo iniciar", "Cierra DubEval y vuelve a abrirlo. Si sigue pasando, envía las líneas de abajo con tu reporte."],
+  },
+  stopped: {
+    en: ["DubEval's engine stopped", "Close DubEval and open it again. Finished reports are kept."],
+    ko: ["DubEval 엔진이 멈췄습니다", "DubEval을 닫고 다시 여세요. 끝난 보고서는 남아 있습니다."],
+    pt: ["O motor do DubEval parou", "Feche o DubEval e abra de novo. Os relatórios concluídos são mantidos."],
+    es: ["El motor de DubEval se detuvo", "Cierra DubEval y vuelve a abrirlo. Los informes terminados se conservan."],
+  },
+};
+const q = new URLSearchParams(location.search);
+const state = TEXT[q.get("state")] ? q.get("state") : "starting";
+const lang = ["en", "ko", "pt", "es"].includes(q.get("lang")) ? q.get("lang") : "en";
+const [title, text] = TEXT[state][lang];
+document.documentElement.lang = lang;
+document.getElementById("title").textContent = title;
+document.getElementById("text").textContent = text;
+if (state === "starting") document.body.classList.add("starting");
+if (state !== "starting") {
+  const box = document.getElementById("box");
+  box.classList.add("error");
+  box.querySelector(".spinner").remove();
+  document.getElementById("bar").remove();
+  if (q.get("detail")) {
+    const pre = document.createElement("pre");
+    pre.textContent = q.get("detail");
+    box.append(pre);
+  }
+}
+</script>
+</body>
+</html>

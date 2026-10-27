@@ -1,0 +1,4 @@
+# Store text files with LF in the repository and in checkouts, on every OS (CI runs on Windows too).
+* text=auto eol=lf
+*.onnx binary
+*.task binary
