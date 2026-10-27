@@ -22,10 +22,14 @@ def clips(tmp_path_factory):
     own 'voice' tone: the original (master 5-25 s), an aligned dub, a dub that starts 2 s earlier in the master
     (so its content is 2 s later), a dub missing master 12-17 s, and an unrelated video."""
     d = tmp_path_factory.mktemp("clips")
-    _ffmpeg("-f", "lavfi", "-i", "cellauto=rule=110:size=64x64:rate=25", "-f", "lavfi",
+    # The picture: a Mandelbrot zoom blended with a cellular automaton. Each alone repeats itself enough at 32x18 that
+    # frames seconds apart can "match" (15% for the automaton), which let tiny decoding differences between CPUs
+    # flip the cut test; together no frame 3-8 s apart matches.
+    _ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=64x64:rate=25[a];cellauto=rule=110:size=64x64:rate=25,format=rgb0[b];"
+            "[a][b]blend=all_mode=average", "-f", "lavfi",
             "-i", "anoisesrc=c=pink:seed=7:d=30,volume='if(lt(random(0),0.4),1,0.05)':eval=frame",
             "-t", "30", "-c:v", "mpeg4", "-c:a", "aac", str(d / "master.mp4"))
-    _ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=64x64:rate=25", "-f", "lavfi", "-i", "anoisesrc=c=white:seed=3:d=20",
+    _ffmpeg("-f", "lavfi", "-i", "life=s=64x64:mold=10:r=25:ratio=0.5:seed=3", "-f", "lavfi", "-i", "anoisesrc=c=white:seed=3:d=20",
             "-t", "20", "-c:v", "mpeg4", "-c:a", "aac", str(d / "other.mp4"))
 
     def clip(name, start, dur, freq):

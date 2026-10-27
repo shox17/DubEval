@@ -1,4 +1,5 @@
 """Speech recognition layer: backend choice, and the same output shape from both recognizers."""
+import os
 import sys
 import types
 
@@ -64,6 +65,7 @@ def test_languages_are_whispers_codes():
     assert {"en", "ko", "es", "ja", "zh"} <= codes and "xx" not in codes
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows only: DLL folders (and pretending os.name is 'nt' elsewhere breaks pathlib)")
 def test_the_gpu_pack_folder_is_searched_first(monkeypatch, tmp_path):
     """Without PyTorch, NVIDIA's cuBLAS in the GPU pack folder is enough for faster-whisper on the GPU."""
     from dubeval import asr

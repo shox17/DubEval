@@ -448,7 +448,7 @@ def test_downloads_are_listed_installed_and_removed_through_the_page(client, mon
 
     listing = client.get("/api/packs").json()
     assert {p["id"]: p["available"] for p in listing["packs"]} == {"meaning": True, "gpu": False, "large_model": True,
-                                                                   "local_judge": os.name == "nt"}
+                                                                   "local_judge": True}
     assert client.post("/api/packs/gpu/install").status_code == 400
     assert client.post("/api/packs/nope/install").status_code == 404
     job = client.post("/api/packs/large_model/install").json()
