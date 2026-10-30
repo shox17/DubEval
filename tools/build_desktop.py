@@ -42,6 +42,9 @@ NEVER_ZIP = {"dubeval",       # the web pages are served from real files
              "librosa",       # its numba cache (.nbi/.nbc) must sit next to the code
              "cffi"}          # compiles C at run time from its own headers
 BINARY = {".pyd", ".dll", ".so", ".exe", ".lib"}
+# Model files are opened by path (onnxruntime can't read one inside a zip): a package that has one stays real files.
+# faster-whisper's voice detector (assets/silero_vad_v6.onnx) broke every evaluation of 0.1.2 that way.
+OPENED_BY_PATH = {".onnx"}
 # Runs inside the bundle at build time: librosa compiles some functions with numba the first time they load and
 # caches the result next to their source (__pycache__/*.nbi, *.nbc). Doing it here ships that cache, so a fresh
 # install's first evaluation doesn't spend ~10 s compiling (measured 2026-10-22).
@@ -131,7 +134,7 @@ def zip_pure_packages(site: Path) -> tuple[int, list[str]]:
                 or d.name == "__pycache__" or not (d / "__init__.py").is_file()):
             continue
         files = [f for f in d.rglob("*") if f.is_file()]
-        if any(f.suffix.lower() in BINARY for f in files):
+        if any(f.suffix.lower() in BINARY | OPENED_BY_PATH for f in files):
             continue
         packages.append(d.name)
     removed = 0
@@ -222,7 +225,10 @@ def main() -> int:
         f"    assert '{ZIP_NAME}' in (getattr(mod, '__file__', '') or ''), name\n"
         "import dubeval.webapp, dubeval.evaluate, dubeval.meaning, faster_whisper, onnxruntime, cv2, librosa, mediapipe\n"
         "import yt_dlp, anthropic, zoneinfo; zoneinfo.ZoneInfo('Asia/Seoul')\n"
-        "import requests, certifi; open(certifi.where()).read(10)")
+        "import requests, certifi; open(certifi.where()).read(10)\n"
+        # Run what loads model files, not just import it: the voice detector must find its model.
+        "import numpy as np; from dubeval import asr\n"
+        "assert asr.voice_activity(np.zeros(32000, dtype=np.float32)) is not None, 'the voice detector did not load'")
     files = sum(1 for _ in (out / "python").rglob("*") if _.is_file())
     log(f"    {len(zipped)} packages zipped ({removed} files); the bundle now has {files} files")
 

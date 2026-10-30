@@ -226,7 +226,11 @@ def voice_activity(y: np.ndarray) -> Optional[list[list[float]]]:
         from faster_whisper.vad import VadOptions, get_speech_timestamps
     except ImportError:
         return None
-    spans = get_speech_timestamps(y.astype(np.float32), VadOptions(), sampling_rate=SAMPLE_RATE)
+    try:
+        spans = get_speech_timestamps(y.astype(np.float32), VadOptions(), sampling_rate=SAMPLE_RATE)
+    except Exception as e:  # its model can't be loaded or run: the evaluation goes on without the detector
+        log.warning("Voice detector not used: %s", e)
+        return None
     return [[round(s["start"] / SAMPLE_RATE, 2), round(s["end"] / SAMPLE_RATE, 2)] for s in spans]
 
 

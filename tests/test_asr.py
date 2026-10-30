@@ -117,3 +117,12 @@ def test_auto_resolves_everywhere_a_model_name_is_used(monkeypatch):
     monkeypatch.setattr(asr, "default_model", lambda: "large-v3-turbo")
     assert asr.resolve("auto") == "large-v3-turbo" and asr.resolve("small") == "small"
     assert ":large-v3-turbo:" in asr.model_id("auto")      # cache keys name the model that ran
+
+
+def test_a_voice_detector_that_cant_load_is_skipped_not_fatal(monkeypatch):
+    vad = pytest.importorskip("faster_whisper.vad")
+
+    def no_model(*a, **k):
+        raise RuntimeError("NO_SUCHFILE : Load model from ...silero_vad_v6.onnx failed")
+    monkeypatch.setattr(vad, "get_speech_timestamps", no_model)
+    assert asr.voice_activity(np.zeros(16000, dtype=np.float32)) is None     # the evaluation goes on without it

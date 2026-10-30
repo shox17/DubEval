@@ -4,6 +4,16 @@ Add the new version's lines here (en, ko, pt, es) whenever TOOL_VERSION changes;
 """
 
 NOTES = {
+    "0.1.3": {
+        "en": ["Fixed: in the installed app, evaluations stopped at Measure quality with a NO_SUCHFILE error (silero_vad_v6.onnx).",
+               "If the voice detector ever can't load, the evaluation now goes on without it instead of stopping."],
+        "ko": ["수정: 설치한 앱에서 평가가 품질 측정 단계에서 NO_SUCHFILE 오류(silero_vad_v6.onnx)로 멈추던 문제를 고쳤습니다.",
+               "음성 감지기를 불러오지 못하더라도 이제 평가가 멈추지 않고 감지기 없이 계속됩니다."],
+        "pt": ["Corrigido: no app instalado, as avaliações paravam em Medir a qualidade com um erro NO_SUCHFILE (silero_vad_v6.onnx).",
+               "Se o detector de voz não puder ser carregado, a avaliação agora continua sem ele em vez de parar."],
+        "es": ["Corregido: en la app instalada, las evaluaciones se detenían en Medir la calidad con un error NO_SUCHFILE (silero_vad_v6.onnx).",
+               "Si el detector de voz no se puede cargar, la evaluación ahora sigue sin él en lugar de detenerse."],
+    },
     "0.1.2": {
         "en": ["Start from Home: upload the dubbed video or paste its link, and the new evaluation opens with it in place.",
                "Any video link works: Dropbox, Google Drive, OneDrive and links to video files download too, as well as YouTube, TikTok and Reels.",

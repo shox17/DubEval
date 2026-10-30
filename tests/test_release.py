@@ -33,3 +33,18 @@ def test_every_whats_new_line_is_a_whole_sentence():
         for lang, lines in langs.items():
             for line in lines:
                 assert line.rstrip().endswith("."), (version, lang, line)
+
+
+def test_the_desktop_bundle_never_zips_a_package_with_a_model_file(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_desktop", Path(__file__).parents[1] / "tools" / "build_desktop.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    for name, extra in (("plain", None), ("withmodel", "assets/silero_vad_v6.onnx")):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "__init__.py").write_text("X = 1\n", encoding="utf-8")
+        if extra:
+            (tmp_path / name / extra).parent.mkdir(parents=True)
+            (tmp_path / name / extra).write_bytes(b"model")
+    _, zipped = build.zip_pure_packages(tmp_path)
+    assert zipped == ["plain"] and (tmp_path / "withmodel" / "assets" / "silero_vad_v6.onnx").is_file()
