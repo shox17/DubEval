@@ -27,6 +27,10 @@ SAME_VIDEO_PCT = 5.0              # originals differing in length by more than t
 KEY_CHECKS = ("speech_overlap", "line_length", "clarity")
 # The decision rule, in order: (rule id, fact compared, which value is better). The first rule whose values differ
 # decides; a rule is skipped when either dub has no value for it (for example, the translation wasn't checked).
+# What makes DubEval unsure of a dub (report.sure_of) that also makes its place in the ranking unsure: when the dub
+# ranked first has one, the comparison holds its recommendation and says what to check (the order still shows).
+HOLD_FOR = {"little_speech": "speech", "short_speech": "speech", "unclear_speech": "speech",
+            "words_unchecked": "translation", "translation_unchecked": "translation"}
 RULES = (
     ("measured", "unmeasured", "lower"),
     ("verdict", "verdict_rank", "lower"),
@@ -206,6 +210,11 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
     # Every dub may lack the same key checks (rule 1 then can't separate them): the recommendation still says so.
     caution = tr("c.caution.unmeasured", d=win, items=", ".join(tr(f"r.m.{k}") for k in f[win]["unmeasured_checks"])) \
         if f[win]["unmeasured"] else None
+    held = list(dict.fromkeys(HOLD_FOR[k] for k in reps[win]["overall"].get("unsure", []) if k in HOLD_FOR))
+    if held:
+        headline = tr("c.held", d=win, why=" ".join(tr(f"c.held.{k}", d=win) for k in held))
+    else:
+        headline = tr("c.recommend_tie", d=win, other=lose) if dec["tie"] else tr("c.recommend", d=win)
     return {
         "comparison_version": 2,
         "lang": lang,
@@ -214,7 +223,7 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
             "dub": win, "tie": dec["tie"], "both_poor": all_poor, "all_poor": all_poor, "ready": not all_poor,
             "title": reps[win]["project"].get("title"), "verdict": f[win]["verdict"],
             "verdict_label": tr(f"verdict.{f[win]['verdict']}"),
-            "headline": tr("c.recommend_tie", d=win, other=lose) if dec["tie"] else tr("c.recommend", d=win),
+            "headline": headline, "held": held,
             "warning": not_ready,
             "caution": caution,
             "fix_first": _fix_first(reps[win]) if all_poor else [],

@@ -210,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
         return _label(argv[1:])
     if argv[:1] == ["web"]:
         return _web(argv[1:])
+    if argv[:1] == ["validate"]:
+        return _validate(argv[1:])
     if argv[:1] == ["schema"]:
         from dubeval.schema import json_schema_text
         print(json_schema_text(), end="")
@@ -231,6 +233,35 @@ def _serve(argv: list[str]) -> int:
     args = ap.parse_args(argv)
     from dubeval.api import serve
     serve(args.host, args.port)
+    return 0
+
+
+def _validate(argv: list[str]) -> int:
+    """Validates DubEval with known problems put into the dubs of a test-set sheet (dubeval/validation.py)."""
+    from dubeval import validation
+    ap = argparse.ArgumentParser(prog="dubeval validate", description="Check that DubEval catches known problems "
+                                 "(silence, the original voice left in, loudness jumps, distortion, noise, cuts) put "
+                                 "into each dub of a test-set sheet, and count its false alarms, per language pair.")
+    ap.add_argument("sheet", help="The test-set sheet (CSV with pair_id, original, dub, source_lang, target_lang, ...)")
+    ap.add_argument("--out", default="data/validation", help="Folder for the copies and validation.txt/.json")
+    ap.add_argument("--only", help="Only these pair ids, comma separated")
+    ap.add_argument("--defects", help="Only these known problems, comma separated: "
+                    + ", ".join([*validation.DEFECTS, *validation.HARMLESS]))
+    ap.add_argument("--split", choices=["tune", "holdout"], help="Only the pairs of this split")
+    args = ap.parse_args(argv)
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    names = [d.strip() for d in args.defects.split(",")] if args.defects else None
+    unknown = [d for d in names or [] if d not in validation.DEFECTS and d not in validation.HARMLESS]
+    if unknown:
+        print(f"Unknown problem type: {', '.join(unknown)}", file=sys.stderr)
+        return 2
+    try:
+        result = validation.run(args.sheet, args.out, names, [p.strip() for p in args.only.split(",")] if args.only
+                                else None, args.split, progress=lambda m: print(m, file=sys.stderr, flush=True))
+    except (OSError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(result["text"], end="")
     return 0
 
 

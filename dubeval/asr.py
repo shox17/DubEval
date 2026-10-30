@@ -219,6 +219,17 @@ def language_probs(y: np.ndarray, model) -> dict:
     return probs
 
 
+def voice_activity(y: np.ndarray) -> Optional[list[list[float]]]:
+    """Where a voice detector (Silero, shipped with faster-whisper) hears speech: [start, end] seconds; None when it
+    isn't installed. Unlike the recognizer, it doesn't read music or sound effects as words."""
+    try:
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+    except ImportError:
+        return None
+    spans = get_speech_timestamps(y.astype(np.float32), VadOptions(), sampling_rate=SAMPLE_RATE)
+    return [[round(s["start"] / SAMPLE_RATE, 2), round(s["end"] / SAMPLE_RATE, 2)] for s in spans]
+
+
 def _is_faster(model) -> bool:
     """Whether model is a faster-whisper model."""
     return type(model).__module__.startswith("faster_whisper")

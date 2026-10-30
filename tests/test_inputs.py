@@ -175,3 +175,45 @@ def test_ffmpeg_never_reads_from_the_network(tmp_path, monkeypatch):
     for cmd in seen:
         i = cmd.index("-i")
         assert cmd[i - 2:i] == ["-protocol_whitelist", "file"]
+
+
+def test_file_host_share_links_become_links_to_the_file():
+    assert inputs.direct_link("https://www.dropbox.com/scl/fi/abc/dub.mp4?rlkey=xyz&dl=0") == \
+        "https://www.dropbox.com/scl/fi/abc/dub.mp4?rlkey=xyz&dl=1"
+    assert inputs.direct_link("https://drive.google.com/file/d/1AbC-dEf_2/view?usp=sharing") == \
+        "https://drive.google.com/uc?export=download&confirm=t&id=1AbC-dEf_2"
+    assert inputs.direct_link("https://drive.google.com/open?id=XYZ") == \
+        "https://drive.google.com/uc?export=download&confirm=t&id=XYZ"
+    one = inputs.direct_link("https://1drv.ms/v/s!AbCd")
+    assert one.startswith("https://api.onedrive.com/v1.0/shares/u!") and one.endswith("/root/content")
+    assert inputs.direct_link("https://www.youtube.com/watch?v=1") == "https://www.youtube.com/watch?v=1"
+
+
+def test_a_share_link_is_downloaded_as_a_file_and_a_page_link_falls_back_to_a_direct_download(tmp_path, monkeypatch):
+    session = FakeSession(FakeResponse(b"video"))
+    got = inputs.fetch("https://www.dropbox.com/s/abc/dub.mp4?dl=0", tmp_path / "a", "dub", session=session,
+                       sleep=NO_SLEEP)
+    assert open(got, "rb").read() == b"video" and "dl=1" in session.calls[0]
+    monkeypatch.setattr(inputs, "_has_yt_dlp", lambda: True)
+
+    def no_page(url, folder, progress=None):
+        raise ValueError(inputs.DOWNLOAD_FAILED)
+    monkeypatch.setattr(inputs, "_download_page", no_page)
+    session = FakeSession(FakeResponse(b"video"))                        # a file link without an extension
+    got = inputs.fetch("https://cdn.example.com/v/12345", tmp_path / "b", "dub", session=session, sleep=NO_SLEEP)
+    assert open(got, "rb").read() == b"video"
+    session = FakeSession(FakeResponse(b"", status=500), FakeResponse(b"", status=500), FakeResponse(b"", status=500))
+    with pytest.raises(ValueError, match="couldn't be downloaded"):     # a failing file link: no detour through pages
+        inputs.fetch("https://example.com/a.mp4", tmp_path / "c", "dub", session=session, sleep=NO_SLEEP)
+
+
+def test_a_page_yt_dlp_cant_fetch_says_so_rather_than_asking_to_install_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(inputs, "_has_yt_dlp", lambda: True)
+
+    def private_video(url, folder, progress=None):
+        raise ValueError(inputs.DOWNLOAD_FAILED)
+    monkeypatch.setattr(inputs, "_download_page", private_video)
+    session = FakeSession(FakeResponse(b"<html>", content_type="text/html; charset=utf-8"))
+    with pytest.raises(ValueError) as e:
+        inputs.fetch("https://www.youtube.com/watch?v=private", tmp_path, "dub", session=session, sleep=NO_SLEEP)
+    assert str(e.value) == inputs.DOWNLOAD_FAILED and "links extra" not in str(e.value)

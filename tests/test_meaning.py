@@ -5,7 +5,7 @@ import pytest
 
 from dubeval import meaning, pipeline, translation_judge as tj
 from dubeval.report import build_report
-from sample_results import make_results
+from sample_results import JUDGE_OFF, make_results
 
 def answer_line(n, semantic=9, reason="", error_type="no_error"):
     """One line of a rubric answer: the five scores, four-language reasons, ideal translation, error type."""
@@ -157,7 +157,7 @@ def test_screen_without_its_package_is_not_measured():
 
 @pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
 def test_a_low_line_is_check_and_becomes_an_interval_when_no_judge_ran(lang):
-    r = results_with_lines()
+    r = results_with_lines(translation_judge=JUDGE_OFF)
     r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
     rep = build_report(r, lang)
     row = next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")

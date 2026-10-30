@@ -1,9 +1,11 @@
-// Settings, laid out like PersoDub's: one row of tabs (Models, API keys, Privacy, About), then one darker panel of
-// "label | control" rows. Keys are written once and never shown back; models download with progress, stop and resume.
-import { api, fill, h, loadInfo, setLanguage, state, t } from "./app.js";
+// Settings, laid out like PersoDub's: one row of tabs (API keys, Models, Storage, Privacy, About), one darker panel
+// that scrolls, Cancel and Save. Models and Storage are lists of bands (a group and its size) over rows of
+// name | size | state | button; the other tabs are "label | control" rows. Keys are written once and never shown back;
+// models download with progress, stop and resume.
+import { api, confirmAlert, fill, h, loadInfo, state, t } from "./app.js";
 import { checkForUpdates, updatesAvailable, watchUpdatesFor } from "./shell.js";
 
-const TABS = ["models", "keys", "privacy", "about"];
+const TABS = ["keys", "models", "storage", "privacy", "about"];
 const POLL_MS = 1000;
 const PROVIDERS = [
   { id: "anthropic", judge: "claude", link: "https://console.anthropic.com/settings/keys" },
@@ -13,6 +15,7 @@ const PROVIDERS = [
 const LICENSES = [
   ["faster-whisper / CTranslate2", "MIT"], ["Whisper models", "MIT"], ["BGE-M3", "MIT"],
   ["WeSpeaker ResNet34", "CC BY 4.0"], ["DNSMOS P.835", "CC BY 4.0"], ["MediaPipe Face Landmarker", "Apache-2.0"],
+  ["LatentSync StableSyncNet (download)", "CreativeML OpenRAIL++-M"],
   ["librosa", "ISC"], ["onnxruntime", "MIT"], ["FFmpeg", "LGPL / GPL"], ["Onest typeface", "OFL-1.1"],
   ["Electron", "MIT"], ["PersoDub (design, icon)", "AGPL-3.0 / ESTsoft"],
 ];
@@ -21,6 +24,36 @@ const gb = bytes => (bytes == null ? "—" : bytes >= 1e9 ? `${(bytes / 1e9).toF
   : `${Math.max(1, Math.round(bytes / 1e6))} MB`);
 const row = (label, ...control) => h("div", { class: "set-row" }, h("span", {}, label),
   h("div", { class: "set-ctl" }, ...control));
+// A band over a list: the group's name and its size (PersoDub's Models list).
+const band = (name, size) => h("div", { class: "model-group-head" }, h("span", {}, name), h("span", { class: "model-size" }, size));
+const ready = () => h("span", { class: "model-ok" }, t("w.mod.ready"));
+
+// ---------- Save and Cancel ----------
+// What Save keeps: API keys typed in and a new interface language. Everything else happens at once, as in PersoDub
+// (a download, removing a key, clearing downloads). Cancel, Escape or a click outside forgets what Save would keep.
+const pending = { keys: {}, lang: null };
+let onChange = () => {};
+const dirty = () => Object.values(pending.keys).some(v => v.trim()) || (pending.lang !== null && pending.lang !== state.lang);
+const changed = () => onChange(dirty());
+
+// fn(dirty) runs now and on every change, so the dialog's Save is on only when there is something to save.
+export function watchChanges(fn) { onChange = fn; changed(); }
+export function discardChanges() { pending.keys = {}; pending.lang = null; changed(); }
+// Saves the typed keys (the server checks each one; the first it refuses throws, the rest stay to fix) and returns
+// the language to switch to, if a new one was chosen.
+export async function saveChanges() {
+  for (const [id, key] of Object.entries(pending.keys)) {
+    if (!key.trim()) continue;
+    try {
+      await api(`/api/settings/keys/${id}`, { method: "PUT", body: JSON.stringify({ key }) });
+    } catch (e) { throw new Error(`${t(`w.set.${id}.title`)}: ${e.message}`); }
+    delete pending.keys[id];
+  }
+  const lang = pending.lang !== state.lang ? pending.lang : null;
+  pending.lang = null;
+  changed();
+  return lang;
+}
 
 // ---------- Models ----------
 function modelsTab(panel, timers, alive) {
@@ -33,9 +66,8 @@ function modelsTab(panel, timers, alive) {
     const out = [h("div", { class: "set-summary" }, t("w.mod.summary", { n: data.ready, size: gb(data.bytes) }))];
     for (const group of data.groups) {
       const total = group.rows.filter(r => ["builtin", "installed"].includes(r.state)).reduce((a, r) => a + (r.bytes || 0), 0);
-      out.push(h("div", { class: "model-group-head" }, h("span", {}, t(`w.mod.group.${group.id}`)),
-        h("span", { class: "model-size" }, total ? gb(total) : "")));
-      for (const m of group.rows) out.push(modelRow(m, errors[m.id]));
+      out.push(band(t(`w.mod.group.${group.id}`), total ? gb(total) : ""),
+        h("div", { class: "model-rows" }, group.rows.map(m => modelRow(m, errors[m.id]))));
     }
     fill(panel, out);
   }
@@ -60,42 +92,80 @@ function modelsTab(panel, timers, alive) {
     timers.add(timer);
   }
 
+  // One row: name | size | state and what the model is for | Download, Stop or Remove.
   function modelRow(m, error) {
     const act = async (method, path) => {
       try { await api(path, { method }); } catch (e) { alert(e.message); }
       await loadInfo().catch(() => {});
       load();
     };
-    const status = m.job ? "running" : m.state;
     const line = h("span", { class: "settings-hint" });
     const bar = h("progress", { max: "1", value: "0", hidden: !m.job });
-    let button = null;
+    let status = null, button = null;
     if (m.kind === "builtin") {
-      line.textContent = t(status === "auto" ? "w.mod.auto" : "w.mod.builtin");
+      status = m.state === "auto" ? h("span", { class: "settings-hint" }, t("w.mod.auto")) : ready();
     } else if (!m.available) {
-      line.textContent = t(`w.dl.unavailable.${m.id}`);
+      status = h("span", { class: "settings-hint" }, t(`w.dl.unavailable.${m.id}`));
     } else if (m.job) {
+      status = line;
       button = h("button", { type: "button", class: "btn", onclick: () => act("POST", `/api/jobs/${m.job}/cancel`) }, t("w.dl.stop"));
     } else if (m.state === "installed") {
-      line.textContent = t("w.mod.ready");
-      button = h("button", { type: "button", class: "btn", onclick: () => {
-        if (confirm(t("w.dl.remove_confirm", { name: m.name }))) act("DELETE", `/api/packs/${m.id}`);
+      status = ready();
+      button = h("button", { type: "button", class: "btn", onclick: async () => {
+        if (await confirmAlert({ title: t("w.dl.remove_confirm", { name: m.name }), keep: t("w.cancel"), confirm: t("w.dl.remove") }))
+          act("DELETE", `/api/packs/${m.id}`);
       } }, t("w.dl.remove"));
     } else {
-      if (m.state === "partial") line.textContent = t("w.dl.state.partial");
+      status = h("span", { class: "settings-hint" }, t(m.state === "partial" ? "w.dl.state.partial" : "w.dl.state.absent"));
       button = h("button", { type: "button", class: "btn primary", onclick: () => act("POST", `/api/packs/${m.id}/install`) },
         m.state === "partial" ? t("w.dl.resume") : t("w.mod.download"));
     }
-    const el = h("div", { class: `model-row ${status}`, id: `model-${m.id}` },
-      h("div", { class: "model-main" }, h("span", { class: "model-name" }, m.name),
-        h("span", { class: "model-note" }, t(`w.mod.note.${m.id}`)), line, bar,
-        error ? h("span", { class: "error small" }, error) : null),
+    const el = h("div", { class: `model-row ${m.job ? "running" : m.state}`, id: `model-${m.id}` },
+      h("span", { class: "model-name" }, m.name),
       h("span", { class: "model-size" }, m.kind === "pack" && m.state !== "installed" ? gb(m.download_mb * 1e6) : gb(m.bytes)),
+      h("div", { class: "model-state" }, status, h("span", { class: "settings-hint" }, t(`w.mod.note.${m.id}`)), bar,
+        error ? h("span", { class: "error small" }, error) : null),
       button || h("span", {}));
     if (m.job) follow(m, bar, line);
     return el;
   }
   load();
+}
+
+// ---------- Storage ----------
+// What DubEval keeps on this computer, in the Models list's shape: the evaluations, the downloaded videos (those no
+// evaluation or draft uses can be cleared), the models, and the folder it all lives in.
+function storageTab(panel, alive) {
+  const draw = s => {
+    if (!alive()) return;
+    const total = s.evaluations.bytes + s.downloads.bytes + s.models_bytes;
+    const open = h("button", { type: "button", class: "btn", onclick: () => api("/api/settings/open-data", { method: "POST" })
+      .catch(e => alert(e.message)) }, t("w.priv.open"));
+    const clear = h("button", { type: "button", class: "btn", disabled: !s.downloads.unused_bytes, onclick: async () => {
+      if (!await confirmAlert({ title: t("w.store.clear_confirm", { size: gb(s.downloads.unused_bytes) }),
+        text: t("w.store.clear_text"), keep: t("w.cancel"), confirm: t("w.store.clear") })) return;
+      try { draw(await api("/api/settings/storage/clear", { method: "POST" })); } catch (e) { alert(e.message); }
+    } }, t("w.store.clear"));
+    const item = (name, size, note, button) => h("div", { class: "model-row" }, h("span", { class: "model-name" }, name),
+      h("span", { class: "model-size" }, size), h("div", { class: "model-state" }, h("span", { class: "settings-hint" }, note)),
+      button || h("span", {}));
+    fill(panel,
+      h("div", { class: "set-summary" }, t("w.store.summary", { size: gb(total) })),
+      band(t("w.store.group.data"), gb(s.evaluations.bytes + s.downloads.bytes)),
+      h("div", { class: "model-rows" },
+        item(t("w.store.evaluations"), gb(s.evaluations.bytes), t("w.store.evaluations_note", { n: s.evaluations.count })),
+        item(t("w.store.downloads"), gb(s.downloads.bytes), s.downloads.unused_bytes
+          ? t("w.store.downloads_note", { size: gb(s.downloads.unused_bytes) }) : t("w.store.downloads_used"), clear)),
+      band(t("w.store.group.models"), gb(s.models_bytes)),
+      h("div", { class: "model-rows" },
+        item(t("w.set.tab.models"), gb(s.models_bytes), t("w.store.models_note"),
+          h("a", { class: "btn", href: "#/settings/models" }, t("w.store.manage")))),
+      band(t("w.store.group.folder"), ""),
+      h("div", { class: "model-rows" },
+        h("div", { class: "model-row folder" }, h("span", { class: "mono" }, s.data_dir), open),
+        h("p", { class: "settings-hint folder-note" }, t("w.priv.data_text"))));
+  };
+  api("/api/settings/storage").then(draw).catch(e => alive() && fill(panel, h("p", { class: "error" }, e.message)));
 }
 
 // ---------- API keys ----------
@@ -109,25 +179,18 @@ function keysTab(panel, view, show) {
     const input = h("input", { type: "password", autocomplete: "off", spellcheck: "false", class: "path",
       placeholder: k.saved_here ? t("w.set.saved_placeholder") : k.set ? t("w.set.elsewhere") : t("w.set.not_set"),
       "aria-label": t(`w.set.${p.id}.title`) });
+    input.value = pending.keys[p.id] || "";               // what was typed before switching tabs
+    input.addEventListener("input", () => { pending.keys[p.id] = input.value; changed(); });
     inputs.push(input);
-    const error = h("span", { class: "error small" });
-    const save = h("button", { type: "button", class: "btn primary", onclick: async () => {
-      error.textContent = "";
-      try {
-        const next = await api(`/api/settings/keys/${p.id}`, { method: "PUT", body: JSON.stringify({ key: input.value }) });
-        input.value = "";
-        show(next);
-      } catch (e) { error.textContent = e.message; }
-    } }, k.saved_here ? t("w.set.replace") : t("w.set.save"));
     const remove = k.saved_here ? h("button", { type: "button", class: "btn", onclick: async () => {
-      if (confirm(t("w.set.remove_confirm", { name: t(`w.set.${p.id}.title`) })))
-        show(await api(`/api/settings/keys/${p.id}`, { method: "DELETE" }));
+      if (await confirmAlert({ title: t("w.set.remove_confirm", { name: t(`w.set.${p.id}.title`) }), keep: t("w.cancel"),
+        confirm: t("w.dl.remove") })) show(await api(`/api/settings/keys/${p.id}`, { method: "DELETE" }));
     } }, t("w.dl.remove")) : null;
     return row(t(`w.set.${p.id}.title`),
-      h("div", { class: "set-inline" }, input, save, remove),
+      h("div", { class: "set-inline" }, input, remove),
       h("span", { class: "settings-hint" }, t(`w.set.${p.id}.text`), " ",
         h("a", { href: p.link, target: "_blank", rel: "noopener", class: "settings-link" }, t("w.set.get_key"))),
-      k.set && !k.saved_here ? h("span", { class: "settings-hint" }, t("w.set.elsewhere_note")) : null, error);
+      k.set && !k.saved_here ? h("span", { class: "settings-hint" }, t("w.set.elsewhere_note")) : null);
   });
   showKeys.addEventListener("change", () => inputs.forEach(i => { i.type = showKeys.checked ? "text" : "password"; }));
   fill(panel,
@@ -150,18 +213,15 @@ function privacyTab(panel, view) {
     row(t("w.priv.translation"), h("span", {}, t("w.priv.translation_text", { checker }))),
     row(t("w.priv.links"), h("span", {}, t("w.priv.links_text"))),
     row(t("w.priv.downloads"), h("span", {}, t("w.priv.downloads_text"))),
-    row(t("w.priv.data"),
-      h("span", { class: "mono" }, view.data_dir),
-      h("span", { class: "settings-hint" }, t("w.priv.data_text")),
-      h("button", { type: "button", class: "btn", onclick: () => api("/api/settings/open-data", { method: "POST" })
-        .catch(e => alert(e.message)) }, t("w.priv.open"))));
+    row(t("w.priv.data"), h("span", {}, t("w.priv.data_text")),
+      h("a", { class: "settings-link", href: "#/settings/storage" }, t("w.store.see"))));
 }
 
 // ---------- About ----------
 function aboutTab(panel, view) {
   const lang = h("select", {}, Object.entries(state.info.languages).map(([code, name]) =>
-    h("option", { value: code, selected: code === state.lang }, name)));
-  lang.addEventListener("change", () => setLanguage(lang.value));
+    h("option", { value: code, selected: code === (pending.lang || state.lang) }, name)));
+  lang.addEventListener("change", () => { pending.lang = lang.value; changed(); });
   const list = h("ul", { class: "license-list", hidden: true },
     LICENSES.map(([name, license]) => h("li", {}, h("span", {}, name), h("span", { class: "muted" }, license))));
   const toggle = h("button", { type: "button", class: "link", "aria-expanded": "false", onclick: () => {
@@ -198,7 +258,8 @@ export function renderSettings(root, tab) {
   let alive = true;
   const timers = new Set();
   const current = TABS.includes(tab) ? tab : "models";
-  const panel = h("div", { class: "set-panel", role: "tabpanel" }, h("p", { class: "muted" }, t("w.loading")));
+  const list = ["models", "storage"].includes(current);      // bands over rows, edge to edge
+  const panel = h("div", { class: `set-panel${list ? " list" : ""}`, role: "tabpanel" }, h("p", { class: "muted" }, t("w.loading")));
   const tabs = h("div", { class: "set-tabs", role: "tablist", "aria-label": t("w.set.title") },
     TABS.map(id => h("button", { type: "button", role: "tab", class: "set-tab", "aria-selected": String(id === current),
       onclick: () => { location.hash = `#/settings/${id}`; } }, t(`w.set.tab.${id}`))));
@@ -212,6 +273,7 @@ export function renderSettings(root, tab) {
     else if (current === "about") aboutTab(panel, view);
   };
   if (current === "models") modelsTab(panel, timers, () => alive);
+  else if (current === "storage") storageTab(panel, () => alive);
   else api("/api/settings").then(show).catch(e => alive && fill(panel, h("p", { class: "error" }, e.message)));
   return () => { alive = false; for (const timer of timers) clearTimeout(timer); };
 }

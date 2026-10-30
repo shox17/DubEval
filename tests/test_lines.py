@@ -59,7 +59,7 @@ def test_line_fit_is_graded_in_every_language(lang):
 
 
 def test_most_lines_off_is_poor_and_each_becomes_an_interval():
-    lines = [_line(1, 0.0, 3.0, 4.5), _line(2, 5.0, 3.0, 3.5), _line(3, 10.0, 3.0, 3.0, overrun=1.2),
+    lines = [_line(1, 0.0, 3.0, 4.5), _line(2, 5.0, 3.0, 3.7), _line(3, 10.0, 3.0, 3.0, overrun=1.2),
              _line(4, 15.0, 0.5, 2.0, short=True), _line(5, 20.0, 3.0, 2.0, overrun=0.7),
              _line(6, 25.0, 3.0, 3.0, overrun=0.6)]
     rows, rep = _levels(lines)
@@ -67,9 +67,16 @@ def test_most_lines_off_is_poor_and_each_becomes_an_interval():
     assert rows["line_overrun"]["level"] == "poor"                          # 3 of 6 lines run over
     found = {(i["category"], i["severity"], i["start"]) for i in rep["problem_intervals"]}
     assert ("line_length", "poor", 0.0) in found                            # +50%
-    assert ("line_length", "check", 5.0) in found                           # +16.7%
+    assert ("line_length", "check", 5.0) in found                           # +23%, 0.7 s
     assert ("line_overrun", "poor", 13.0) in found                          # from line 3's end, 1.2 s in
     assert not any(i["start"] == 15.0 and i["category"] == "line_length" for i in rep["problem_intervals"])
+
+
+def test_a_line_off_by_less_than_the_minimum_seconds_is_not_off():
+    lines = [_line(i, i * 5.0, 3.0, 3.5) for i in range(1, 6)]            # +17% each, but only 0.5 s
+    rows, rep = _levels(lines)
+    assert rows["line_length"]["level"] == "good" and rows["line_length"]["value"] == 100.0
+    assert not any(i["category"] == "line_length" for i in rep["problem_intervals"])
 
 
 def test_one_or_two_problem_lines_are_at_most_check():

@@ -8,7 +8,8 @@ Three kinds of evidence, all read from the files only (no writes, no network):
 - pictures: a 64-bit difference hash ("dHash") of each frame. The dub keeps the original's picture, so at the right
   shift the hashes match: that decides "same video or not", and finds parts replaced by other pictures;
 - background sound: the onset envelope of each audio track (music, effects, the rhythm of speech), which refines
-  the shift to about 10 ms when it agrees with the picture.
+  the shift to about 10 ms when it agrees with the picture, and shows when the dub's sound is behind or ahead of its
+  own picture (`sound_sync`: the background the dub keeps from the original lands later or earlier than the picture).
 Convention: offset_sec is how much later the same moment happens in the dub (dub time = original time + offset).
 """
 import logging
@@ -38,6 +39,10 @@ CLOSE_COVERAGE = 6.0                  # motion and hash answers this close in co
 PLATEAU = 0.03                        # hash scores this close to the best count as equally good (static shots)
 MAX_PARTS = 5                         # without motion, a differently cut dub is matched in at most this many parts
 PART_MIN_SCORE = 0.15                 # ...each matching at least this share of frames
+VERSION = 2                           # bump when pair()'s result changes (2: sound_sync); part of its cache key
+SYNC_SEARCH_SEC = 2.0                 # the dub's sound is searched this far either side of the picture's shift...
+SYNC_MIN_SEC = 15.0                   # ...on files at least this long (on a 7 s clip a stray match looked like 0.9 s)
+SYNC_CONFIDENT = 0.2                  # ...and trusted when the two soundtracks match at least this well there
 SHORT_READ = 0.9                      # a read with fewer frames than this share of the sound's length is read again
 
 
@@ -229,13 +234,14 @@ def onset_envelope(y: np.ndarray, sr: int) -> np.ndarray:
     return env / std if std > 1e-9 else env
 
 
-def audio_offset(env_o: np.ndarray, env_d: np.ndarray, around: Optional[float], max_shift: float) -> tuple[float, float]:
-    """(offset in seconds, correlation) of the best match of the two envelopes, searched within AUDIO_REFINE_SEC of
+def audio_offset(env_o: np.ndarray, env_d: np.ndarray, around: Optional[float], max_shift: float,
+                 reach_sec: float = AUDIO_REFINE_SEC) -> tuple[float, float]:
+    """(offset in seconds, correlation) of the best match of the two envelopes, searched within reach_sec of
     `around` when given, else within ±max_shift."""
     if around is None:
         center, reach = 0, int(max_shift / AUDIO_HOP_SEC)
     else:
-        center, reach = int(round(around / AUDIO_HOP_SEC)), int(AUDIO_REFINE_SEC / AUDIO_HOP_SEC)
+        center, reach = int(round(around / AUDIO_HOP_SEC)), int(reach_sec / AUDIO_HOP_SEC)
     best, best_c = 0, -1.0
     for lag in range(center - reach, center + reach + 1):
         i0, i1 = max(0, -lag), min(len(env_o), len(env_d) - lag)
@@ -245,6 +251,25 @@ def audio_offset(env_o: np.ndarray, env_d: np.ndarray, around: Optional[float], 
         if c > best_c:
             best, best_c = lag, c
     return round(best * AUDIO_HOP_SEC, 2), round(max(best_c, 0.0), 3)
+
+
+def sound_sync(env_o: np.ndarray, env_d: np.ndarray, picture_offset: float, duration: float,
+               picture_step: float = 0.0) -> dict:
+    """How far the dub's sound is behind (+) or ahead of (-) its own picture: where the background sound it keeps
+    from the original lines up, against where the picture does. Not measured on short files, or when the two
+    soundtracks don't share enough sound (a dub that replaced the music and effects).
+
+    picture_step: the time between the frames compared (longer on long videos, frame_rate_for). The picture's shift
+    is only known to within half of it, so that much of the gap is never counted: a long film whose sound is in step
+    isn't called late because its frames were sampled every 0.6 s."""
+    if duration < SYNC_MIN_SEC:
+        return {"measured": False, "reason": "short"}
+    offset, corr = audio_offset(env_o, env_d, picture_offset, SYNC_SEARCH_SEC, reach_sec=SYNC_SEARCH_SEC)
+    if corr < SYNC_CONFIDENT:
+        return {"measured": False, "reason": "no_shared_sound", "correlation": corr}
+    gap, slack = offset - picture_offset, picture_step / 2
+    shift = float(np.sign(gap)) * max(0.0, abs(gap) - slack)
+    return {"measured": True, "shift_sec": round(shift, 2), "correlation": corr, "picture_step_sec": round(picture_step, 2)}
 
 
 # ---------------- the whole check ----------------
@@ -368,6 +393,8 @@ def pair(original_path: str, dub_path: str, y_orig: np.ndarray, y_dub: np.ndarra
     same = True if evidence >= SAME_VIDEO[0] else False if evidence < SAME_VIDEO[1] else None
     result.update(evidence="picture", same_video=same, sound_correlation=corr, offset_sec=offset,
                   offset_source=source, **cov)
+    if same is not False and len(cov.get("parts") or []) <= 1:      # a recut dub has no single shift to compare with
+        result["sound_sync"] = sound_sync(env_o, env_d, round(main / fps, 2), min(dur_o, dur_d), 1 / fps)
     return result
 
 

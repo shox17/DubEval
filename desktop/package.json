@@ -1,7 +1,7 @@
 {
   "name": "dubeval-desktop",
   "productName": "DubEval",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DubEval desktop app: evaluates a dub against its original, on your computer.",
   "license": "AGPL-3.0-or-later",
   "author": "DubEval contributors",

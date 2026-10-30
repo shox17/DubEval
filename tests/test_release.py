@@ -23,3 +23,13 @@ def test_updates_come_from_the_repository_the_app_names():
     from dubeval.version import REPOSITORY_URL
     publish = json.loads((ROOT / "desktop" / "package.json").read_text(encoding="utf-8"))["build"]["publish"][0]
     assert REPOSITORY_URL == f"https://github.com/{publish['owner']}/{publish['repo']}"
+
+
+def test_every_whats_new_line_is_a_whole_sentence():
+    from dubeval.release_notes import NOTES
+    for version, langs in NOTES.items():
+        counts = {len(lines) for lines in langs.values()}
+        assert len(counts) == 1, version
+        for lang, lines in langs.items():
+            for line in lines:
+                assert line.rstrip().endswith("."), (version, lang, line)

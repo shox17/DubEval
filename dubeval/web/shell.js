@@ -50,13 +50,16 @@ export function refreshSidebar() {
     ? t("w.nav.update_ready", { version: update.version }) : t("w.nav.whats_new", { version: state.info.version });
 }
 
+// Help, in PersoDub's shape: one darker panel of parts (a title, what it does, a grey line on how or where), then
+// the user guide and the FAQ on GitHub.
 function helpDialog() {
-  const items = [["w.help.evaluate", "w.help.evaluate_text"], ["w.help.compare", "w.help.compare_text"],
-    ["w.help.links", "w.help.links_text"], ["w.help.where", "w.help.where_text"]];
-  openModal(t("w.help.title"), [
-    ...items.map(([title, text]) => h("div", { class: "help-item" }, h("b", {}, t(title)), h("p", {}, t(text)))),
-    h("p", { class: "help-links" }, h("a", { href: `${state.info.repository}#readme`, target: "_blank",
-      rel: "noopener" }, t("w.help.guide")))], [{ label: t("w.ok"), primary: true }]);
+  const docs = name => `${state.info.repository}/blob/main/docs/${name}.md`;
+  const link = (href, key) => h("a", { href, target: "_blank", rel: "noopener" }, t(key));
+  openModal(t("w.help.title"), h("div", { class: "help-panel" },
+    ["evaluate", "compare", "links", "where"].map(id => h("div", { class: "help-item" },
+      h("b", {}, t(`w.help.${id}`)), h("p", {}, t(`w.help.${id}_text`)), h("p", { class: "help-more" }, t(`w.help.${id}_more`)))),
+    h("p", { class: "help-links" }, link(docs("usage"), "w.help.guide"), " · ", link(docs("faq"), "w.help.faq"))),
+  [{ label: t("w.ok"), primary: true }]);
 }
 
 const live = u => !!u.version && (u.phase === "downloading" || u.phase === "ready");

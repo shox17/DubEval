@@ -44,6 +44,30 @@ def is_link(spec: str) -> bool:
     return spec.strip().lower().startswith(("http://", "https://"))
 
 
+def direct_link(url: str) -> str:
+    """A share link from a file host turned into a link to the file itself, so it downloads like any video link:
+    Dropbox (dl=1), Google Drive (its download address) and OneDrive or SharePoint (the public shares API). Any
+    other link is returned as it is."""
+    import base64
+    from urllib.parse import parse_qs, urlencode, urlunsplit
+    parts = urlsplit(url.strip())
+    host = (parts.hostname or "").lower()
+    query = parse_qs(parts.query, keep_blank_values=True)
+    if host.endswith("dropbox.com") and parts.path not in ("", "/"):
+        query.pop("dl", None)
+        query["dl"] = ["1"]
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, doseq=True), ""))
+    if host == "drive.google.com":
+        match = re.search(r"/file/d/([\w-]+)", parts.path)
+        file_id = match.group(1) if match else (query.get("id") or [None])[0]
+        if file_id:
+            return f"https://drive.google.com/uc?export=download&confirm=t&id={file_id}"
+    if host in ("1drv.ms", "onedrive.live.com") or host.endswith(".sharepoint.com"):
+        token = base64.urlsafe_b64encode(url.strip().encode("utf-8")).decode("ascii").rstrip("=")
+        return f"https://api.onedrive.com/v1.0/shares/u!{token}/root/content"
+    return url.strip()
+
+
 def _hash(text: str) -> str:
     """A short, file-name-safe fingerprint of text."""
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
@@ -59,8 +83,13 @@ def fingerprint(spec: str) -> str:
 
 
 # ---------------- getting the media ----------------
-def fetch(spec: str, folder: Path, label: str, session=None, sleep: Callable[[float], None] = time.sleep) -> str:
-    """A local path for the input: a file as is, a link downloaded into folder (once; later calls reuse it)."""
+def fetch(spec: str, folder: Path, label: str, session=None, sleep: Callable[[float], None] = time.sleep,
+          progress: Optional[Callable[[float], None]] = None) -> str:
+    """A local path for the input: a file as is, a link downloaded into folder (once; later calls reuse it).
+
+    Any kind of link: a file host's share link is turned into the file's own link (direct_link); a link to a media
+    file is streamed, a video page goes through yt-dlp, and when one way fails the other is tried. progress(fraction)
+    hears how far a download is, when the size is known."""
     text = spec.strip()
     if not is_link(text):
         path = Path(text).expanduser()
@@ -75,9 +104,31 @@ def fetch(spec: str, folder: Path, label: str, session=None, sleep: Callable[[fl
     if done:
         log.info("Using the cached %s: %s", label, done[0].name)
         return str(done[0])
-    if Path(parts.path).suffix.lower() in MEDIA_SUFFIXES or not _has_yt_dlp():
-        return _download(text, folder, session, sleep)
-    return _download_page(text, folder)
+    url = direct_link(text)
+    looks_like_file = Path(urlsplit(url).path).suffix.lower() in MEDIA_SUFFIXES or url != text
+    if not _has_yt_dlp():
+        return _download(url, folder, session, sleep, progress, key=text)
+    first, second = ((lambda: _download(url, folder, session, sleep, progress, key=text)),
+                     (lambda: _download_page(text, folder, progress)))
+    if not looks_like_file:
+        first, second = second, first
+    try:
+        return first()
+    except ValueError as e:
+        # A file link that turned out to be a web page goes to yt-dlp; a page yt-dlp can't read may be a file without
+        # an extension. Any other failure (too big, the server failing) is the answer.
+        if str(e) == TOO_BIG or (looks_like_file and str(e) != NOT_A_VIDEO_LINK):
+            raise
+        log.info("Download by the first way failed (%s); trying the other", e)
+        try:
+            return second()
+        except ValueError as again:
+            # yt-dlp is installed and read the page: "install the links extra" would be wrong (a private or removed
+            # video, for example); its own reason stands.
+            if not looks_like_file and str(again) == NOT_A_VIDEO_LINK:
+                raise e from again
+            # Otherwise the more telling reason wins: a blocked network or a page that isn't a video says more.
+            raise (again if str(e) in (DOWNLOAD_FAILED, NOT_A_VIDEO_LINK) else e) from again
 
 
 def _has_yt_dlp() -> bool:
@@ -89,11 +140,12 @@ def _has_yt_dlp() -> bool:
         return False
 
 
-def _download(url: str, folder: Path, session, sleep) -> str:
-    """Streams a direct media link into folder, with retries; refuses web pages."""
+def _download(url: str, folder: Path, session, sleep, progress=None, key: Optional[str] = None) -> str:
+    """Streams a direct media link into folder, with retries; refuses web pages. key names the file (the link as
+    given, so a later fetch of the same link finds it)."""
     session = session or requests.Session()
     suffix = Path(urlsplit(url).path).suffix.lower()
-    target = folder / f"{_hash(url)}{suffix if suffix in MEDIA_SUFFIXES else '.mp4'}"
+    target = folder / f"{_hash(key or url)}{suffix if suffix in MEDIA_SUFFIXES else '.mp4'}"
     for attempt in range(3):
         try:
             with session.get(url, stream=True, timeout=600) as resp:
@@ -101,7 +153,8 @@ def _download(url: str, folder: Path, session, sleep) -> str:
                     raise RuntimeError(f"HTTP {resp.status_code}")
                 if "text/html" in (resp.headers.get("content-type") or "").lower():
                     raise ValueError(NOT_A_VIDEO_LINK)
-                if int(resp.headers.get("content-length") or 0) > MAX_MEDIA_BYTES:
+                total = int(resp.headers.get("content-length") or 0)
+                if total > MAX_MEDIA_BYTES:
                     raise ValueError(TOO_BIG)
                 tmp = target.with_name(target.name + ".part")
                 written = 0
@@ -111,6 +164,8 @@ def _download(url: str, folder: Path, session, sleep) -> str:
                         if written > MAX_MEDIA_BYTES:          # the size header can be missing or wrong
                             break
                         f.write(chunk)
+                        if progress and total:
+                            progress(min(1.0, written / total))
                 if written > MAX_MEDIA_BYTES:
                     tmp.unlink(missing_ok=True)
                     raise ValueError(TOO_BIG)
@@ -126,12 +181,17 @@ def _download(url: str, folder: Path, session, sleep) -> str:
     return str(target)
 
 
-def _download_page(url: str, folder: Path) -> str:
+def _download_page(url: str, folder: Path, progress=None) -> str:
     """Downloads the video on a web page (YouTube and others) with yt-dlp, into folder."""
     import yt_dlp
+
+    def hook(d):
+        total = d.get("total_bytes") or d.get("total_bytes_estimate")
+        if progress and total and d.get("status") == "downloading":
+            progress(min(1.0, (d.get("downloaded_bytes") or 0) / total))
     options = {"outtmpl": str(folder / f"{_hash(url)}.%(ext)s"), "format": "bv*+ba/b", "merge_output_format": "mp4",
                "ffmpeg_location": FFMPEG_EXE, "quiet": True, "no_warnings": True, "noprogress": True,
-               "noplaylist": True, "max_filesize": MAX_MEDIA_BYTES}
+               "noplaylist": True, "max_filesize": MAX_MEDIA_BYTES, "progress_hooks": [hook]}
     try:
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=True)

@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 import requests
 
 from dubeval import perso_api
-from dubeval.inputs import FFMPEG_EXE, LOCAL_INPUT, MEDIA_SUFFIXES, is_link, probe
+from dubeval.inputs import FFMPEG_EXE, LOCAL_INPUT, MEDIA_SUFFIXES, direct_link, is_link, probe
 
 log = logging.getLogger(__name__)
 
@@ -32,8 +32,10 @@ def preview(source: str, session=None) -> dict:
         host = (urlsplit(source).hostname or "").lower()
         if host in perso_api.SHARE_HOSTS:
             return _perso(source, session)
-        if Path(urlsplit(source).path).suffix.lower() in MEDIA_SUFFIXES:
-            return _result("media_link", Path(urlsplit(source).path).name, site=host)
+        if Path(urlsplit(source).path).suffix.lower() in MEDIA_SUFFIXES or direct_link(source) != source:
+            # a link to a file, or a file host's share link (Dropbox, Google Drive, OneDrive): downloaded as a file
+            name = Path(urlsplit(source).path).name
+            return _result("media_link", name if Path(name).suffix else host, site=host)
         return _page(source, session)
     return _file(source)
 

@@ -2,7 +2,7 @@
 // Once a video is given, the page keeps itself as a draft on the server (its card is on the home screen) and saves as
 // it is edited; #/draft/<id> fills it in again. A chosen file is added (uploaded) as soon as it is chosen, so the
 // draft holds it too.
-import { api, fmtTime, go, h, setAddress, state, t } from "./app.js";
+import { INFO_EVENT, api, fmtTime, go, h, setAddress, state, t } from "./app.js";
 import { PREFILL_KEY } from "./home.js";
 
 const SHARE_LINK = /^https?:\/\/(www\.)?perso\.ai\//i;
@@ -28,6 +28,21 @@ function upload(file, onProgress) {
 }
 
 const PREVIEW_WAIT_MS = 600;               // after the last keystroke, before a typed link or path is read
+const LINK_POLL_MS = 700;                  // how often a link being downloaded is asked how far it is
+
+// Downloads a pasted link on the server (any kind: a video page, a file, a file host's share); resolves to
+// {id: "upload:<id>", name} like an upload. onProgress hears a fraction, or null while the size is unknown.
+async function downloadLink(url, onProgress, stillWanted) {
+  const { id } = await api("/api/uploads/link", { method: "POST", body: JSON.stringify({ url }) });
+  for (;;) {
+    await new Promise(r => setTimeout(r, LINK_POLL_MS));
+    if (!stillWanted()) return null;
+    const s = await api(`/api/uploads/link/${id}`);
+    if (s.state === "done") return { id: s.upload, name: s.name };
+    if (s.state === "failed") throw new Error(s.error);
+    onProgress(s.progress);
+  }
+}
 
 // The preview under an input: a picture (or the chosen file itself), its title and one line about it.
 function previewBox() {
@@ -91,6 +106,25 @@ function fileState(onChange) {
       });
       return mine;
     },
+    // Downloads a pasted link the same way: the card then holds the downloaded video like a chosen file.
+    addLink(url, bar, error) {
+      uploaded = null;
+      bar.hidden = false;
+      bar.removeAttribute("value");                   // moving until the size is known
+      error.textContent = "";
+      let mine = null;
+      mine = pending = downloadLink(url, f => { if (f != null) bar.value = f; }, () => pending === mine).then(got => {
+        if (!got || pending !== mine) return null;
+        uploaded = got;
+        return uploaded;
+      }).catch(e => {
+        if (pending === mine) error.textContent = e.message;
+        return null;
+      }).finally(() => {
+        if (pending === mine) { pending = null; bar.hidden = true; bar.value = 0; onChange(); }
+      });
+      return mine;
+    },
     set(saved) { pending = null; uploaded = saved && saved.id ? { id: saved.id, name: saved.name || "" } : null; },
     clear() { pending = null; uploaded = null; },
   };
@@ -102,6 +136,7 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
   let chosen = null;                    // a File picked or dropped (shown from memory while it is being added)
   let included = false;                 // the original comes with a Perso share link: nothing to give here
   let listener = () => {}, timer = null, asked = "", last = null;
+  let fetching = null;                  // the link being downloaded into this card, if any
   const files = fileState(onChange);
   const text = h("input", { type: "text", class: "path", placeholder, title: placeholder, "aria-label": title });
   const fileInput = h("input", { type: "file", accept, class: "sr", tabindex: "-1" });
@@ -123,11 +158,13 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
   } }, t("w.start.clear"));
   // A file is added at once; its picture comes from the server (the draft keeps it for the home screen's card).
   async function choose(file) {
+    cancelLink();
     chosen = file;
     text.value = "";
     asked = "";
     show();
     box.file(file);
+    listener(null, "");                   // a file, not a share link: an original that came with one is let go
     onChange();
     const added = await files.add(file, bar, error);
     if (!added) return;
@@ -135,23 +172,55 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
     onChange();
   }
   fileInput.addEventListener("change", () => { if (fileInput.files[0]) choose(fileInput.files[0]); });
+  // A pasted link (not a Perso share link, which brings its own original) is downloaded at once, whatever kind
+  // it is: the card then holds the video like a chosen file. Even a link that couldn't be previewed is tried.
+  async function fetchLink(value, p) {
+    error.textContent = "";
+    name.textContent = t("w.start.downloading");
+    fetching = value;
+    const got = await files.addLink(value, bar, error);
+    if (fetching === value) fetching = null;
+    if (!got || asked !== value) { name.textContent = fileName(); return; }
+    if (p?.title) got.name = p.title;                 // the video's title, not the downloaded file's stored name
+    text.value = "";
+    asked = "";
+    show();
+    try { last = await api(`/api/preview?source=${encodeURIComponent(got.id)}`); } catch { last = p; }
+    if (last) box.show(last, p?.title || got.name, t("w.start.downloaded"));
+    onChange();
+  }
+  // A link still downloading when the card is given something else: its video must not land in the card later.
+  function cancelLink() {
+    if (fetching === null) return;
+    fetching = null;
+    files.clear();
+    bar.hidden = true;
+    bar.value = 0;
+    name.textContent = fileName();
+  }
   // A typed link or path is read once typing stops; only the latest answer is shown.
   async function read() {
     const value = text.value.trim();
     if (value === asked) return;
     asked = value;
+    if (fetching !== null && fetching !== value) cancelLink();
     if (!value) { box.clear(); last = null; listener(null, ""); return; }
     box.busy();
+    let p = null;
     try {
-      const p = await api(`/api/preview?source=${encodeURIComponent(value)}`);
+      p = await api(`/api/preview?source=${encodeURIComponent(value)}`);
       if (asked !== value) return;
       last = p;
       box.show(p);
       listener(p, value);
     } catch (e) {
-      if (asked === value) { last = null; box.error(e.message); listener(null, value); }
+      if (asked !== value) return;
+      last = null;
+      if (!/^https?:\/\//i.test(value)) box.error(e.message);
+      listener(null, value);
     }
     onChange();
+    if (/^https?:\/\//i.test(value) && !(p && p.kind === "perso")) fetchLink(value, p);
   }
   text.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(read, PREVIEW_WAIT_MS); });
   text.addEventListener("paste", () => { clearTimeout(timer); timer = setTimeout(read, 50); });
@@ -178,7 +247,7 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
     empty: () => !fileName() && !text.value.trim() && !included,
     onPreview(fn) { listener = fn; },
     preview: () => last,
-    setTyped(value) { chosen = null; files.clear(); fileInput.value = ""; text.value = value; show(); read(); },
+    setTyped(value) { cancelLink(); chosen = null; files.clear(); fileInput.value = ""; text.value = value; show(); read(); },
     // The original that comes with a Perso share link: shown, nothing to give (p: that link's preview, or null).
     include(p) {
       included = !!p;
@@ -266,6 +335,7 @@ function subtitleField(onChange) {
   el.addEventListener("drop", e => {
     e.preventDefault();
     e.stopPropagation();                            // the subtitle file, not the card's video
+    el.closest(".drop")?.classList.remove("over");  // so the card's own drop handler, which clears this, doesn't run
     if (e.dataTransfer.files[0]) choose(e.dataTransfer.files[0]);
   });
   return {
@@ -379,12 +449,30 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   });
   const checkers = [["claude", t("w.set.judge.claude")], ["gemini", t("w.set.judge.gemini")],
     ["openai", t("w.set.judge.openai")], ["ollama", t("w.start.judge_local")]];
-  const ready = id => info.judges.includes(id);
+  const ready = id => state.info.judges.includes(id);
+  const label = (id, name) => (ready(id) ? name
+    : t(id === "ollama" ? "w.start.judge_needs_local" : "w.start.judge_needs_key", { judge: name }));
   const firstReady = checkers.find(([id]) => ready(id));
   const check = h("select", { id: "check" },
     checkers.map(([id, name]) => h("option", { value: id, disabled: !ready(id), selected: firstReady?.[0] === id },
-      ready(id) ? name : t(id === "ollama" ? "w.start.judge_needs_local" : "w.start.judge_needs_key", { judge: name }))),
+      label(id, name))),
     h("option", { value: "off", selected: !firstReady }, t("w.start.judge_off")));
+  let checkChosen = false;                          // the person picked the checker (then a new key doesn't change it)
+  check.addEventListener("change", () => { checkChosen = true; });
+  // Settings changed what's set up (a key saved through "Add a key", the local model downloaded): the list follows,
+  // and a page that had no checker picks the first one now ready.
+  function refreshCheckers() {
+    for (const option of check.options) {
+      const entry = checkers.find(([id]) => id === option.value);
+      if (!entry) continue;
+      option.disabled = !ready(entry[0]);
+      option.textContent = label(...entry);
+    }
+    const first = checkers.find(([id]) => ready(id));
+    if (!checkChosen && check.value === "off" && first) check.value = first[0];
+    if (check.selectedOptions[0]?.disabled) check.value = first ? first[0] : "off";
+  }
+  window.addEventListener(INFO_EVENT, refreshCheckers);
   const needKeys = checkers.some(([id]) => id !== "ollama" && !ready(id));
   const lipsync = h("input", { type: "checkbox", id: "lipsync" });
   const error = h("p", { class: "error", role: "alert" });
@@ -406,9 +494,10 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
     h("div", { class: "options" },
       info.large_model ? h("label", {}, t("w.start.speech_model"), speechModel)
         : h("a", { href: "#/settings/models", class: "small" }, t("w.start.get_large")),
-      h("label", { class: "check" }, lipsync, t("w.start.lipsync"))),
+      h("label", { class: "check" }, lipsync, t(info.lip_sync ? "w.start.lip_sync" : "w.start.lipsync"))),
     h("p", { class: "muted small" }, t("w.start.lang_pick")));
-  more.addEventListener("toggle", changed);
+  let restoredToggle = false;                        // the toggle that restoring "More options" fires, later
+  more.addEventListener("toggle", () => { if (restoredToggle) restoredToggle = false; else changed(); });
 
   // ----- the draft -----
   const formState = () => ({ original: original.state(), original_subs: originalSubs.state(), source_lang: sourceLang.value,
@@ -443,7 +532,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
       savedNote.hidden = false;
     } catch (e) {
       // A draft that was deleted elsewhere (or started) becomes a new one at the next change.
-      if (/gone/i.test(e.message) || e.message.includes("404")) draft = null;
+      if (e.status === 404) draft = null;
     }
   }
 
@@ -451,6 +540,10 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
     if (draftId) {
       try {
         const d = await api(`/api/drafts/${encodeURIComponent(draftId)}`);
+        if (d.job?.id) {
+          const job = await api(`/api/jobs/${encodeURIComponent(d.job.id)}`).catch(() => null);
+          if (job && job.status === "running") { go(`#/job/${d.job.id}`, { replace: true }); return; }
+        }
         const f = d.form || {};
         await original.restore(f.original);
         originalSubs.restore(f.original_subs);
@@ -461,7 +554,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
         pick(check, f.judge || "");
         lipsync.checked = !!f.lipsync;
         pick(speechModel, f.speech_model || "auto");
-        more.open = !!f.more_open;
+        if (more.open !== !!f.more_open) { restoredToggle = true; more.open = !!f.more_open; }
         savedNote.hidden = false;
       } catch (e) {
         draft = null;
@@ -470,9 +563,17 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
       }
     } else {
       if (compare) addDub();
-      let link = null;
-      try { link = sessionStorage.getItem(PREFILL_KEY); sessionStorage.removeItem(PREFILL_KEY); } catch { /* none */ }
-      if (link) { dub.setTyped(link); restoring = false; changed(); }
+      // What the home screen's card was given: a file it added (upload) or a link, for the dub's card.
+      let given = null;
+      try { given = sessionStorage.getItem(PREFILL_KEY); sessionStorage.removeItem(PREFILL_KEY); } catch { /* none */ }
+      if (given) {
+        let parsed = null;
+        try { parsed = JSON.parse(given); } catch { parsed = { link: given }; }
+        if (parsed.upload) await dub.restore({ upload: parsed.upload, name: parsed.name });
+        else if (parsed.link) dub.setTyped(parsed.link);
+        restoring = false;
+        changed();
+      }
     }
     restoring = false;
   }
@@ -519,6 +620,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   restore();
   return () => {
     left = true;
+    window.removeEventListener(INFO_EVENT, refreshCheckers);
     if (!submitted && saveTimer) { clearTimeout(saveTimer); saving = saving.then(saveDraft); }
   };
 }

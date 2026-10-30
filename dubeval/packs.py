@@ -5,6 +5,8 @@
     large_model  better speech recognition for less common languages: faster-whisper large-v3-turbo (MIT)
     local_judge  the translation check on this computer: Ollama (CPU + Vulkan, MIT) and Qwen3 8B (Apache-2.0)
                  (dubeval/local_judge.py; Ollama's files are taken out of its release zip with range requests)
+    lip_sync     the lip-sync check: ByteDance's StableSyncNet from LatentSync 1.5, unchanged (CreativeML OpenRAIL++-M);
+                 dubeval/lip_sync.py runs it with the two small graphs bundled in dubeval/models/
 
 Every file has a pinned source (a fixed revision or version) and a SHA-256 checked before anything is used; a
 download that stops half-way resumes where it left off. A pack is installed into its own folder only once every file
@@ -21,7 +23,7 @@ import zlib
 from pathlib import Path
 from typing import Callable, Optional
 
-from dubeval import asr, local_judge, meaning, network
+from dubeval import asr, lip_sync, local_judge, meaning, network
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +32,7 @@ CHUNK = 1 << 20
 HF = "https://huggingface.co"
 BGE_M3 = (f"{HF}/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858", "MIT")
 TURBO = (f"{HF}/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", "MIT")
+LATENTSYNC = f"{HF}/ByteDance/LatentSync-1.5/resolve/32a20d29aead0498e3e885e90dbbe8027da1b61b"
 CUBLAS_WHEEL = ("https://files.pythonhosted.org/packages/20/e2/fc9a0e985249d873150276d5afb02e39a66817fedbf1a385724393e505ed/"
                 "nvidia_cublas_cu12-12.9.2.10-py3-none-win_amd64.whl")
 
@@ -73,6 +76,15 @@ PACKS = {
              "sha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1"},
         ],
     },
+}
+PACKS["lip_sync"] = {
+    "folder": lambda: lip_sync.PACK_DIR,
+    "source": "ByteDance/LatentSync-1.5 (StableSyncNet)",
+    "license": "CreativeML OpenRAIL++-M (weights), Apache-2.0 (LatentSync code)",
+    "files": [
+        {"url": f"{LATENTSYNC}/stable_syncnet.pt", "name": lip_sync.CHECKPOINT, "bytes": 1605324224,
+         "sha256": "dccc464554b85ed939ae5cf63000e5803d4b21d8c7dae2260544a10aeb1ac483"},
+    ],
 }
 PACKS["local_judge"] = {
     "folder": lambda: MODELS_DIR / "ollama",
@@ -307,6 +319,8 @@ def remove(pack_id: str) -> None:
     """Deletes an installed pack (and any half-finished download of it)."""
     if pack_id == "local_judge":
         local_judge.stop()                                  # its server holds the files open
+    elif pack_id == "lip_sync":
+        lip_sync.unload()                                   # the loaded models keep the checkpoint open
     folder = Path(PACKS[pack_id]["folder"]())
     shutil.rmtree(folder, ignore_errors=True)
     shutil.rmtree(_staging(folder), ignore_errors=True)
@@ -325,6 +339,8 @@ def _changed(pack_id: str) -> None:
         from dubeval import translation_judge
         local_judge.stop()
         translation_judge._ollama_seen.clear()
+    elif pack_id == "lip_sync":
+        lip_sync.unload()
 
 
 # The Models list (Settings → Models): every model DubEval uses, grouped by what it does, built in or downloadable.
@@ -337,6 +353,7 @@ CATALOG = (
     ("voice", "speaker", "WeSpeaker ResNet34", "builtin"),
     ("voice", "dnsmos", "DNSMOS P.835", "builtin"),
     ("voice", "face", "MediaPipe Face Landmarker", "builtin"),
+    ("voice", "lip_sync", "LatentSync StableSyncNet", "pack"),
     ("speed", "gpu", "NVIDIA cuBLAS", "pack"),
     ("base", "engine", "DubEval engine (Python)", "builtin"),
 )

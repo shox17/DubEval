@@ -6,7 +6,8 @@ option) any later version (see LICENSE).
 "Perso" and "PersoDub" are trademarks of ESTsoft corp. DubEval's license covers
 its code; it grants no right to use those names or logos.
 
-The desktop app's icon (desktop/build/icon.png and icon.ico) is DubEval's own,
+The desktop app's icon (desktop/build/icon.svg, icon-small.svg and the images
+made from them) is DubEval's own,
 drawn for this project, and is covered by DubEval's license.
 
 This product includes software and models developed by third parties, listed
@@ -96,6 +97,14 @@ Qwen3 and Ollama (optional: the local translation judge)
   2.0; Ollama: MIT License (its libraries' licenses come with it in
   lib/ollama). Not shipped with DubEval: downloaded on request (Settings →
   Models) from Ollama's GitHub release and model registry, unchanged.
+
+LatentSync StableSyncNet (optional: the lip-sync check)
+  https://github.com/bytedance/LatentSync, https://huggingface.co/ByteDance/LatentSync-1.5
+  The two graphs in dubeval/models/syncnet_*.onnx are rebuilt from LatentSync's
+  code (Copyright 2024 Bytedance Ltd. and/or its affiliates; Apache License
+  2.0) and hold no weights. The weights (stable_syncnet.pt) are not shipped
+  with DubEval: downloaded on request (Settings → Models) from Hugging Face,
+  unchanged, under the CreativeML OpenRAIL++-M license and its use restrictions.
 
 yt-dlp (optional: videos from YouTube and other pages)
   https://github.com/yt-dlp/yt-dlp

@@ -165,6 +165,18 @@ def test_votes_are_recorded_and_shown_on_the_review(client):
     assert client.post(f"/api/jobs/{job_id}/votes", json={"index": 0, "vote": "maybe"}).status_code == 422
 
 
+def test_a_vote_lands_on_the_moment_shown_even_when_the_saved_report_is_out_of_date(client):
+    job_id = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    finished(client, job_id)
+    shown = client.get(f"/api/jobs/{job_id}/report").json()["report"]["problem_intervals"]
+    from dubeval import jobs as jobs_module
+    saved = jobs_module.get_job(job_id).result["report"]  # a rule changed since the run: the saved list differs
+    saved["problem_intervals"].insert(0, {**shown[0], "category": "long_silence", "start": 0.0, "end": 9.0})
+    assert client.post(f"/api/jobs/{job_id}/votes", json={"index": 0, "vote": "real"}).status_code == 200
+    stored = feedback.load()[-1]["key"].split("|")
+    assert stored[-3:] == [shown[0]["category"], f"{shown[0]['start']:.1f}", f"{shown[0]['end']:.1f}"]
+
+
 def test_a_running_job_can_be_stopped(client, monkeypatch):
     from dubeval.jobs import Cancelled
 
@@ -448,7 +460,7 @@ def test_downloads_are_listed_installed_and_removed_through_the_page(client, mon
 
     listing = client.get("/api/packs").json()
     assert {p["id"]: p["available"] for p in listing["packs"]} == {"meaning": True, "gpu": False, "large_model": True,
-                                                                   "local_judge": True}
+                                                                   "local_judge": True, "lip_sync": True}
     assert client.post("/api/packs/gpu/install").status_code == 400
     assert client.post("/api/packs/nope/install").status_code == 404
     job = client.post("/api/packs/large_model/install").json()
@@ -514,10 +526,11 @@ def test_the_models_tab_lists_built_in_and_downloadable_models_by_group(client):
     data = client.get("/api/models").json()
     groups = {g["id"]: [r["id"] for r in g["rows"]] for g in data["groups"]}
     assert groups == {"speech": ["whisper_base", "large_model"], "meaning": ["meaning", "local_judge"],
-                      "voice": ["speaker", "dnsmos", "face"], "speed": ["gpu"], "base": ["engine"]}
+                      "voice": ["speaker", "dnsmos", "face", "lip_sync"], "speed": ["gpu"], "base": ["engine"]}
     rows = {r["id"]: r for g in data["groups"] for r in g["rows"]}
     assert rows["dnsmos"]["kind"] == "builtin" and rows["dnsmos"]["state"] == "builtin" and rows["dnsmos"]["bytes"] > 0
     assert rows["large_model"]["kind"] == "pack" and rows["large_model"]["download_mb"] > 1000 and "job" in rows["large_model"]
+    assert rows["lip_sync"]["kind"] == "pack" and rows["lip_sync"]["download_mb"] == 1605
     assert data["ready"] >= 3 and data["bytes"] > 0
 
 
@@ -896,3 +909,121 @@ def test_latest_evaluations_leave_out_deleted_ones(client, monkeypatch):
     client.delete(f"/api/evaluations/{card['id']}")
     summary = client.get("/api/history").json()["history"]
     assert summary["recent"] == [] and summary["runs"] == 1          # still counted in the totals
+
+
+def test_a_pasted_link_is_downloaded_into_uploads_and_used_like_an_uploaded_file(client, monkeypatch):
+    from dubeval import inputs
+
+    def fake_fetch(url, folder, label, progress=None, **kw):
+        progress and progress(0.5)
+        if "broken" in url:
+            raise ValueError(inputs.DOWNLOAD_FAILED)
+        (folder / "abc.part").write_bytes(b"left over")
+        path = folder / "abc.mp4"
+        path.write_bytes(b"video")
+        return str(path)
+    monkeypatch.setattr(inputs, "fetch", fake_fetch)
+    fetch_id = client.post("/api/uploads/link", json={"url": "https://www.youtube.com/watch?v=x"}).json()["id"]
+    for _ in range(100):
+        state = client.get(f"/api/uploads/link/{fetch_id}").json()
+        if state["state"] != "downloading":
+            break
+        time.sleep(0.02)
+    assert state["state"] == "done" and state["upload"] == f"upload:{fetch_id}" and state["name"] == "abc.mp4"
+    folder = webapp.Path(webapp.UPLOADS_DIR) / fetch_id
+    assert [f.name for f in folder.iterdir()] == ["abc.mp4"]              # the upload is the one file
+    bad = client.post("/api/uploads/link", json={"url": "https://example.com/broken"}).json()["id"]
+    for _ in range(100):
+        state = client.get(f"/api/uploads/link/{bad}", headers={"Accept-Language": "ko"}).json()
+        if state["state"] != "downloading":
+            break
+        time.sleep(0.02)
+    assert state["state"] == "failed" and state["error"] and "couldn't" not in state["error"]   # in the page's language
+    assert client.post("/api/uploads/link", json={"url": "file:///etc/passwd"}).status_code == 400
+    assert client.get("/api/uploads/link/../../x").status_code == 404
+
+
+def test_storage_lists_sizes_and_clears_only_downloads_nothing_uses(client, monkeypatch):
+    import os
+    import time
+    from dubeval import library, pipeline
+    cache, uploads = webapp.Path(pipeline.CACHE_DIR), webapp.Path(webapp.UPLOADS_DIR)
+    for folder, size in ((cache / "used", 300), (cache / "old", 500), (uploads / "fresh", 70), (uploads / "stale", 90)):
+        folder.mkdir(parents=True)
+        (folder / "video.mp4").write_bytes(b"x" * size)
+    week_ago = time.time() - 7 * 24 * 3600
+    os.utime(uploads / "stale", (week_ago, week_ago))
+    monkeypatch.setattr(library, "referenced_inputs", lambda: {str(cache / "used" / "video.mp4")})
+    s = client.get("/api/settings/storage").json()
+    assert s["downloads"] == {"count": 4, "bytes": 960, "unused_bytes": 590}   # old + stale; a fresh upload is kept
+    assert s["data_dir"] and s["evaluations"]["count"] >= 0 and s["models_bytes"] >= 0
+    after = client.post("/api/settings/storage/clear").json()
+    assert after["downloads"] == {"count": 2, "bytes": 370, "unused_bytes": 0}
+    assert (cache / "used").is_dir() and (uploads / "fresh").is_dir() and not (cache / "old").exists()
+
+
+def test_storage_is_not_cleared_while_an_evaluation_runs(client, monkeypatch):
+    from dubeval import jobs
+    monkeypatch.setattr(jobs, "busy", lambda: True)
+    resp = client.post("/api/settings/storage/clear", headers={"Accept-Language": "ko"})
+    assert resp.status_code == 409 and "진행 중" in resp.json()["detail"]
+
+
+def test_share_is_gone(client):
+    job_id = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    finished(client, job_id)
+    assert client.get(f"/api/jobs/{job_id}/share").status_code == 404
+
+
+def test_a_vote_on_a_file_evaluation_survives_renaming_it(client, monkeypatch):
+    def from_files(original, dub, out_dir=None, report_lang="en", **_):
+        r = make_results()
+        r["pipeline"].pop("share", None)
+        r["pipeline"].update(input_video_path=original, dubbed_video_path=dub)
+        r["report"] = build_report(r, report_lang)
+        pipeline.save_report_files(r, out_dir)
+        return r
+    monkeypatch.setattr(pipeline, "run_files_evaluation", from_files)
+    job_id = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    finished(client, job_id)
+    assert client.post(f"/api/jobs/{job_id}/votes", json={"index": 0, "vote": "false_alarm"}).status_code == 200
+    assert feedback.load()[-1]["key"].startswith("file:")
+    assert client.put(f"/api/jobs/{job_id}/title", json={"title": "Renamed"}).status_code == 200
+    assert client.get(f"/api/jobs/{job_id}/report").json()["votes"] == {"0": "false_alarm"}
+
+
+def test_renaming_one_dub_of_a_comparison_renames_them_all(compare_client):
+    job_id = compare_client.post("/api/evaluations", json={"original": "o", "dub": "a", "more_dubs": ["b"]}).json()["id"]
+    finished(compare_client, job_id)
+    assert compare_client.put(f"/api/jobs/{job_id}/title?dub=A", json={"title": "Same video"}).status_code == 200
+    for dub in ("A", "B"):
+        report = compare_client.get(f"/api/jobs/{job_id}/report?dub={dub}").json()["report"]
+        assert report["project"]["title"] == "Same video"
+
+
+def test_renaming_a_comparison_from_its_card_renames_every_dubs_report(isolated_output):
+    import json
+    from dubeval import library
+    run_id = "20261030-120000_abcd1234"
+    folder = webapp.Path(pipeline.RUNS_DIR) / run_id
+    folder.mkdir(parents=True)
+    for dub in ("A", "B"):
+        r = make_results()
+        r["report"] = build_report(r, "en")
+        pipeline.save_report_files(r, folder, f"report_{dub}")
+    (folder / "comparison.json").write_text(json.dumps({"dubs": ["A", "B"]}), encoding="utf-8")
+    library.rename(run_id, "Weather, two dubs")
+    assert json.loads((folder / "comparison.json").read_text(encoding="utf-8"))["custom_title"] == "Weather, two dubs"
+    for dub in ("A", "B"):
+        saved = json.loads((folder / f"report_{dub}.json").read_text(encoding="utf-8"))
+        assert saved["report"]["project"]["title"] == "Weather, two dubs"
+
+
+def test_clearing_downloads_keeps_a_file_evaluations_saved_transcripts(client):
+    from dubeval import pipeline as pl
+    kept = webapp.Path(pl.CACHE_DIR) / "files_run"
+    kept.mkdir(parents=True)
+    (kept / "whisper_cache.json").write_text("{}", encoding="utf-8")
+    assert client.get("/api/settings/storage").json()["downloads"]["count"] == 0
+    client.post("/api/settings/storage/clear")
+    assert (kept / "whisper_cache.json").is_file()

@@ -1,9 +1,10 @@
 """Tests for the report: levels, messages, verdict rule, things to check, renderers, and the timing math."""
+import numpy as np
 import pytest
 
-from dubeval.evaluate import speech_clarity, speech_intervals, timing_alignment
+from dubeval.evaluate import fill_gaps, keep_voiced, speech_clarity, speech_intervals, timing_alignment, unheard_speech
 from dubeval.report import build_report, render_html, render_text
-from sample_results import JUDGED, make_results
+from sample_results import JUDGE_OFF, JUDGED, make_results
 
 
 def metric(rep: dict, mid: str) -> dict:
@@ -60,18 +61,20 @@ def test_speech_timing_bands_and_mismatch_items():
     rep = build_report(make_results())
     assert metric(rep, "speech_overlap")["level"] == "good"            # 81%: a real Perso dub
     t = rep["things_to_check"][0]
-    assert (t["start"], t["end"], t["category"]) == (19.4, 20.1, "timing")
+    assert (t["start"], t["end"], t["category"]) == (19.4, 20.4, "timing")
     low = build_report(make_results(timing_alignment={"overlap_pct": 50.0}))
     assert metric(low, "speech_overlap")["level"] == "poor"
 
 
-def test_missing_judge_is_not_measured_with_a_reason():
-    rep = build_report(make_results())
+def test_missing_judge_is_not_measured_with_a_reason_and_the_dub_is_never_good():
+    rep = build_report(make_results(translation_judge=JUDGE_OFF))
     ids = {x["id"]: x["reason"] for x in rep["not_measured"]}
     assert "script_accuracy" not in ids          # an optional extra (CLI --script), not a gap
     assert "turned off" in ids["translation_check"]
     assert metric(rep, "translation_check")["value"] is None
     assert rep["overall"]["counts"]["not_measured"] == 1            # one translation row, not three
+    assert rep["overall"]["level"] == "check" and rep["overall"]["unsure"] == ["translation_unchecked"]
+    assert "translation wasn't checked" in rep["overall"]["headline"]   # a required check that didn't run
 
 
 def test_translation_issues_drive_levels_and_things_to_check():
@@ -116,8 +119,9 @@ def test_renderers_show_verdict_sections_and_things_to_check():
     r = make_results()
     rep = build_report(r)
     text = render_text(rep)
-    assert "OVERALL:  ✅  GOOD" in text and "3. TIMING ALIGNMENT" in text and "00:19.4–00:20.1" in text
-    assert "Perso #100001" in text and "NOT MEASURED" in text
+    assert "OVERALL:  ✅  GOOD" in text and "3. TIMING ALIGNMENT" in text and "00:19.4–00:20.4" in text
+    assert "Perso #100001" in text
+    assert "NOT MEASURED" in render_text(build_report(make_results(translation_judge=JUDGE_OFF)))
     page = render_html(rep, r, "original.mp4", "dubbed_ko.mp4")
     assert page.startswith("<!doctype html>") and "prefers-color-scheme:dark" in page
     assert "<video" in page and "Speech timeline" in page and "Things to check" in page
@@ -140,6 +144,41 @@ def seg(start, end, words=None, logprob=-0.2, no_speech=0.01, text="x"):
 def test_speech_intervals_merge_short_gaps_and_drop_silence():
     segs = [seg(0.0, 2.0, [[0.0, 0.8], [0.9, 2.0]]), seg(3.0, 4.0), seg(5.0, 9.0, logprob=-1.5, no_speech=0.9)]
     assert speech_intervals(segs) == [[0.0, 2.0], [3.0, 4.0]]
+
+
+def test_lines_the_voice_detector_hears_no_speech_in_are_dropped():
+    stt = {"text": "hello 3몇 world", "language": "ko",
+           "segments": [seg(0.0, 2.0, text="hello"), seg(5.0, 6.0, text="3몇"), seg(8.0, 10.0, text="world")]}
+    kept = keep_voiced(stt, [[0.0, 2.1], [8.5, 12.0]])           # music from 5 to 6 s: words read into it go
+    assert [s["text"] for s in kept["segments"]] == ["hello", "world"] and kept["text"] == "hello world"
+    assert keep_voiced(stt, None) is stt                          # no detector: nothing dropped
+    assert stt["segments"][1]["text"] == "3몇"                    # the cached transcript itself is untouched
+
+
+def test_a_line_the_detector_missed_is_kept_when_the_other_track_speaks_then():
+    original = {"text": "", "language": "en", "segments": [seg(2.0, 4.0, text="You're a jerk, Tom!"), seg(8.0, 9.0, text="3")]}
+    dub = [seg(2.2, 4.1, text="Eres un idiota Tom")]
+    kept = keep_voiced(original, [[2.0, 2.8]], partner=dub)         # a shout over music: the detector half missed it
+    assert [s["text"] for s in kept["segments"]] == ["You're a jerk, Tom!"]   # the dub speaks then; 8-9 s it doesn't
+    assert keep_voiced(original, [], partner=dub)["segments"] == []   # no voice heard at all: words read into music
+
+
+def test_speech_the_transcript_skipped_is_recognized_again(monkeypatch):
+    from dubeval import evaluate
+    stt = {"text": "later", "language": "ko", "segments": [seg(20.0, 22.0, text="later")]}
+    voiced = [[4.0, 5.3], [5.6, 7.3], [20.0, 22.0], [30.0, 30.4]]    # 4-7.3 s skipped; 0.4 s at 30 s too short
+    assert unheard_speech(stt, voiced) == [[4.0, 7.3]]
+    seen = []
+
+    def fake_transcribe(y, model, language=None, check=None):
+        seen.append((len(y), language))
+        return {"text": "뭘 쳐다봐?", "segments": [seg(0.3, 1.7, [[0.3, 1.7]], text="뭘 쳐다봐?"), seg(2.0, 2.1, text="")]}
+    monkeypatch.setattr(evaluate, "transcribe", fake_transcribe)
+    out = fill_gaps(stt, np.zeros(16000 * 40, dtype=np.float32), voiced, None, "ko")
+    assert [(s["start"], s["text"]) for s in out["segments"]] == [(4.0, "뭘 쳐다봐?"), (20.0, "later")]
+    assert out["segments"][0]["words"] == [[4.0, 5.4]] and out["text"] == "뭘 쳐다봐? later"
+    assert seen == [(int(7.6 * 16000) - int(3.7 * 16000), "ko")]      # the stretch with 0.3 s either side
+    assert fill_gaps(stt, None, [[20.0, 22.0]], None) is stt          # nothing skipped: untouched
 
 
 def test_timing_alignment_overlap_and_mismatches():
@@ -281,9 +320,14 @@ def test_rubric_rows_show_every_criterion_with_its_average(lang):
     assert rows["meaning"]["value"] == 8.5 and "completeness" not in rows
 
 
-def test_one_serious_meaning_error_is_poor_and_a_weak_line_is_check():
-    assert translation_rows(make_results(translation_judge=rubric_result((9, 9, False), (4, 9, False))))["meaning"][
-        "level"] == "poor"
+def test_meaning_is_poor_with_three_serious_lines_or_most_lines_and_check_with_one_or_two():
+    good, serious = (9, 9, False), (4, 9, False)
+    level = lambda *lines: translation_rows(make_results(translation_judge=rubric_result(*lines)))["meaning"]["level"]
+    assert level(good, good, good, good, serious) == "check"                 # one serious line of five
+    assert level(good, good, good, good, serious, serious) == "check"        # two of six
+    assert level(good, good, good, serious, serious, serious) == "poor"      # three
+    assert level(good, serious, serious) == "poor"                           # most of a short dub
+    assert level(serious) == "poor"
     assert translation_rows(make_results(translation_judge=rubric_result((9, 9, False), (6, 9, False))))["meaning"][
         "level"] == "check"
     assert translation_rows(make_results(translation_judge=rubric_result((7, 9, False))))["meaning"]["level"] == "good"
@@ -294,9 +338,19 @@ def test_the_other_criteria_reach_check_at_most():
     assert rows["naturalness"]["level"] == "check" and rows["meaning"]["level"] == "good"
 
 
-def test_a_possibly_misheard_line_never_lowers_a_level():
-    rows = translation_rows(make_results(translation_judge=rubric_result((9, 9, False), (2, 9, True))))
+def test_a_possibly_misheard_line_is_check_at_most_and_only_when_very_low():
+    rows = translation_rows(make_results(translation_judge=rubric_result((9, 9, False), (5, 9, True))))
     assert rows["meaning"]["level"] == "good" and "recognition error" in rows["meaning"]["message"]
+    for many in (1, 4):                    # very low but maybe misheard: a person listens (Check), never Poor
+        rows = translation_rows(make_results(translation_judge=rubric_result((9, 9, False), *[(2, 9, True)] * many)))
+        assert rows["meaning"]["level"] == "check" and "listen" in rows["meaning"]["message"]
+
+
+def test_a_very_low_possibly_misheard_line_is_a_moment_to_listen_to():
+    rep = build_report(make_results(translation_judge=rubric_result((9, 9, False), (2, 9, True), (5, 9, True))), "en")
+    listen = [i for i in rep["problem_intervals"] if "listen to the line" in i["description"]]
+    assert len(listen) == 1 and listen[0]["severity"] == "check"
+    assert len(rep["possible_asr_errors"]) == 1                         # the 5/10 line stays a probable mishearing
 
 
 def test_a_rubric_problem_is_a_timed_interval_with_its_type_and_suggested_translation():
@@ -312,3 +366,72 @@ def test_results_saved_before_the_rubric_still_show_as_before():
     old = {"measured": True, "model": "gemini", "meaning_score": 4, "summary": {"en": "Fine."}, "issues": []}
     rows = translation_rows(make_results(translation_judge=old))
     assert rows["meaning"]["display"] == "4 / 5" and "completeness" in rows
+
+
+# ---------------- how sure DubEval is (Step 2) ----------------
+def _verdict(r, lang="en"):
+    o = build_report(r, lang)["overall"]
+    return o["level"], o["unsure"], o["headline"]
+
+
+def test_a_poor_result_on_mostly_music_is_needs_review_with_the_reason():
+    loud = {"rms_ratio": 2.0}                                            # 6 dB louder: Poor on its own
+    assert _verdict(make_results(acoustic_metrics=loud))[0] == "poor"
+    music = make_results(acoustic_metrics=loud, timing_alignment={"original_speech": [[0.0, 6.0], [10.0, 14.0]]})
+    level, unsure, headline = _verdict(music)                            # 10 s of speech in 28.7 s: 35% is the line
+    assert level == "check" and unsure == ["little_speech"] and "isn't sure" in headline and "35%" in headline
+    for lang in ("ko", "pt", "es"):
+        assert "{" not in _verdict(music, lang)[2]
+
+
+def test_too_little_or_unclear_speech_is_not_sure_either():
+    short = make_results(acoustic_metrics={"rms_ratio": 2.0}, timing_alignment={"original_speech": [[0.0, 6.7]]})
+    assert _verdict(short)[:2] == ("check", ["short_speech"])
+    unclear = make_results(acoustic_metrics={"rms_ratio": 2.0},
+                           speech_recognition={"clarity": {"confident_pct": 81.5, "unclear_segments": []}})
+    assert _verdict(unclear)[:2] == ("check", ["unclear_speech"])
+
+
+def test_problems_that_dont_depend_on_speech_stay_poor():
+    clipped = make_results(acoustic_metrics={"dubbed_clipping_pct": 1.0},
+                           timing_alignment={"original_speech": [[0.0, 6.0]]})
+    assert _verdict(clipped)[0] == "poor"                                # distortion is distortion, music or not
+
+
+def test_a_replaced_background_caps_silence_and_loudness_at_check():
+    windows = [{"start": 0.0, "end": 9.0, "dub": 3.0, "original": 3.0, "dub_sig": 3.5, "original_sig": 3.5,
+                "dub_bak": 4.2, "original_bak": 1.2}]
+    r = make_results(acoustic_metrics={"dubbed_silence_ratio": 0.6, "original_silence_ratio": 0.2},
+                     voice_quality={"windows": windows})
+    level, unsure, _ = _verdict(r)
+    silence = next(m for s in build_report(r, "en")["sections"] for m in s["metrics"] if m["id"] == "silence")
+    assert level == "check" and unsure == ["background_replaced"] and silence["level"] == "check"
+    assert "background was replaced" in silence["message"]
+
+
+def test_a_dub_whose_words_could_not_be_checked_is_never_good():
+    assert _verdict(make_results())[0] == "good"
+    kazakh = make_results(speech_recognition={"dubbed_language_detected": "kk", "dubbed_language_probability": 0.75})
+    kazakh["pipeline"]["target_language_code"] = "uz"
+    level, unsure, headline = _verdict(kazakh)
+    assert level == "check" and "words_unchecked" in unsure and "can't call it Good" in headline
+
+
+def test_a_backup_judge_model_is_noted_without_changing_the_level():
+    judged = {**JUDGED, "fallback": True, "model": "gemini-3.1-flash-lite"}
+    plain = _verdict(make_results(translation_judge=JUDGED))
+    noted = _verdict(make_results(translation_judge=judged))
+    assert noted[0] == plain[0] and noted[1] == ["judge_fallback"] and "gemini-3.1-flash-lite" in noted[2]
+
+
+def test_a_stretch_heard_in_part_is_not_added_twice(monkeypatch):
+    from dubeval import evaluate
+    stt = {"text": "hello", "language": "en", "segments": [seg(4.0, 7.0, text="hello")]}
+    voiced = [[4.0, 15.0]]                                   # one stretch: 3 s already heard, 8 s skipped
+    assert unheard_speech(stt, voiced) == [[4.0, 15.0]]
+
+    def fake_transcribe(y, model, language=None, check=None):   # recognized again: the heard line and the skipped one
+        return {"text": "hello world", "segments": [seg(0.3, 3.3, text="hello"), seg(3.6, 11.0, text="world")]}
+    monkeypatch.setattr(evaluate, "transcribe", fake_transcribe)
+    out = fill_gaps(stt, np.zeros(16000 * 20, dtype=np.float32), voiced, None, "en")
+    assert [(s["start"], s["text"]) for s in out["segments"]] == [(4.0, "hello"), (7.3, "world")]

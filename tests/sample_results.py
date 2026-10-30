@@ -24,8 +24,8 @@ BASE = {
     },
     "timing_alignment": {
         "overlap_pct": 81.0, "original_covered_pct": 90.0, "dub_in_original_pct": 88.0, "start_offset_sec": 0.0,
-        "end_offset_sec": -0.1, "mismatches": [{"start": 19.4, "end": 20.1, "kind": "dub_only"}],
-        "original_speech": [[0.0, 19.0], [20.5, 28.5]], "dubbed_speech": [[0.0, 20.1], [20.6, 28.4]],
+        "end_offset_sec": -0.1, "mismatches": [{"start": 19.4, "end": 20.4, "kind": "dub_only"}],
+        "original_speech": [[0.0, 19.0], [20.5, 28.5]], "dubbed_speech": [[0.0, 20.4], [20.6, 28.4]],
     },
     "video_integrity": {
         "original": {"readable": True, "width": 1920, "height": 1080, "fps": 60.0, "frames": 1721, "duration_sec": 28.68, "has_audio": True},
@@ -45,8 +45,7 @@ BASE = {
                          "lines": [{"start": 0.0, "end": 2.0, "similarity": 0.62}, {"start": 20.5, "end": 24.0,
                                                                                   "similarity": 0.64}]},
     "warnings": [],
-    "translation_judge": {"measured": False, "reason": "The translation check was turned off for this run.",
-                          "model": None, "meaning_score": None, "summary": None, "issues": []},
+    "translation_judge": None,                                    # JUDGED, set below (a full run checks it)
     "pipeline": {
         "run_id": "r1", "execution_mode": "Perso share link (lip-synced video)", "input_video_path": "o.mp4",
         "dubbed_video_path": "d.mp4", "target_language_name": "Korean", "target_language_code": "ko",
@@ -63,6 +62,12 @@ JUDGED = {"measured": True, "reason": "", "model": "gemini-3.5-flash", "meaning_
           "summary": {"en": "The dub keeps the original meaning.", "ko": "더빙이 원래 의미를 유지합니다.",
                       "pt": "A dublagem mantém o sentido original.", "es": "El doblaje mantiene el sentido original."},
           "issues": []}
+
+
+# The translation check turned off (a run without it can't be Good: report.sure_of).
+JUDGE_OFF = {"measured": False, "reason": "The translation check was turned off for this run.",
+             "model": None, "meaning_score": None, "summary": None, "issues": []}
+BASE["translation_judge"] = JUDGED
 
 
 def make_results(**sections) -> dict:

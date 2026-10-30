@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- DubEval: the original and the dub as two timeline tracks under a playhead (see NOTICE). Sizes 48 px and up. -->
+  <defs>
+    <linearGradient id="tile" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1e2758"/><stop offset="0.55" stop-color="#0d1029"/><stop offset="1" stop-color="#07080f"/></linearGradient>
+    <linearGradient id="original" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#36d6ff"/><stop offset="1" stop-color="#5b7bff"/></linearGradient>
+    <linearGradient id="dub" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8a5cff"/><stop offset="1" stop-color="#ff5fc8"/></linearGradient>
+    <filter id="glow" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="100" height="100" rx="23" fill="url(#tile)"/>
+  <g filter="url(#glow)">
+    <rect x="17" y="31" width="44" height="13" rx="6.5" fill="url(#original)"/>
+    <rect x="39" y="56" width="44" height="13" rx="6.5" fill="url(#dub)"/>
+  </g>
+  <rect x="47" y="24" width="6" height="52" rx="3" fill="#0d1029"/>
+  <rect x="48.5" y="25" width="3" height="50" rx="1.5" fill="#ffffff"/>
+  <circle cx="50" cy="23" r="5.5" fill="#ffffff"/>
+</svg>

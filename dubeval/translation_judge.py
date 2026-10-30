@@ -192,8 +192,10 @@ SYSTEM_PROMPT = """# Role
 
 # Dubbing (this is a dubbed video)
 - Both sides are what automatic speech recognition heard, not scripts: a word can be misheard (e.g. "cases" heard for
-  "tastes"). When a low score could come from a misheard word rather than a translation error (the dub's word fits a
-  similar-sounding original word, or the heard text makes no sense), set may_be_recognition_error to true. When a
+  "tastes"). Set may_be_recognition_error to true only when a misheard word explains the low score: a heard word that
+  sounds like a word that would make the line correct, or heard text that makes no sense at all. A whole phrase that
+  says something else, the opposite, or a different number is a translation error, not a mishearing: leave
+  may_be_recognition_error false. When a
   script or subtitle of a side is given, it is what that side was meant to say: trust it over the heard text.
 - A side shown as "(nothing)": the dub left that speech out, or added speech the original doesn't have.
 - Write every reason in plain language for a non-expert, one or two sentences, in four versions: English (en), Korean
@@ -442,7 +444,7 @@ def _rubric_result(parts: list[dict], lines: list[dict]) -> dict:
     return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": parts[0]["model"],
             "rubric": 1, "scale": 10, "meaning_score": mean("semantic_accuracy"),
             "criteria": {c: mean(c) for c in CRITERIA}, "summary": None, "lines": out_lines,
-            "issues": issues[:MAX_ISSUES]}
+            "issues": issues[:MAX_ISSUES], "fallback": any(p.get("fallback") for p in parts)}
 
 
 ACCOUNT_PROBLEMS = ("r.judge.bad_key", "r.judge.no_credit")
@@ -468,9 +470,10 @@ def _run_judge(provider: str, prompt: str, session, sleep: Callable[[float], Non
     return not_measured("r.judge.no_key")
 
 
-def _result(data: dict, model: str, provider: str) -> dict:
+def _result(data: dict, model: str, provider: str, fallback: bool = False) -> dict:
     """One request's judged lines from the model's JSON (scores kept within 1-10, reasons in four languages), or not
-    measured if the JSON is incomplete."""
+    measured if the JSON is incomplete. fallback: a backup model answered because the first choice failed (its
+    scores differ from run to run, so the report says so)."""
     try:
         lines = []
         for j in data["lines"]:
@@ -481,7 +484,8 @@ def _result(data: dict, model: str, provider: str) -> dict:
                           "ideal_translation": str(j.get("ideal_translation") or ""),
                           "error_type": error_type,
                           "may_be_recognition_error": bool(j.get("may_be_recognition_error"))})
-        return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": model, "lines": lines}
+        return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": model, "lines": lines,
+                "fallback": fallback}
     except (KeyError, TypeError, ValueError):
         return not_measured("r.judge.unreadable", model=provider)
 
@@ -546,7 +550,8 @@ def _judge_gemini(prompt: str, session, sleep: Callable[[float], None]) -> dict:
                 return not_measured("r.judge.cut_off", model="Gemini")
             text = "".join(p.get("text", "") for p in candidate["content"].get("parts", []) if not p.get("thought"))
             try:
-                return _result(json.loads(text), data.get("modelVersion") or model, "Gemini")
+                return _result(json.loads(text), data.get("modelVersion") or model, "Gemini",
+                               fallback=model != GEMINI_MODELS[0])
             except json.JSONDecodeError:
                 return not_measured("r.judge.unreadable", model="Gemini")
     if out_of_quota and not busy:
@@ -612,7 +617,8 @@ def _judge_openai(prompt: str, session, sleep: Callable[[float], None]) -> dict:
             if choice.get("finish_reason") == "length":
                 return not_measured("r.judge.cut_off", model="ChatGPT")
             try:
-                return _result(json.loads(message.get("content") or ""), data.get("model") or model, "ChatGPT")
+                return _result(json.loads(message.get("content") or ""), data.get("model") or model, "ChatGPT",
+                               fallback=model != OPENAI_MODELS[0])
             except json.JSONDecodeError:
                 return not_measured("r.judge.unreadable", model="ChatGPT")
     if busy:
@@ -678,12 +684,23 @@ LOCAL_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(_FOUR_LANGUAGES, "- Write every reas
                                             "non-expert, one sentence; an empty string when the score is 8 or higher.")
 
 
+LOCAL_ANSWER_TOKENS = 6144                # room for the answer: up to CHUNK_LINES lines with five scores and reasons
+
+
+def _tokens(text: str) -> int:
+    """About how many tokens a local model reads in text (a CJK character is about one; other text about 3 chars)."""
+    wide = sum(1 for ch in text if "ᄀ" <= ch <= "ᇿ" or "⺀" <= ch <= "鿿" or "가" <= ch <= "힯")
+    return int(wide + (len(text) - wide) / 3)
+
+
 def _judge_ollama(prompt: str, session) -> dict:
     """One review by a local model through Ollama, with the JSON schema as its output format; nothing leaves this
     computer. It answers in English only (LOCAL_SCHEMA), which is several times faster."""
-    # The context is sized to the prompt (about 3 characters a token) plus room for the answer: a fixed large
-    # context wastes GPU memory, and a model that doesn't fit the GPU runs partly on the CPU, many times slower.
-    num_ctx = int(min(32768, max(4096, (len(LOCAL_SYSTEM_PROMPT) + len(prompt)) / 3 + 4096)))
+    # The context is sized to the prompt plus room for the answer: a fixed large context wastes GPU memory, and a
+    # model that doesn't fit the GPU runs partly on the CPU, many times slower. A Korean, Japanese or Chinese
+    # character is about a token, other text about 3 characters a token (counted at 3 a token, a Korean dub's
+    # prompt overflowed and Gemma 3's longer answers were cut off).
+    num_ctx = int(min(32768, max(4096, _tokens(LOCAL_SYSTEM_PROMPT + prompt) + LOCAL_ANSWER_TOKENS)))
     body = {"model": OLLAMA_MODEL, "stream": False, "think": False, "format": LOCAL_SCHEMA,
             "options": {"temperature": 0, "seed": 0, "num_ctx": num_ctx},
             "messages": [{"role": "system", "content": LOCAL_SYSTEM_PROMPT}, {"role": "user", "content": prompt}]}

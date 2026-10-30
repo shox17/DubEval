@@ -73,7 +73,8 @@ export function renderProgress(root, jobId) {
     if (!alive) return;
     if (job.status !== "running") over.abort();
     if (job.status === "done") {
-      go(`#/${job.kind === "comparison" ? "compare" : "report"}/${jobId}`);
+      // Replaced, not added: Back from the result goes to where the evaluation was started, not to this screen.
+      go(`#/${job.kind === "comparison" ? "compare" : "report"}/${jobId}`, { replace: true });
       return;
     }
     draftId = job.draft_id;

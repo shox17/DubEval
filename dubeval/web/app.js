@@ -5,7 +5,7 @@ import { renderProgress } from "./progress.js";
 import { renderReview } from "./review.js";
 import { renderCompare } from "./compare.js";
 import { renderHistory } from "./history.js";
-import { renderSettings } from "./settings.js";
+import { discardChanges, renderSettings, saveChanges, watchChanges } from "./settings.js";
 import { initSidebar, refreshSidebar } from "./shell.js";
 
 const LANG_KEY = "dubeval.lang";
@@ -24,7 +24,9 @@ export async function api(path, options = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = Array.isArray(data.detail) ? data.detail.map(d => d.msg).join(" ") : data.detail;
-    throw new Error(detail || `${res.status} ${res.statusText}`);
+    const error = new Error(detail || `${res.status} ${res.statusText}`);
+    error.status = res.status;
+    throw error;
   }
   return data;
 }
@@ -55,7 +57,17 @@ export function fill(el, ...children) {
   el.replaceChildren(...children.flat(Infinity).filter(c => c !== null && c !== undefined && c !== false));
 }
 
-export function go(hash) { location.hash = hash; }
+export const INFO_EVENT = "dubeval:info";         // sent after loadInfo(): keys, models or the language changed
+
+// Opens a screen. Under an open Settings dialog the screen changes beneath it and the dialog stays (closing it
+// shows the new address); replace: true leaves no step in the browser history (Back doesn't come back here).
+export function go(hash, { replace = false } = {}) {
+  if (settings) { drawScreen(hash); markNav("settings"); return; }
+  if (replace) location.replace(hash); else location.hash = hash;
+}
+
+// Whether overlay is the dialog on top (Escape closes only that one, not a dialog under it).
+const onTop = overlay => [...document.querySelectorAll(".modal-overlay")].pop() === overlay;
 
 // Changes the address of the screen on show without drawing it again (a new draft gets its own address).
 export function setAddress(hash) {
@@ -67,7 +79,7 @@ export function setAddress(hash) {
 // buttons: [{label, primary, onclick(close)}]; returns close().
 export function openModal(title, body, buttons = [], { width = null } = {}) {
   const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
-  const onKey = e => { if (e.key === "Escape") close(); };
+  const onKey = e => { if (e.key === "Escape" && onTop(overlay)) close(); };
   const foot = buttons.map(b => h("button", { type: "button", class: b.primary ? "primary" : "",
     hidden: b.hidden, onclick: () => (b.onclick ? b.onclick(close) : close()) }, b.label));
   const modal = h("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-label": title,
@@ -99,7 +111,7 @@ export function confirmAlert({ title, text = "", keep, confirm, onConfirm = null
     }
     const error = h("p", { class: "error small", role: "alert" });
     const done = answer => { overlay.remove(); document.removeEventListener("keydown", onKey); resolve(answer); };
-    const onKey = e => { if (e.key === "Escape") done(false); };
+    const onKey = e => { if (e.key === "Escape" && onTop(overlay)) done(false); };
     const yes = h("button", { type: "button", class: "primary", onclick: async () => {
       if (!onConfirm) return done(true);
       yes.disabled = no.disabled = true;
@@ -132,11 +144,12 @@ export async function setLanguage(code) {
 // Reloads the texts and what's installed (after a download finishes, for example).
 export async function loadInfo() {
   state.info = await api(`/api/info?lang=${state.lang}`);
+  window.dispatchEvent(new Event(INFO_EVENT));      // the start page updates its checker list, for example
   state.texts = state.info.texts;
   document.documentElement.lang = state.lang;
   const label = (id, text) => { document.querySelector(`#${id} .side-label`).textContent = text; };
   label("nav-new", t("w.nav.new"));
-  label("nav-home", t("w.nav.evaluations"));
+  label("nav-home", t("w.nav.home"));
   label("nav-history", t("h.title"));
   label("nav-settings", t("w.set.title"));
   label("nav-help", t("w.nav.help"));
@@ -158,12 +171,14 @@ function markNav(screen) {
 let rendered = null;                                 // the address of the screen drawn under any dialog
 let settings = null;                                 // the open Settings dialog: {overlay, body, title, cleanup}
 
-function closeSettings() {
+function closeSettings(restore = true) {
   if (!settings) return;
+  discardChanges();                                  // Cancel, Escape or a click outside: what Save would keep goes
   settings.cleanup?.();
   settings.overlay.remove();
   document.removeEventListener("keydown", settings.onKey);
   settings = null;
+  if (!restore) return;                              // the address already names the next screen
   history.replaceState(null, "", rendered || "#/");
   markNav((rendered || "#/").split("/")[1]);
 }
@@ -172,14 +187,31 @@ function openSettings(tab) {
   if (!settings) {
     const body = h("div", { class: "modal-body" });
     const title = h("h2", {}, t("w.set.title"));
+    const error = h("p", { class: "error small set-error", role: "alert" });
+    const cancel = h("button", { type: "button", onclick: closeSettings }, t("w.cancel"));
+    // Save keeps the typed keys and a new language, then closes; a key the server refuses keeps the dialog open.
+    const save = h("button", { type: "button", class: "primary", disabled: true, onclick: async () => {
+      save.disabled = cancel.disabled = true;
+      error.textContent = "";
+      try {
+        const lang = await saveChanges();
+        closeSettings();
+        if (lang) await setLanguage(lang); else await loadInfo().catch(() => {});
+      } catch (e) {
+        error.textContent = e.message;
+        cancel.disabled = false;
+        save.disabled = false;
+      }
+    } }, t("w.set.save"));
     const modal = h("div", { class: "modal settings-modal", role: "dialog", "aria-modal": "true", "aria-label": t("w.set.title") },
-      h("div", { class: "modal-head" }, title), body,
-      h("div", { class: "modal-foot" }, h("button", { type: "button", onclick: closeSettings }, t("w.close"))));
+      h("div", { class: "modal-head" }, title), body, error,
+      h("div", { class: "modal-foot" }, cancel, save));
     const overlay = h("div", { class: "modal-overlay", onclick: e => { if (e.target === overlay) closeSettings(); } }, modal);
-    const onKey = e => { if (e.key === "Escape") closeSettings(); };
+    const onKey = e => { if (e.key === "Escape" && onTop(overlay)) closeSettings(); };
     document.addEventListener("keydown", onKey);
     document.body.append(overlay);
     settings = { overlay, body, title, onKey, cleanup: null };
+    watchChanges(on => { save.disabled = !on; });
   }
   settings.cleanup?.();
   settings.title.textContent = t("w.set.title");
@@ -199,8 +231,9 @@ function route(force = false) {
     openSettings(id);
     return;
   }
-  closeSettings();
-  drawScreen(location.hash);
+  const target = location.hash;                      // read first: closing Settings must not put the old address back
+  closeSettings(false);
+  drawScreen(target);
 }
 
 function drawScreen(hash) {
@@ -210,7 +243,8 @@ function drawScreen(hash) {
   root.replaceChildren();
   const [, screen, id, dub] = hash.split("/");
   markNav(screen);
-  root.classList.toggle("wide", screen === "report" || screen === "compare");   // results use the whole window
+  // Results, the home screen and the history use the whole window (they stretch with it, as PersoDub's home).
+  root.classList.toggle("wide", ["report", "compare", "history", "", undefined].includes(screen));
   root.scrollTop = 0;                               // the work panel scrolls, not the window
   if (screen === "job" && id) state.cleanup = renderProgress(root, id);
   else if (screen === "report" && id) state.cleanup = renderReview(root, id);

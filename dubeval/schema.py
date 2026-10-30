@@ -84,6 +84,7 @@ class Project(_Model):
     perso_seq: Optional[int] = None
     is_lipsync: Optional[bool] = None
     evaluated_video: Optional[str] = None
+    dub_id: Optional[str] = Field(None, description="A dub given as a file: its path, hashed (reviewer votes use it)")
 
 
 class NotMeasured(_Model):

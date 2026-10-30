@@ -8,7 +8,9 @@ For how each measure works and its bands, see [metrics.md](metrics.md); for the 
   thresholds it was graded with, so a saved report explains itself without the tool.
 - **No single 0–100 score (for now).** Weights between unrelated measures would be arbitrary. The verdict is a rule:
   any Poor → Poor; otherwise any Check → Needs review; otherwise Good. Informational and not-measured items never
-  count, and each not-measured item says why.
+  count, and each not-measured item says why. When DubEval isn't sure of its own measurement (little or unclear
+  speech, a replaced background, words it couldn't recognize), it says so and doesn't let that measurement decide
+  (metrics.md §6).
 - **`None` means "not measured".** No sentinel numbers.
 - **Never fail a run because of an optional check.** A translation review that can't run becomes "not measured"
   with the reason.
@@ -50,7 +52,9 @@ on a laptop. It was deferred because of a torchaudio version conflict, and is pl
 ## Translation check
 - An LLM compares the two timestamped transcripts for meaning, omissions, additions, names and numbers.
 - It reads **transcripts, not audio**, so a misheard word can look like a translation error. Issues the model marks
-  as probable recognition errors are listed but never lower a level.
+  as probable recognition errors never make the dub Poor, but a line it scores very low (4 or under) is Check: the
+  model can't tell a mishearing from a real error there, so a person listens (a reversed meaning marked "maybe
+  misheard" once vanished from the report).
 - Results are cached per input (transcripts, languages, provider, model, prompt and schema), and failures are retried.
 - Provider outages are expected (Gemini often returns "high demand"), so the judge retries and falls back across
   models before reporting "busy, try again".

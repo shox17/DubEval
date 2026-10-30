@@ -165,10 +165,12 @@ def test_pairing_is_graded_in_every_language(pairing_result, levels):
 
 def test_a_missing_part_becomes_a_problem_interval():
     pr = {"measured": True, "evidence": "picture", "same_video": True, "picture_match": 0.53, "coverage_pct": 75.0,
-          "missing": [[7.0, 12.0]], "steady_offset": False, "offset_sec": -5.0, "applied_offset_sec": -5.0}
+          "missing": [[7.0, 12.0], [20.0, 20.1]], "steady_offset": False, "offset_sec": -5.0,
+          "applied_offset_sec": -5.0}
     rep = build_report(make_results(pairing=pr), "en")
     gap = [i for i in rep["problem_intervals"] if i["category"] == "missing_in_dub"]
-    assert gap and gap[0]["start"] == 7.0 and gap[0]["end"] == 12.0 and gap[0]["severity"] == "poor"
+    assert len(gap) == 1 and gap[0]["start"] == 7.0 and gap[0]["end"] == 12.0 and gap[0]["severity"] == "poor"
+    # the 0.1 s sliver at 20 s is the two files' lengths differing by a frame, not a missing part
 
 
 def test_results_without_pairing_have_no_pairing_section():
@@ -234,3 +236,52 @@ def test_the_check_reports_its_steps(monkeypatch):
     y = np.zeros(16000 * 4, dtype=np.float32)
     pairing.pair("a", "b", y, y, 16000, "ffmpeg", progress=lambda message, fraction: seen.append(message))
     assert seen == ["Reading the picture of both videos...", "Matching the two videos..."]
+
+
+def _envelope(seconds, seed=1):
+    """An onset envelope like pairing.onset_envelope's (one value per 10 ms): random bursts of sound."""
+    rng = np.random.default_rng(seed)
+    env = (rng.random(int(seconds * 100)) > 0.9).astype(np.float32)
+    return (env - env.mean()) / (env.std() or 1.0)
+
+
+def test_a_dub_whose_sound_is_late_against_its_picture_is_found():
+    from dubeval import pairing
+    env = _envelope(40)
+    late = np.concatenate([np.zeros(100, dtype=np.float32), env])[:len(env)]     # the same sound, 1 s later
+    assert pairing.sound_sync(env, env, 0.0, 40)["shift_sec"] == 0.0
+    sync = pairing.sound_sync(env, late, 0.0, 40)
+    assert sync["measured"] and sync["shift_sec"] == 1.0
+    assert pairing.sound_sync(env, late, 1.0, 40)["shift_sec"] == 0.0              # the picture is late by as much
+    assert pairing.sound_sync(env, env, 0.0, 7)["reason"] == "short"
+    assert pairing.sound_sync(env, _envelope(40, seed=2), 0.0, 40)["reason"] == "no_shared_sound"
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_sound_out_of_sync_is_graded_and_covers_the_whole_dub(lang):
+    base = {"measured": True, "evidence": "picture", "same_video": True, "picture_match": 1.0, "coverage_pct": 100.0,
+            "missing": [], "steady_offset": True, "offset_sec": 0.0, "applied_offset_sec": 0.0}
+    for sync, level in (({"measured": True, "shift_sec": 0.1, "correlation": 0.5}, "good"),
+                        ({"measured": True, "shift_sec": -0.4, "correlation": 0.5}, "check"),
+                        ({"measured": True, "shift_sec": 1.0, "correlation": 0.5}, "poor"),
+                        ({"measured": False, "reason": "short"}, "not_measured")):
+        rep = build_report(make_results(pairing={**base, "sound_sync": sync}), lang)
+        row = next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "sound_sync")
+        assert row["level"] == level and "{" not in row["message"]
+        flags = [i for i in rep["problem_intervals"] if i["category"] == "sound_sync"]
+        assert bool(flags) == (level in ("check", "poor"))
+        if flags:
+            assert flags[0]["start"] == 0.0 and flags[0]["severity"] == level
+
+
+def test_the_pictures_sampling_step_is_never_called_out_of_sync():
+    from dubeval import pairing
+    env = _envelope(40)
+    late = np.concatenate([np.zeros(30, dtype=np.float32), env])[:len(env)]       # the same sound, 0.3 s later
+    assert pairing.sound_sync(env, late, 0.0, 40)["shift_sec"] == 0.3
+    # A long video's frames are compared every 0.6 s: its picture shift is known only to +/-0.3 s, which isn't counted.
+    assert pairing.sound_sync(env, late, 0.0, 40, picture_step=0.6)["shift_sec"] == 0.0
+    assert pairing.sound_sync(env, late, 0.0, 40, picture_step=0.2)["shift_sec"] == 0.2
+    early = env[30:]
+    assert pairing.sound_sync(env, np.concatenate([early, np.zeros(30, dtype=np.float32)]), 0.0, 40,
+                              picture_step=0.2)["shift_sec"] == -0.2

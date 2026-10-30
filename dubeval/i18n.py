@@ -137,13 +137,20 @@ TEXT = {
     },
     "verdict.rule": {
         "en": "Any Poor makes the verdict Poor; otherwise any Check makes it Needs review. "
-              "Info and not-measured items don't count.",
+              "Info and not-measured items don't count. When DubEval isn't sure (little or unclear speech), only "
+              "problems that don't depend on speech can make it Poor; when the dub's words couldn't be checked, it "
+              "is never Good.",
         "ko": "미흡 항목이 하나라도 있으면 '미흡', 없고 확인 필요 항목이 있으면 '검토 필요'입니다. "
-              "참고와 측정 안 함 항목은 판정에 포함되지 않습니다.",
+              "참고와 측정 안 함 항목은 판정에 포함되지 않습니다. DubEval이 확실하지 않을 때(말소리가 적거나 불분명함)는 "
+              "말소리와 무관한 문제만 '미흡'이 될 수 있고, 더빙의 말을 확인하지 못했을 때는 '좋음'이 되지 않습니다.",
         "pt": "Qualquer item Ruim torna o resultado Ruim; senão, qualquer item Verificar o torna Precisa de revisão. "
-              "Itens informativos e não medidos não contam.",
+              "Itens informativos e não medidos não contam. Quando o DubEval não tem certeza (pouca fala ou fala "
+              "pouco clara), só problemas que não dependem da fala o tornam Ruim; quando as palavras da dublagem não "
+              "puderam ser verificadas, ele nunca é Bom.",
         "es": "Cualquier elemento Deficiente hace el resultado Deficiente; si no, cualquier Revisar lo hace Necesita revisión. "
-              "Los informativos y los no medidos no cuentan.",
+              "Los informativos y los no medidos no cuentan. Cuando DubEval no está seguro (poca voz o voz poco "
+              "clara), solo los problemas que no dependen de la voz lo hacen Deficiente; cuando no se pudieron "
+              "comprobar las palabras del doblaje, nunca es Bien.",
     },
     # ----- labelling page (dubeval/labeling.py) -----
     "lab.title": {"en": 'Label the test set', "ko": '테스트 세트 라벨링', "pt": 'Rotular o conjunto de teste', "es": 'Etiquetar el conjunto de prueba'},
@@ -184,6 +191,7 @@ TEXT = {
                        "es": "Integridad del video"},
     "rsec.lipsync": {"en": "Lip movement (experimental)", "ko": "입 움직임 (실험적)",
                      "pt": "Movimento dos lábios (experimental)", "es": "Movimiento de los labios (experimental)"},
+    "rsec.lip_sync": {"en": "Lip sync", "ko": "립싱크", "pt": "Sincronia labial", "es": "Sincronía labial"},
     "report.no_things": {"en": "Nothing specific to check.", "ko": "특별히 확인할 곳이 없습니다.",
                          "pt": "Nada específico para verificar.", "es": "Nada específico que revisar."},
     "report.jump_help": {"en": "Play both videos from this moment.", "ko": "두 영상을 이 지점부터 재생합니다.",
@@ -529,6 +537,13 @@ MESSAGES = {
     "Analyzing lip movement in the dubbed video...": {"ko": "더빙 영상의 입 움직임 분석 중...",
                                                       "pt": "Analisando o movimento dos lábios no vídeo dublado...",
                                                       "es": "Analizando el movimiento de los labios en el video doblado..."},
+    "An evaluation or a download is running. Clear the downloads when it has finished.": {
+        "ko": "평가나 다운로드가 진행 중입니다. 끝난 뒤에 비우세요.",
+        "pt": "Uma avaliação ou um download está em andamento. Limpe os downloads quando terminar.",
+        "es": "Hay una evaluación o una descarga en curso. Vacía las descargas cuando termine."},
+    "Checking lip sync in both videos...": {"ko": "두 영상의 립싱크 확인 중...",
+                                            "pt": "Verificando a sincronia labial nos dois vídeos...",
+                                            "es": "Comprobando la sincronía labial en los dos videos..."},
     "Analyzing lip movement in the original video...": {"ko": "원본 영상의 입 움직임 분석 중...",
                                                         "pt": "Analisando o movimento dos lábios no vídeo original...",
                                                         "es": "Analizando el movimiento de los labios en el video original..."},

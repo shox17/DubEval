@@ -31,6 +31,7 @@ REPORT_TEXT = {
     "r.m.file_check": {"en": "Video file", "ko": "영상 파일", "pt": "Arquivo de vídeo", "es": "Archivo de video"},
     "r.m.lip_movement": {"en": "Lip movement", "ko": "입 움직임", "pt": "Movimento dos lábios",
                          "es": "Movimiento de los labios"},
+    "r.m.lip_sync": {"en": "Lip sync", "ko": "립싱크", "pt": "Sincronia labial", "es": "Sincronía labial"},
 
     # ----- length -----
     "r.length.same": {
@@ -521,7 +522,7 @@ REPORT_TEXT = {
     "r.rubric.summary": {"en": "Averages {avg} / 10 over {n} lines; {low} scored {flag} or lower.", "ko": "{n}개 줄 평균 {avg}/10점. {flag}점 이하인 줄 수: {low}.", "pt": "Média {avg} / 10 em {n} falas; {low} tiveram {flag} ou menos.", "es": "Promedio {avg} / 10 en {n} frases; {low} obtuvieron {flag} o menos."},
     "r.rubric.low_count_one": {"en": "{n} line ≤ {flag}", "ko": "{flag}점 이하 {n}줄", "pt": "{n} fala ≤ {flag}", "es": "{n} frase ≤ {flag}"},
     "r.rubric.low_count_many": {"en": "{n} lines ≤ {flag}", "ko": "{flag}점 이하 {n}줄", "pt": "{n} falas ≤ {flag}", "es": "{n} frases ≤ {flag}"},
-    "r.g.rubric_meaning": {"en": "{model} scores every line from 1 to 10 for meaning, against written descriptions of each score. Poor when a line scores {poor} or lower, Check when a line scores {flag} or lower, otherwise Good. Lines that speech recognition may have misheard are listed but don't count.", "ko": "{model} 모델이 각 점수의 설명에 따라 모든 줄의 의미를 1~10점으로 평가합니다. 어느 줄이든 {poor}점 이하면 나쁨, {flag}점 이하면 확인 필요, 그 외에는 좋음입니다. 음성 인식이 잘못 들었을 수 있는 줄은 목록에만 표시하고 평가에 넣지 않습니다.", "pt": "{model} dá a cada fala uma nota de 1 a 10 para o sentido, seguindo descrições escritas de cada nota. Ruim quando uma fala tem {poor} ou menos, Verificar quando tem {flag} ou menos; senão, Bom. Falas que o reconhecimento de fala pode ter ouvido errado são listadas, mas não contam.", "es": "{model} puntúa cada frase de 1 a 10 por el sentido, según descripciones escritas de cada nota. Mal cuando una frase obtiene {poor} o menos, Revisar cuando obtiene {flag} o menos; si no, Bien. Las frases que el reconocimiento de voz pudo oír mal se listan, pero no cuentan."},
+    "r.g.rubric_meaning": {"en": "{model} scores every line from 1 to 10 for meaning, against written descriptions of each score. Poor when {count} or more lines (or most lines) score {poor} or lower, Check when any line scores {flag} or lower, otherwise Good. Lines that speech recognition may have misheard are listed but don't count.", "ko": "{model} 모델이 각 점수의 설명에 따라 모든 줄의 의미를 1~10점으로 평가합니다. {poor}점 이하인 줄이 {count}개 이상이거나 대부분이면 나쁨, 어느 줄이든 {flag}점 이하면 확인 필요, 그 외에는 좋음입니다. 음성 인식이 잘못 들었을 수 있는 줄은 목록에만 표시하고 평가에 넣지 않습니다.", "pt": "{model} dá a cada fala uma nota de 1 a 10 para o sentido, seguindo descrições escritas de cada nota. Ruim quando {count} ou mais falas (ou a maioria) têm {poor} ou menos, Verificar quando alguma fala tem {flag} ou menos; senão, Bom. Falas que o reconhecimento de fala pode ter ouvido errado são listadas, mas não contam.", "es": "{model} puntúa cada frase de 1 a 10 por el sentido, según descripciones escritas de cada nota. Mal cuando {count} o más frases (o la mayoría) obtienen {poor} o menos, Revisar cuando alguna frase obtiene {flag} o menos; si no, Bien. Las frases que el reconocimiento de voz pudo oír mal se listan, pero no cuentan."},
     "r.g.rubric_other": {"en": "{model} scores every line from 1 to 10, against written descriptions of each score. Check when a line scores {flag} or lower, otherwise Good. Lines that may be misheard don't count.", "ko": "{model} 모델이 각 점수의 설명에 따라 모든 줄을 1~10점으로 평가합니다. 어느 줄이든 {flag}점 이하면 확인 필요, 그 외에는 좋음입니다. 잘못 들었을 수 있는 줄은 평가에 넣지 않습니다.", "pt": "{model} dá a cada fala uma nota de 1 a 10, seguindo descrições escritas de cada nota. Verificar quando uma fala tem {flag} ou menos; senão, Bom. Falas que podem ter sido ouvidas errado não contam.", "es": "{model} puntúa cada frase de 1 a 10, según descripciones escritas de cada nota. Revisar cuando una frase obtiene {flag} o menos; si no, Bien. Las frases que pudieron oírse mal no cuentan."},
     "r.todo.suggested": {"en": "Suggested translation: “{text}”", "ko": "추천 번역: “{text}”", "pt": "Tradução sugerida: “{text}”", "es": "Traducción sugerida: “{text}”"},
     "r.cat.wording": {"en": "translation wording", "ko": "번역 표현", "pt": "redação da tradução", "es": "redacción de la traducción"},
@@ -654,6 +655,16 @@ REPORT_TEXT = {
     },
     "r.file.audio_yes": {"en": "audio ✓", "ko": "오디오 ✓", "pt": "áudio ✓", "es": "audio ✓"},
     "r.file.audio_no": {"en": "no audio", "ko": "오디오 없음", "pt": "sem áudio", "es": "sin audio"},
+    "r.g.lip_sync": {
+        "en": "For information: never changes the verdict. Up to {n} moments with a face and speech in both videos are "
+              "checked; a moment lines up when the lips match the sound within {sec} s of where they do in the original.",
+        "ko": "참고용이며 판정에는 영향을 주지 않습니다. 두 영상 모두 얼굴과 음성이 있는 순간을 최대 {n}개 확인하며, 입 모양이 "
+              "원본에서와 같은 위치의 {sec}초 안에서 소리와 맞으면 맞는 순간으로 봅니다.",
+        "pt": "Informativo: nunca muda o resultado. São verificados até {n} momentos com rosto e fala nos dois vídeos; um "
+              "momento combina quando os lábios acompanham o som a até {sec} s de onde acompanham no original.",
+        "es": "Informativo: nunca cambia el resultado. Se revisan hasta {n} momentos con cara y voz en los dos videos; un "
+              "momento coincide cuando los labios siguen el sonido a menos de {sec} s de donde lo hacen en el original.",
+    },
     "r.g.file": {
         "en": "Good when the picture size and frame rate match the original and there is an audio track.",
         "ko": "화면 크기와 프레임 속도가 원본과 같고 오디오 트랙이 있으면 좋음입니다.",
@@ -831,6 +842,58 @@ REPORT_TEXT = {
         "pt": "Bom quando pelo menos {good}% do original está na dublagem, Verificar a partir de {check}%, senão Ruim.",
         "es": "Bien cuando al menos el {good}% del original está en el doblaje, Revisar desde el {check}%, si no Mal.",
     },
+    "r.m.sound_sync": {"en": "Sound in sync with the picture", "ko": "소리와 화면 싱크", "pt": "Som em sincronia com a imagem",
+                       "es": "Sonido sincronizado con la imagen"},
+    "r.sync.good": {"en": "The dub's sound is in step with its picture.",
+                    "ko": "더빙 소리가 화면과 맞습니다.",
+                    "pt": "O som da dublagem está em sincronia com a imagem.",
+                    "es": "El sonido del doblaje va al ritmo de la imagen."},
+    "r.sync.late": {"en": "The dub's sound is {sec} s behind its picture: viewers hear everything after they see it. "
+                           "Shift the dub's audio earlier and export again.",
+                    "ko": "더빙 소리가 화면보다 {sec}초 늦습니다. 시청자는 장면을 본 뒤에 소리를 듣게 됩니다. 더빙 오디오를 앞으로 당겨 다시 내보내세요.",
+                    "pt": "O som da dublagem está {sec} s atrás da imagem: o público ouve tudo depois de ver. Adiante o "
+                          "áudio da dublagem e exporte de novo.",
+                    "es": "El sonido del doblaje va {sec} s por detrás de la imagen: el público oye todo después de verlo. "
+                          "Adelanta el audio del doblaje y vuelve a exportar."},
+    "r.sync.early": {"en": "The dub's sound is {sec} s ahead of its picture: viewers hear everything before they see it. "
+                            "Shift the dub's audio later and export again.",
+                     "ko": "더빙 소리가 화면보다 {sec}초 빠릅니다. 시청자는 장면을 보기 전에 소리를 듣게 됩니다. 더빙 오디오를 뒤로 밀어 다시 내보내세요.",
+                     "pt": "O som da dublagem está {sec} s à frente da imagem: o público ouve tudo antes de ver. Atrase o "
+                           "áudio da dublagem e exporte de novo.",
+                     "es": "El sonido del doblaje va {sec} s por delante de la imagen: el público oye todo antes de verlo. "
+                           "Retrasa el audio del doblaje y vuelve a exportar."},
+    "r.sync.na_short": {"en": "Not measured: the video is shorter than {sec} s, too short to compare the soundtracks reliably.",
+                        "ko": "측정하지 않음: 영상 길이가 {sec}초 미만이라 두 소리를 믿을 만하게 비교할 수 없습니다.",
+                        "pt": "Não medido: o vídeo tem menos de {sec} s, curto demais para comparar as trilhas com segurança.",
+                        "es": "No medido: el video dura menos de {sec} s, demasiado poco para comparar las pistas con fiabilidad."},
+    "r.sync.na_shared": {"en": "Not measured: the dub doesn't keep enough of the original's background sound to line the two "
+                                "up (for example, the music was replaced).",
+                         "ko": "측정하지 않음: 더빙에 원본의 배경음이 충분히 남아 있지 않아 두 소리를 맞춰 볼 수 없습니다 (예: 음악이 바뀜).",
+                         "pt": "Não medido: a dublagem não mantém som de fundo suficiente do original para alinhar os dois "
+                               "(por exemplo, a música foi trocada).",
+                         "es": "No medido: el doblaje no conserva suficiente sonido de fondo del original para alinearlos "
+                               "(por ejemplo, se cambió la música)."},
+    "r.g.sound_sync": {"en": "The background sound the dub keeps from the original (music, effects) is lined up with the "
+                              "original's, and compared with where the picture lines up. Good under {check} s apart, Check "
+                              "from {check} s, Poor from {poor} s.",
+                       "ko": "더빙에 남아 있는 원본 배경음(음악, 효과음)을 원본과 맞춰 보고, 화면이 맞는 위치와 비교합니다. 차이가 {check}초 미만이면 좋음, "
+                             "{check}초부터 확인 필요, {poor}초부터 나쁨입니다.",
+                       "pt": "O som de fundo que a dublagem mantém do original (música, efeitos) é alinhado com o do original "
+                             "e comparado com o alinhamento da imagem. Bom com menos de {check} s de diferença, Verificar a "
+                             "partir de {check} s, Ruim a partir de {poor} s.",
+                       "es": "El sonido de fondo que el doblaje conserva del original (música, efectos) se alinea con el del "
+                             "original y se compara con el alineamiento de la imagen. Bien con menos de {check} s de "
+                             "diferencia, Revisar desde {check} s, Mal desde {poor} s."},
+    "r.cat.sound_sync": {"en": "sound out of sync", "ko": "소리와 화면 어긋남", "pt": "som fora de sincronia",
+                         "es": "sonido desincronizado"},
+    "r.int.sound_late": {"en": "The whole dub: its sound is {sec} s behind the picture.",
+                         "ko": "더빙 전체: 소리가 화면보다 {sec}초 늦습니다.",
+                         "pt": "A dublagem inteira: o som está {sec} s atrás da imagem.",
+                         "es": "Todo el doblaje: el sonido va {sec} s por detrás de la imagen."},
+    "r.int.sound_early": {"en": "The whole dub: its sound is {sec} s ahead of the picture.",
+                          "ko": "더빙 전체: 소리가 화면보다 {sec}초 빠릅니다.",
+                          "pt": "A dublagem inteira: o som está {sec} s à frente da imagem.",
+                          "es": "Todo el doblaje: el sonido va {sec} s por delante de la imagen."},
     "r.cat.missing_in_dub": {"en": "missing from the dub", "ko": "더빙에서 빠짐", "pt": "ausente na dublagem",
                              "es": "falta en el doblaje"},
     "r.int.missing_in_dub": {
@@ -906,16 +969,16 @@ REPORT_TEXT = {
     "r.overrun.display_many": {"en": "{n} lines", "ko": "{n}개 대사", "pt": "{n} falas", "es": "{n} frases"},
     "r.g.line_length": {
         "en": "Each original line of at least {min} s is compared with the dub speech matched to it, from first to "
-              "last word. Good when at least {good}% of the lines are within ±{band}%, Check from {check}%, otherwise "
-              "Poor. Poor needs at least {count} lines off.",
-        "ko": "{min}초 이상인 원본 대사마다 짝지은 더빙 음성과 첫 단어부터 마지막 단어까지 비교합니다. 대사의 {good}% 이상이 "
-              "±{band}% 안이면 좋음, {check}% 이상이면 확인 필요, 그 미만이면 나쁨입니다. 나쁨은 맞지 않는 대사가 {count}개 이상일 때만입니다.",
+              "last word. A line is off when it differs by more than ±{band}% and by at least {diff} s. Good when at least "
+              "{good}% of the lines are not off, Check from {check}%, otherwise Poor. Poor needs at least {count} lines off.",
+        "ko": "{min}초 이상인 원본 대사마다 짝지은 더빙 음성과 첫 단어부터 마지막 단어까지 비교합니다. 길이 차이가 "
+              "±{band}% 초과이면서 {diff}초 이상 차이 나면 맞지 않는 대사입니다. 대사의 {good}% 이상이 맞으면 좋음, {check}% 이상이면 확인 필요, 그 미만이면 나쁨입니다. 나쁨은 맞지 않는 대사가 {count}개 이상일 때만입니다.",
         "pt": "Cada fala original de pelo menos {min} s é comparada com a fala da dublagem ligada a ela, da primeira à "
-              "última palavra. Bom quando pelo menos {good}% das falas estão dentro de ±{band}%, Verificar a partir de "
-              "{check}%, senão Ruim. Ruim exige pelo menos {count} falas fora.",
+              "última palavra. Uma fala está fora quando difere mais de ±{band}% e pelo menos {diff} s. Bom quando pelo "
+              "menos {good}% das falas não estão fora, Verificar a partir de {check}%, senão Ruim. Ruim exige pelo menos {count} falas fora.",
         "es": "Cada frase original de al menos {min} s se compara con la voz del doblaje emparejada, de la primera a la "
-              "última palabra. Bien cuando al menos el {good}% de las frases está dentro de ±{band}%, Revisar desde el "
-              "{check}%, si no Mal. Mal requiere al menos {count} frases fuera.",
+              "última palabra. Una frase está fuera cuando difiere más de ±{band}% y al menos {diff} s. Bien cuando al "
+              "menos el {good}% de las frases no está fuera, Revisar desde el {check}%, si no Mal. Mal requiere al menos {count} frases fuera.",
     },
     "r.g.line_overrun": {
         "en": "A dub line runs over when it ends more than {sec} s after the original's next line starts. Good when "
@@ -1127,6 +1190,77 @@ REPORT_TEXT = {
               "dos: una nota cercana o superior a la del original es mejor. Es una pista experimental, no una nota.",
     },
     "r.lips.display": {"en": "score {r}", "ko": "점수 {r}", "pt": "nota {r}", "es": "nota {r}"},
+    "r.lips.get_pack": {
+        "en": "For a real lip-sync check, download it under Settings → Models.",
+        "ko": "실제 립싱크 검사를 쓰려면 설정 → 모델에서 다운로드하세요.",
+        "pt": "Para uma verificação real da sincronia labial, baixe-a em Configurações → Modelos.",
+        "es": "Para una comprobación real de la sincronía labial, descárgala en Ajustes → Modelos.",
+    },
+    "r.lips.replaced": {
+        "en": "Replaced by the lip-sync check.", "ko": "립싱크 검사로 대체되었습니다.",
+        "pt": "Substituído pela verificação de sincronia labial.", "es": "Sustituido por la comprobación de sincronía labial.",
+    },
+
+    # ----- lip sync (the lip_sync pack) -----
+    "r.sync_lips.info": {
+        "en": "The lips line up with the dubbed speech in {dub} of {n} moments checked; in the original, {orig} of {n}. "
+              "Close to the original means viewers see the mouth say what they hear. A dub without lip sync lines up "
+              "about 1 time in 6 by chance.",
+        "ko": "확인한 {n}개 순간 중 {dub}개에서 입 모양이 더빙 음성과 맞습니다. 원본은 {n}개 중 {orig}개입니다. 원본에 "
+              "가까울수록 시청자가 듣는 말과 입 모양이 일치합니다. 립싱크가 없는 더빙도 우연히 6번에 1번쯤은 맞습니다.",
+        "pt": "Os lábios acompanham a fala dublada em {dub} de {n} momentos verificados; no original, em {orig} de {n}. "
+              "Perto do original significa que o espectador vê a boca dizer o que ouve. Uma dublagem sem sincronia "
+              "labial acerta cerca de 1 vez em 6 por acaso.",
+        "es": "Los labios coinciden con la voz doblada en {dub} de {n} momentos revisados; en el original, en {orig} de "
+              "{n}. Cerca del original significa que el espectador ve la boca decir lo que oye. Un doblaje sin "
+              "sincronía labial coincide por azar alrededor de 1 vez de cada 6.",
+    },
+    "r.sync_lips.late": {
+        "en": "The lips do follow the speech, but the sound comes {sec} s after them: check that the sound is in step "
+              "with the picture.",
+        "ko": "입 모양은 음성을 따라가지만 소리가 입보다 {sec}초 늦습니다. 소리와 화면이 맞는지 확인하세요.",
+        "pt": "Os lábios acompanham a fala, mas o som vem {sec} s depois deles: confira se o som está alinhado com a imagem.",
+        "es": "Los labios siguen la voz, pero el sonido llega {sec} s después: comprueba que el sonido vaya a la par de la "
+              "imagen.",
+    },
+    "r.sync_lips.early": {
+        "en": "The lips do follow the speech, but the sound comes {sec} s before them: check that the sound is in step "
+              "with the picture.",
+        "ko": "입 모양은 음성을 따라가지만 소리가 입보다 {sec}초 빠릅니다. 소리와 화면이 맞는지 확인하세요.",
+        "pt": "Os lábios acompanham a fala, mas o som vem {sec} s antes deles: confira se o som está alinhado com a imagem.",
+        "es": "Los labios siguen la voz, pero el sonido llega {sec} s antes: comprueba que el sonido vaya a la par de la "
+              "imagen.",
+    },
+    "r.sync_lips.display": {"en": "{dub} of {n} (original {orig})", "ko": "{n}개 중 {dub}개 (원본 {orig}개)",
+                            "pt": "{dub} de {n} (original {orig})", "es": "{dub} de {n} (original {orig})"},
+    "r.sync_lips.few_moments": {
+        "en": "Not measured: only {n} moments show a face while both videos have speech (at least 8 are needed).",
+        "ko": "측정 안 함: 두 영상 모두 음성이 있는 동안 얼굴이 보이는 순간이 {n}개뿐입니다(최소 8개 필요).",
+        "pt": "Não medido: só {n} momentos mostram um rosto enquanto os dois vídeos têm fala (são precisos pelo menos 8).",
+        "es": "No medido: solo {n} momentos muestran una cara mientras los dos videos tienen voz (se necesitan al menos 8).",
+    },
+    "r.sync_lips.original_off": {
+        "en": "Not measured: even in the original the lips line up with the speech in only {pct} of moments, so the voice "
+              "is probably not the person on screen (a narrator or a voice off camera).",
+        "ko": "측정 안 함: 원본에서도 입 모양이 음성과 맞는 순간이 {pct}뿐이라, 목소리가 화면 속 인물의 것이 아닐 가능성이 "
+              "큽니다(내레이터나 화면 밖 목소리).",
+        "pt": "Não medido: mesmo no original os lábios acompanham a fala em só {pct} dos momentos, então a voz provavelmente "
+              "não é da pessoa na tela (um narrador ou uma voz fora de cena).",
+        "es": "No medido: incluso en el original los labios coinciden con la voz solo en el {pct} de los momentos, así que "
+              "la voz probablemente no es de la persona en pantalla (un narrador o una voz fuera de cámara).",
+    },
+    "r.sync_lips.recut": {
+        "en": "Not measured: the dub is cut differently from the original, so its moments can't be matched one to one.",
+        "ko": "측정 안 함: 더빙이 원본과 다르게 편집되어 같은 순간끼리 짝지을 수 없습니다.",
+        "pt": "Não medido: a dublagem foi editada de outro jeito que o original, então os momentos não se correspondem um a um.",
+        "es": "No medido: el doblaje está montado de otra forma que el original, así que sus momentos no se corresponden uno a uno.",
+    },
+    "r.sync_lips.error": {
+        "en": "Not measured: the lip-sync check couldn't read the videos.",
+        "ko": "측정 안 함: 립싱크 검사가 영상을 읽지 못했습니다.",
+        "pt": "Não medido: a verificação de sincronia labial não conseguiu ler os vídeos.",
+        "es": "No medido: la comprobación de sincronía labial no pudo leer los videos.",
+    },
     "r.lips.not_lipsynced": {
         "en": "This dub isn't lip-synced, so there are no re-drawn lips to check.",
         "ko": "립싱크 영상이 아니라 다시 그려진 입 모양이 없어 확인할 것이 없습니다.",
@@ -1424,6 +1558,27 @@ REPORT_TEXT = {
         "pt": "Este trecho soa como {detected}, não {expected}. Confira se foi dublado no idioma certo.",
         "es": "Esta parte suena a {detected}, no a {expected}. Comprueba que se dobló al idioma correcto.",
     },
+    "r.todo.maybe_asr_or_real": {
+        "en": "(This may be a speech-recognition error or a real translation error: listen to the line to tell.)",
+        "ko": "(음성 인식 오류일 수도, 실제 번역 오류일 수도 있습니다. 해당 대사를 들어 보고 판단하세요.)",
+        "pt": "(Pode ser um erro do reconhecimento de fala ou um erro real de tradução: ouça a fala para saber.)",
+        "es": "(Puede ser un error del reconocimiento de voz o un error real de traducción: escucha la frase para "
+              "saberlo.)",
+    },
+    "r.rubric.doubtful_one": {
+        "en": "{n} line scored very low but may be misheard: listen to it to tell (Check, not Poor).",
+        "ko": "{n}개 대사의 점수가 매우 낮지만 잘못 들었을 수 있습니다. 들어 보고 판단하세요(나쁨이 아니라 확인 필요).",
+        "pt": "{n} fala teve nota muito baixa, mas pode ter sido ouvida errado: ouça para saber (Verificar, não Ruim).",
+        "es": "{n} frase obtuvo una nota muy baja, pero pudo oírse mal: escúchala para saberlo (Revisar, no Mal).",
+    },
+    "r.rubric.doubtful_many": {
+        "en": "{n} lines scored very low but may be misheard: listen to them to tell (Check, not Poor).",
+        "ko": "{n}개 대사의 점수가 매우 낮지만 잘못 들었을 수 있습니다. 들어 보고 판단하세요(나쁨이 아니라 확인 필요).",
+        "pt": "{n} falas tiveram nota muito baixa, mas podem ter sido ouvidas errado: ouça para saber (Verificar, não "
+              "Ruim).",
+        "es": "{n} frases obtuvieron una nota muy baja, pero pudieron oírse mal: escúchalas para saberlo (Revisar, no "
+              "Mal).",
+    },
     "r.todo.maybe_asr": {
         "en": "(Probably a speech-recognition error, not a dubbing error.)",
         "ko": "(더빙 오류가 아니라 음성 인식 오류일 가능성이 높습니다.)",
@@ -1503,6 +1658,102 @@ REPORT_TEXT = {
         "es": "El doblaje se ve bien en general. {n} elementos necesitan una revisión rápida; mira los detalles y Cosas que "
               "revisar.",
     },
+    "r.headline.unsure_one": {
+        "en": "DubEval found {n} serious problem but isn't sure of it (see below): watch the dub before deciding.",
+        "ko": "DubEval이 심각한 문제를 {n}개 찾았지만 확실하지 않습니다(아래 참고). 판단하기 전에 더빙을 직접 보세요.",
+        "pt": "O DubEval encontrou {n} problema grave, mas não tem certeza dele (veja abaixo): assista à dublagem antes de "
+              "decidir.",
+        "es": "DubEval encontró {n} problema grave, pero no está seguro de él (ver abajo): mira el doblaje antes de "
+              "decidir.",
+    },
+    "r.headline.unsure_many": {
+        "en": "DubEval found {n} serious problems but isn't sure of them (see below): watch the dub before deciding.",
+        "ko": "DubEval이 심각한 문제를 {n}개 찾았지만 확실하지 않습니다(아래 참고). 판단하기 전에 더빙을 직접 보세요.",
+        "pt": "O DubEval encontrou {n} problemas graves, mas não tem certeza deles (veja abaixo): assista à dublagem antes "
+              "de decidir.",
+        "es": "DubEval encontró {n} problemas graves, pero no está seguro de ellos (ver abajo): mira el doblaje antes de "
+              "decidir.",
+    },
+    "r.headline.unchecked": {
+        "en": "Nothing looked wrong in what DubEval could check, but it couldn't check everything (see below).",
+        "ko": "DubEval이 확인할 수 있는 부분에서는 문제가 없었지만, 모든 것을 확인하지는 못했습니다(아래 참고).",
+        "pt": "Nada pareceu errado no que o DubEval conseguiu verificar, mas ele não conseguiu verificar tudo (veja abaixo).",
+        "es": "Nada pareció mal en lo que DubEval pudo comprobar, pero no pudo comprobarlo todo (ver abajo).",
+    },
+    "r.sure.little_speech": {
+        "en": "Not sure: people speak only {pct}% of the video; the rest is music or effects, where speech recognition "
+              "mishears and invents words.",
+        "ko": "확실하지 않음: 영상에서 말소리는 {pct}%뿐이고 나머지는 음악이나 효과음입니다. 이런 부분에서는 음성 인식이 잘못 듣거나 없는 말을 만들어 냅니다.",
+        "pt": "Sem certeza: há fala em só {pct}% do vídeo; o resto é música ou efeitos, onde o reconhecimento de fala "
+              "ouve errado e inventa palavras.",
+        "es": "Sin certeza: se habla solo en el {pct}% del video; el resto es música o efectos, donde el reconocimiento "
+              "de voz oye mal e inventa palabras.",
+    },
+    "r.sure.short_speech": {
+        "en": "Not sure: the original has only {sec} s of speech, too little to grade timing and meaning reliably. "
+              "Listen to the dub yourself.",
+        "ko": "확실하지 않음: 원본의 말소리가 {sec}초뿐이라 타이밍과 의미를 믿을 만하게 평가하기에 너무 짧습니다.",
+        "pt": "Sem certeza: o original tem só {sec} s de fala, pouco demais para avaliar tempo e sentido com segurança. "
+              "Ouça a dublagem você mesmo.",
+        "es": "Sin certeza: el original tiene solo {sec} s de voz, muy poco para evaluar el ritmo y el sentido con "
+              "fiabilidad.",
+    },
+    "r.sure.unclear_speech": {
+        "en": "Not sure: speech recognition was confident on only {pct}% of the dub's speech, so the transcript-based "
+              "checks may be wrong.",
+        "ko": "확실하지 않음: 음성 인식이 더빙 말소리의 {pct}%만 확실하게 알아들어서, 대본에 기반한 검사가 틀릴 수 있습니다.",
+        "pt": "Sem certeza: o reconhecimento de fala teve segurança em só {pct}% da fala da dublagem, então as "
+              "verificações baseadas na transcrição podem errar.",
+        "es": "Sin certeza: el reconocimiento de voz tuvo seguridad solo en el {pct}% de la voz del doblaje, así que las "
+              "comprobaciones basadas en la transcripción pueden fallar.",
+    },
+    "r.sure.listen": {"en": "Listen to the dub yourself.", "ko": "더빙을 직접 들어 보세요.",
+                      "pt": "Ouça a dublagem você mesmo.", "es": "Escucha el doblaje tú mismo."},
+    "r.sure.background_replaced": {
+        "en": "The dub's background sound is much cleaner than the original's (the music or effects were removed or "
+              "replaced), so silence and loudness compare different soundtracks: they're shown as Check at most.",
+        "ko": "더빙의 배경음이 원본보다 훨씬 깨끗합니다(음악이나 효과음이 제거되었거나 바뀜). 그래서 무음과 음량 비교는 서로 다른 소리를 비교하게 되므로 최대 확인 필요로만 표시합니다.",
+        "pt": "O som de fundo da dublagem é muito mais limpo que o do original (a música ou os efeitos foram removidos "
+              "ou trocados), então silêncio e volume comparam trilhas diferentes: aparecem no máximo como Verificar.",
+        "es": "El sonido de fondo del doblaje es mucho más limpio que el del original (se quitó o cambió la música o "
+              "los efectos), así que el silencio y el volumen comparan pistas distintas: se muestran como Revisar "
+              "como mucho.",
+    },
+    "r.sure.capped_background": {
+        "en": "(Check at most: the dub's background was replaced.)",
+        "ko": "(최대 확인 필요: 더빙의 배경음이 바뀌었습니다.)",
+        "pt": "(No máximo Verificar: o fundo da dublagem foi trocado.)",
+        "es": "(Como mucho Revisar: se cambió el fondo del doblaje.)",
+    },
+    "r.sure.words_unchecked": {
+        "en": "The dub's words couldn't be checked (speech recognition didn't make out its language), so DubEval "
+              "can't call it Good. Watch it, or add the dub's subtitle file.",
+        "ko": "음성 인식이 더빙 언어를 알아듣지 못해 더빙의 말을 확인할 수 없었습니다. 그래서 DubEval은 좋음으로 판정할 수 없습니다. 직접 보거나 더빙 자막 파일을 추가하세요.",
+        "pt": "As palavras da dublagem não puderam ser verificadas (o reconhecimento de fala não identificou o idioma), "
+              "então o DubEval não pode dizer que está Bom. Assista ou adicione o arquivo de legendas da dublagem.",
+        "es": "No se pudieron comprobar las palabras del doblaje (el reconocimiento de voz no distinguió su idioma), "
+              "así que DubEval no puede decir que está Bien. Míralo o añade el archivo de subtítulos del doblaje.",
+    },
+    "r.sure.translation_unchecked": {
+        "en": "The translation wasn't checked (see Translation for why), so DubEval can't call the dub Good: check the "
+              "meaning yourself, or add an AI key in Settings → API keys and run it again.",
+        "ko": "번역을 확인하지 않았습니다(이유는 번역 항목 참고). 그래서 DubEval은 좋음으로 판정할 수 없습니다. 의미를 직접 확인하거나, 설정 → API 키에 AI 키를 추가한 뒤 다시 실행하세요.",
+        "pt": "A tradução não foi verificada (veja o motivo em Tradução), então o DubEval não pode dizer que a "
+              "dublagem está Boa: confira o sentido você mesmo ou adicione uma chave de IA em Configurações → Chaves "
+              "de API e rode de novo.",
+        "es": "No se comprobó la traducción (el motivo está en Traducción), así que DubEval no puede decir que el "
+              "doblaje está Bien: revisa el sentido tú mismo o añade una clave de IA en Ajustes → Claves de API y "
+              "vuelve a ejecutarlo.",
+    },
+    "r.sure.judge_fallback": {
+        "en": "Note: the translation was judged by {model}, a backup model, because the first choice was busy; its "
+              "scores can differ from run to run.",
+        "ko": "참고: 첫 번째 모델이 바빠서 예비 모델({model})이 번역을 평가했습니다. 점수가 실행마다 달라질 수 있습니다.",
+        "pt": "Nota: a tradução foi avaliada por {model}, um modelo reserva, porque o primeiro estava ocupado; as notas "
+              "podem variar de uma execução para outra.",
+        "es": "Nota: la traducción la evaluó {model}, un modelo de reserva, porque el primero estaba ocupado; las notas "
+              "pueden variar de una ejecución a otra.",
+    },
     "r.headline.poor_one": {
         "en": "The dub has {n} serious problem that should be fixed before publishing.",
         "ko": "더빙에 게시 전에 고쳐야 할 심각한 문제가 {n}개 있습니다.",
@@ -1532,6 +1783,14 @@ REPORT_TEXT = {
               "erro de tradução. Esses casos são marcados como prováveis erros de reconhecimento.",
         "es": "La traducción se evalúa con las transcripciones de ambos videos, así que una palabra mal oída puede parecer "
               "un error de traducción. Esos casos se marcan como probables errores de reconocimiento.",
+    },
+    "r.note.lip_sync": {
+        "en": "Shown for information: it never changes the overall verdict until graded lip-synced dubs confirm it.",
+        "ko": "참고용으로 보여 주며, 사람이 평가한 립싱크 더빙으로 확인되기 전까지 전체 판정에는 영향을 주지 않습니다.",
+        "pt": "Mostrado para informação: não muda o resultado geral até que dublagens com sincronia labial avaliadas por "
+              "pessoas o confirmem.",
+        "es": "Se muestra a título informativo: no cambia el resultado general hasta que doblajes con sincronía labial "
+              "evaluados por personas lo confirmen.",
     },
     "r.note.lipsync": {
         "en": "This measure is experimental: it is shown to help you look, but it never changes the overall verdict.",
@@ -1580,6 +1839,26 @@ REPORT_TEXT = {
     "c.sec.notes": {"en": "Measurement notes", "ko": "측정 참고 사항", "pt": "Notas sobre a medição",
                     "es": "Notas de medición"},
     "c.dub": {"en": "Dub {d}", "ko": "더빙 {d}", "pt": "Dublagem {d}", "es": "Doblaje {d}"},
+    "c.held": {
+        "en": "No confident recommendation yet: Dub {d} ranks first, but {why} Listen to the dubs before choosing.",
+        "ko": "아직 확실하게 추천할 수 없습니다. 더빙 {d} 버전이 1위지만, {why} 고르기 전에 더빙을 직접 들어 보세요.",
+        "pt": "Ainda não há recomendação segura: a Dublagem {d} fica em primeiro, mas {why} Ouça as dublagens antes de "
+              "escolher.",
+        "es": "Aún no hay una recomendación segura: el Doblaje {d} queda primero, pero {why} Escucha los doblajes antes "
+              "de elegir.",
+    },
+    "c.held.speech": {
+        "en": "its speech checks rest on little or unclear speech (see its report).",
+        "ko": "말소리가 적거나 불분명해서 말소리 검사를 믿기 어렵습니다(해당 보고서 참고).",
+        "pt": "as verificações de fala dela se baseiam em pouca fala ou fala pouco clara (veja o relatório).",
+        "es": "sus comprobaciones de voz se basan en poca voz o voz poco clara (mira su informe).",
+    },
+    "c.held.translation": {
+        "en": "its translation wasn't checked.",
+        "ko": "번역을 확인하지 않았습니다.",
+        "pt": "a tradução dela não foi verificada.",
+        "es": "su traducción no se comprobó.",
+    },
     "c.recommend": {"en": "Deliver Dub {d}.", "ko": "더빙 {d} 버전을 납품하세요.", "pt": "Entregue a Dublagem {d}.",
                     "es": "Entrega el Doblaje {d}."},
     "c.recommend_tie": {
@@ -1779,18 +2058,24 @@ REPORT_TEXT = {
         "en": "Decision rule (stops at the first rule that separates the dubs): 1 more of the key checks measured "
               "(speech timing, line length, voice clarity), 2 better verdict, 3 fewer Poor items, 4 fewer Check items, "
               "5 less time in problem intervals, 6 higher meaning score, 7 higher speech-timing alignment; if still "
-              "tied, the earlier dub (A before B).",
+              "tied, the earlier dub (A before B). When DubEval isn't sure of the dub ranked first (little or unclear "
+              "speech, or its translation wasn't checked), it holds the recommendation.",
         "ko": "결정 규칙(두 더빙이 처음으로 갈리는 규칙에서 멈춤): 1 핵심 검사(발화 타이밍, 대사 길이, 음성 명료도)를 더 많이 "
               "측정함, 2 더 좋은 판정, 3 더 적은 미흡 항목, 4 더 적은 확인 필요 항목, 5 더 짧은 문제 구간 시간, 6 더 높은 의미 "
-              "점수, 7 더 높은 발화 타이밍 일치도. 그래도 같으면 앞 순서의 더빙(A가 B보다 먼저).",
+              "점수, 7 더 높은 발화 타이밍 일치도. 그래도 같으면 앞 순서의 더빙(A가 B보다 먼저). 1위 더빙을 확신할 수 없으면"
+              "(말소리가 적거나 불분명함, 또는 번역을 확인하지 않음) 추천을 보류합니다.",
         "pt": "Regra de decisão (para na primeira regra que separa as dublagens): 1 mais verificações principais medidas "
               "(momento da fala, duração das falas, clareza da voz), 2 melhor resultado, 3 menos itens Ruins, 4 menos "
               "itens a Verificar, 5 menos tempo em trechos com problemas, 6 maior nota de sentido, 7 maior alinhamento "
-              "do tempo de fala; se ainda empatar, a dublagem anterior (A antes de B).",
+              "do tempo de fala; se ainda empatar, a dublagem anterior (A antes de B). Quando o DubEval não tem "
+              "certeza da dublagem em primeiro (pouca fala ou fala pouco clara, ou tradução não verificada), ele "
+              "segura a recomendação.",
         "es": "Regla de decisión (se detiene en la primera regla que separa los doblajes): 1 más comprobaciones clave "
               "medidas (momento del habla, duración de las frases, claridad de la voz), 2 mejor resultado, 3 menos "
               "elementos Deficientes, 4 menos elementos a Revisar, 5 menos tiempo en tramos con problemas, 6 mayor nota "
-              "de sentido, 7 mayor alineación del habla; si siguen empatados, el doblaje anterior (A antes que B).",
+              "de sentido, 7 mayor alineación del habla; si siguen empatados, el doblaje anterior (A antes que B). "
+              "Cuando DubEval no está seguro del doblaje en primer lugar (poca voz o voz poco clara, o traducción sin "
+              "comprobar), retiene la recomendación.",
     },
     "c.table.check": {"en": "Check", "ko": "항목", "pt": "Verificação", "es": "Comprobación"},
     "c.open_report": {"en": "Full report", "ko": "전체 보고서", "pt": "Relatório completo", "es": "Informe completo"},
@@ -1869,13 +2154,13 @@ REPORT_TEXT = {
                 "es": "Todavía no hay evaluaciones registradas. Cada evaluación que hagas se añade aquí."},
     "h.totals": {
         "en": "{runs} runs on {dubs} dubs (reruns of a link count once): {good} Good · {check} Needs review · {poor} "
-              "Poor. {pct}% passed every automatic check.",
+              "Poor. {good} passed every automatic check.",
         "ko": "더빙 {dubs}개에 대해 {runs}번 실행(같은 링크의 재실행은 한 번으로 계산): 좋음 {good} · 검토 필요 {check} · "
-              "미흡 {poor}. {pct}%가 모든 자동 검사를 통과했습니다.",
+              "미흡 {poor}. 모든 자동 검사를 통과한 더빙은 {good}개입니다.",
         "pt": "{runs} execuções em {dubs} dublagens (reexecuções de um link contam uma vez): {good} Bom · {check} Requer "
-              "revisão · {poor} Ruim. {pct}% passaram em todas as verificações automáticas.",
+              "revisão · {poor} Ruim. {good} passaram em todas as verificações automáticas.",
         "es": "{runs} ejecuciones sobre {dubs} doblajes (las repeticiones de un enlace cuentan una vez): {good} Bien · "
-              "{check} Requiere revisión · {poor} Deficiente. El {pct}% pasó todas las comprobaciones automáticas.",
+              "{check} Requiere revisión · {poor} Deficiente. {good} pasaron todas las comprobaciones automáticas.",
     },
     "h.pairs": {"en": "By language pair", "ko": "언어 쌍별", "pt": "Por par de idiomas", "es": "Por par de idiomas"},
     "h.pair": {"en": "Languages", "ko": "언어", "pt": "Idiomas", "es": "Idiomas"},
@@ -1901,7 +2186,7 @@ REPORT_TEXT = {
     "h.days": {"en": "Period", "ko": "기간", "pt": "Período", "es": "Período"},
     "h.all_time": {"en": "All time", "ko": "전체", "pt": "Tudo", "es": "Todo"},
     "h.last_days": {"en": "Last {n} days", "ko": "최근 {n}일", "pt": "Últimos {n} dias", "es": "Últimos {n} días"},
-    "h.good_pct": {"en": "Passed", "ko": "통과율", "pt": "Aprovadas", "es": "Aprobados"},
+    "h.good_pct": {"en": "Passed", "ko": "통과", "pt": "Aprovadas", "es": "Aprobados"},
     "h.open": {"en": "History", "ko": "평가 기록", "pt": "Histórico", "es": "Historial"},
 
     # ----- reviewer feedback (dubeval/feedback.py) -----

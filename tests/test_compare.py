@@ -10,7 +10,7 @@ from dubeval.compare import build_comparison, decide, render_comparison_html, re
 from dubeval.perso_api import PersoError
 from fake_perso import (SHARE_TOKEN, SHARE_TOKEN_B, SHARE_URL, SHARE_URL_B, SHARED_PROJECT, SHARED_PROJECT_B,
                         FakePerso)
-from sample_results import JUDGED, make_results
+from sample_results import JUDGE_OFF, JUDGED, make_results
 
 NO_SLEEP = lambda s: None
 GOOD = dict(unmeasured=0, verdict_rank=0, poor=0, check=0, problem_seconds=0.0, meaning_score=5, overlap_pct=81.0)
@@ -88,14 +88,29 @@ def test_both_poor_names_the_better_one_but_says_neither_is_ready():
 
 
 def test_without_translation_the_decision_says_so_and_skips_that_rule():
-    a = make_results(translation_judge=JUDGED, timing_alignment={"overlap_pct": 76.0})      # both Good: rule 7 decides
-    b = as_b(make_results(timing_alignment={"overlap_pct": 80.0}))          # judge off for B
+    a = make_results(translation_judge=JUDGED, timing_alignment={"overlap_pct": 76.0})
+    b = as_b(make_results(translation_judge=JUDGE_OFF, timing_alignment={"overlap_pct": 80.0}))   # judge off for B
     comp = build_comparison(a, b, "en")
     why = comp["reasoning"]
     assert not why["translation_used"] and "without translation" in why["translation_note"]
     assert any("without translation" in n for n in comp["notes"])
     assert "6. Higher translation meaning score" in why["skipped_rules"]
-    assert why["rule"] == "speech_timing" and comp["recommendation"]["dub"] == "B"
+    # B's translation wasn't checked, so B can't be Good: the fully checked A wins on the verdict.
+    assert why["rule"] == "verdict" and comp["recommendation"]["dub"] == "A" and not comp["recommendation"]["held"]
+
+
+def test_the_recommendation_is_held_when_dubeval_is_unsure_of_the_dub_ranked_first():
+    a = make_results(translation_judge=JUDGE_OFF, timing_alignment={"overlap_pct": 76.0})
+    b = as_b(make_results(translation_judge=JUDGE_OFF, timing_alignment={"overlap_pct": 80.0}))
+    rec = build_comparison(a, b, "en")["recommendation"]
+    assert rec["dub"] == "B" and rec["held"] == ["translation"]           # the order still shows; no "Deliver"
+    assert rec["headline"].startswith("No confident recommendation yet") and "translation wasn't checked" in rec["headline"]
+    music = {"original_speech": [[0.0, 6.0], [10.0, 14.0]], "overlap_pct": 90.0}       # 10 s of speech in 28.7 s
+    rec = build_comparison(make_results(timing_alignment=music), as_b(make_results(acoustic_metrics={"rms_ratio": 2.0})),
+                           "en")["recommendation"]
+    assert rec["dub"] == "A" and rec["held"] == ["speech"]
+    for lang in ("ko", "pt", "es"):
+        assert "{" not in build_comparison(a, b, lang)["recommendation"]["headline"]
 
 
 def test_problem_seconds_break_a_tie_on_counts():
@@ -124,7 +139,7 @@ def test_comparison_text_starts_with_the_three_sections_in_order(lang, titles):
     positions = [text.index(title) for title in titles]
     assert positions == sorted(positions)
     assert text.splitlines()[3].strip() == titles[0]          # right after the title bar
-    assert "19.4s-20.1s | " in text and ("Dub B" if lang == "en" else "더빙 B") in text
+    assert "19.4s-20.4s | " in text and ("Dub B" if lang == "en" else "더빙 B") in text
     assert "DubEval 0." in text                     # tool version in the footer
 
 
@@ -139,8 +154,8 @@ def test_comparison_html_has_the_decision_sections_first():
 def test_interval_lines_carry_every_field():
     comp = build_comparison(make_results(translation_judge=JUDGED), as_b(make_results(translation_judge=JUDGED)), "en")
     text = render_comparison_text(comp, width=300)
-    line = next(x for x in text.splitlines() if x.strip().startswith("19.4s-20.1s | Dub A"))
-    assert line.strip().split(" | ")[:5] == ["19.4s-20.1s", "Dub A", "timing", "Check", "Speech timing"]
+    line = next(x for x in text.splitlines() if x.strip().startswith("19.4s-20.4s | Dub A"))
+    assert line.strip().split(" | ")[:5] == ["19.4s-20.4s", "Dub A", "timing", "Check", "Speech timing"]
 
 
 # ---------------- pipeline, files and CLI (fake Perso, no real network) ----------------
@@ -170,10 +185,10 @@ def test_compare_cli_writes_every_file_and_recommends_b(two_links, tmp_path, cap
                  "report_A.txt", "report_B.html", "report_B.json", "report_B.txt"):
         assert (out / name).is_file(), name
     text = (out / "comparison.txt").read_text(encoding="utf-8")
-    assert "Deliver Dub B." in text and "without translation" in text
+    assert "No confident recommendation yet: Dub B ranks first" in text and "without translation" in text    # --no-translation-check: held
     saved = json.loads((out / "comparison.json").read_text(encoding="utf-8"))
     assert saved["recommendation"]["dub"] == "B" and "reports" not in saved
-    assert "Deliver Dub B." in capsys.readouterr().out
+    assert "No confident recommendation yet: Dub B ranks first" in capsys.readouterr().out
 
 
 def test_compare_exit_code_1_when_both_dubs_are_poor(two_links, tmp_path):
@@ -315,7 +330,7 @@ def test_compare_cli_takes_more_than_two_links(monkeypatch, isolated_output, tmp
     code = cli.main(["compare", SHARE_URL, SHARE_URL_B, SHARE_URL_C, "--out", str(tmp_path), "--lang", "en",
                      "--no-translation-check"])
     assert code == 0 and (tmp_path / "report_C.html").is_file()
-    assert "Deliver Dub B." in (tmp_path / "comparison.txt").read_text(encoding="utf-8")
+    assert "No confident recommendation yet: Dub B ranks first" in (tmp_path / "comparison.txt").read_text(encoding="utf-8")
     assert pipeline.compare_stages(3) == ["dub_a", "dub_b", "dub_c", "compare"]
 
 
@@ -357,3 +372,12 @@ def test_the_rule_order_text_lists_the_measured_rule_first():
     comp = build_comparison(make_results(), as_b(make_results()), "en")
     assert comp["reasoning"]["rules_order"].index("1 more of the key checks measured") \
         < comp["reasoning"]["rules_order"].index("2 better verdict")
+
+
+def test_a_cache_file_that_cannot_be_saved_never_fails_the_run(tmp_path, monkeypatch):
+    def locked(path, data):                         # Windows: another program has the file open
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(pipeline, "_write_json", locked)
+    cache = pipeline.JsonCache(tmp_path / "whisper_cache.json")
+    cache["stt|x"] = {"text": "hi"}
+    assert cache.get("stt|x") == {"text": "hi"}                   # still used for the rest of this run

@@ -14,7 +14,7 @@ function tiles(s) {
   const tile = (label, value, cls = "") => h("div", { class: `tile ${cls}` }, h("span", { class: "muted small" }, label),
     h("strong", {}, value));
   return [h("div", { class: "tiles" },
-    tile(t("h.dubs"), String(s.dubs)), tile(t("h.good_pct"), `${Math.round(s.good_pct)}%`, "good"),
+    tile(t("h.dubs"), String(s.dubs)), tile(t("h.good_pct"), String(v.good), "good"),
     tile(t("verdict.check"), String(v.check), "check"), tile(t("verdict.poor"), String(v.poor), "poor")),
   h("p", { class: "muted small" }, t("h.totals", { runs: s.runs, dubs: s.dubs, good: v.good, check: v.check,
     poor: v.poor, pct: Math.round(s.good_pct) }))];

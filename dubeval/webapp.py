@@ -17,6 +17,7 @@ import shutil
 import sys
 import tempfile
 import threading
+import time
 import uuid
 import zipfile
 from pathlib import Path
@@ -106,10 +107,75 @@ class TitleBody(BaseModel):
     title: str = Field(min_length=1, max_length=200)
 
 
+class LinkBody(BaseModel):
+    """A link pasted into a video card, to download now (any kind: a video page, a file, a file host's share)."""
+    url: str = Field(min_length=8, max_length=4096)
+
+
 class VoteBody(BaseModel):
     """A reviewer's vote on one problem interval of a finished report."""
     index: int = Field(ge=0)
     vote: Literal["real", "false_alarm"]
+
+
+STORAGE_BUSY = "An evaluation or a download is running. Clear the downloads when it has finished."
+UPLOAD_GRACE_SEC = 24 * 3600     # an upload this new may be on a start page not saved as a draft yet: never cleared
+
+
+def _bytes(path: Path) -> int:
+    """Bytes in a folder (0 when it isn't there)."""
+    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file()) if path.is_dir() else 0
+
+
+def _download_folders() -> list[Path]:
+    """Every downloaded video's folder: a share link's downloads (data/cache) and each upload (data/uploads). A
+    folder without a video or sound file isn't one: an evaluation of files keeps only its saved transcripts and
+    translation-check answers in data/cache, and clearing those would make running it again ask the checker anew."""
+    from dubeval.inputs import MEDIA_SUFFIXES
+    return [d for root in (Path(pipeline.CACHE_DIR), Path(UPLOADS_DIR)) if root.is_dir()
+            for d in root.iterdir() if d.is_dir() and any(f.suffix.lower() in MEDIA_SUFFIXES for f in d.iterdir())]
+
+
+def _unused_downloads() -> list[Path]:
+    """The download folders no kept evaluation or draft plays (library.protects), apart from recent uploads."""
+    used = library.referenced_inputs()
+    recent = time.time() - UPLOAD_GRACE_SEC
+    return [d for d in _download_folders() if not library.protects(d, used)
+            and not (d.parent == Path(UPLOADS_DIR) and d.stat().st_mtime > recent)]
+
+
+def storage_view() -> dict:
+    """Sizes for Settings → Storage: evaluations, downloaded videos (and the unused part), models, the data folder."""
+    downloads = _download_folders()
+    return {"data_dir": str(Path(DATA_DIR).resolve()),
+            "evaluations": {"count": len(library.evaluations()), "bytes": _bytes(Path(pipeline.RUNS_DIR))},
+            "downloads": {"count": len(downloads), "bytes": sum(_bytes(d) for d in downloads),
+                          "unused_bytes": sum(_bytes(d) for d in _unused_downloads())},
+            "models_bytes": packs.catalog()["bytes"]}
+
+
+# Links being downloaded into uploads (id → state), so a pasted link becomes a file like an uploaded one.
+_fetches: dict = {}
+_fetches_lock = threading.Lock()
+
+
+def _fetch_link(fetch_id: str, url: str) -> None:
+    """Downloads url into data/uploads/<id>/ (any kind of link, inputs.fetch); its state is in _fetches."""
+    from dubeval import inputs
+    folder = Path(UPLOADS_DIR) / fetch_id
+    state = _fetches[fetch_id]
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        got = Path(inputs.fetch(url, folder, "video", progress=lambda f: state.update(progress=round(f, 3))))
+        for extra in folder.iterdir():                     # yt-dlp's leftovers: the upload is the one file
+            if extra.is_file() and extra != got:
+                extra.unlink(missing_ok=True)
+        state.update(state="done", progress=1.0, upload=f"upload:{fetch_id}", name=got.name)
+        _prune_uploads()
+    except (ValueError, FileNotFoundError, OSError) as e:
+        log.info("Link download failed: %s", e)
+        shutil.rmtree(folder, ignore_errors=True)
+        state.update(state="failed", error=str(e) if isinstance(e, ValueError) else inputs.DOWNLOAD_FAILED)
 
 
 def _upload_path(spec: Optional[str]) -> Optional[str]:
@@ -226,6 +292,7 @@ def make_app(token: str) -> FastAPI:
         """Texts, languages, dub types and which translation judges are ready."""
         return {"version": TOOL_VERSION, "languages": UI_LANGUAGES, "texts": _texts(lang), "dub_types": list(DUB_TYPES),
                 "judges": available_judges(), "large_model": packs.state("large_model") == "installed",
+                "lip_sync": packs.state("lip_sync") == "installed",
                 "speech_auto": asr.default_model(),
                 "meaning_ready": meaning_available(),
                 "speech_languages": {code: name.title() for code, name in SPEECH_LANGUAGES.items()},
@@ -264,6 +331,20 @@ def make_app(token: str) -> FastAPI:
     @app.get("/api/settings", dependencies=api)
     def get_settings() -> dict:
         return settings_view()
+
+    @app.get("/api/settings/storage", dependencies=api)
+    def get_storage() -> dict:
+        """Settings → Storage: what DubEval keeps on this computer and how much of the downloads nothing uses."""
+        return storage_view()
+
+    @app.post("/api/settings/storage/clear", dependencies=api)
+    def clear_storage() -> dict:
+        """Deletes the downloaded videos no evaluation or draft uses (never while an evaluation or a link download runs)."""
+        if jobs.busy() or any(f["state"] == "downloading" for f in list(_fetches.values())):
+            raise HTTPException(409, STORAGE_BUSY)
+        for folder in _unused_downloads():
+            shutil.rmtree(folder, ignore_errors=True)
+        return storage_view()
 
     @app.put("/api/settings/keys/{provider}", dependencies=api)
     async def put_key(provider: str, request: Request) -> dict:
@@ -362,6 +443,28 @@ def make_app(token: str) -> FastAPI:
             raise HTTPException(status_code=413, detail=TOO_BIG)
         _prune_uploads()
         return {"id": f"upload:{upload_id}", "name": file.filename}
+
+    @app.post("/api/uploads/link", status_code=202, dependencies=api)
+    def upload_link(body: LinkBody) -> dict:
+        """Starts downloading a pasted link (any kind) into uploads; GET /api/uploads/link/<id> follows it. When done it
+        is used like an uploaded file (upload:<id>)."""
+        url = body.url.strip()
+        if not is_link(url):
+            raise HTTPException(status_code=400, detail="Links must start with http:// or https://.")
+        fetch_id = uuid.uuid4().hex[:16]
+        with _fetches_lock:
+            _fetches[fetch_id] = {"state": "downloading", "progress": None, "upload": None, "name": None, "error": None}
+        threading.Thread(target=_fetch_link, args=(fetch_id, url), daemon=True, name="link-download").start()
+        return {"id": fetch_id}
+
+    @app.get("/api/uploads/link/{fetch_id}", dependencies=api)
+    def upload_link_state(fetch_id: str, request: Request) -> dict:
+        """How a link download is going: downloading (progress 0-1 when the size is known), done (upload) or failed."""
+        state = _fetches.get(fetch_id) if UPLOAD_ID_RE.match(fetch_id) else None
+        if state is None:
+            raise HTTPException(status_code=404, detail="No download with this number.")
+        lang = (request.headers.get("accept-language") or "en")[:2]
+        return {**state, "error": translate_message(state["error"], lang) if state["error"] else None}
 
     @app.post("/api/evaluations", status_code=202, dependencies=api)
     def start(body: EvaluationBody) -> dict:
@@ -600,13 +703,13 @@ def make_app(token: str) -> FastAPI:
         r = results_of(job, dub)
         sr, seg, pair = r.get("speech_recognition") or {}, r.get("segment_alignment") or {}, r.get("pairing") or {}
         parts = pipeline.applied_parts(pair) if pair else None
-        rep = build_report(r, lang, dub=dub or "A") if "comparison" in job.result else build_report(r, lang)
+        rep = _current_report(job, r, lang, dub)
         return {"report": rep, "duration_sec": rep["project"].get("duration_sec"),
                 "offset_sec": pair.get("applied_offset_sec") or 0.0, "parts": parts,
                 "lines": _with_scripts(r, seg.get("lines") or []),
                 "original_segments": [{k: s[k] for k in ("start", "end", "text")} for s in sr.get("original_segments") or []],
                 "dub_segments": [{k: s[k] for k in ("start", "end", "text")} for s in sr.get("dubbed_segments") or []],
-                "votes": _votes(r), "fixes": _fixes(r), "rubric": _rubric_lines(r, lang)}
+                "votes": _votes(rep), "fixes": _fixes(r), "rubric": _rubric_lines(r, lang)}
 
     def media_path(r: dict, side: str) -> Path:
         """One dub's own original or dub file (never a path taken from the request)."""
@@ -654,6 +757,22 @@ def make_app(token: str) -> FastAPI:
         title = " ".join(body.title.split())
         if not title:
             raise HTTPException(status_code=400, detail=EMPTY_TITLE)
+        if "comparison" in job.result:
+            # One video, one name: every dub tab, the Home card and the saved files take it.
+            for each in job.result["results"].values():
+                each.setdefault("pipeline", {})["custom_title"] = title
+            job.save()
+            folder = Path(job.params.get("folder") or "")
+            if folder.name and folder.parent.resolve() == Path(pipeline.RUNS_DIR).resolve():
+                try:
+                    library.rename(folder.name, title)
+                except (OSError, ValueError) as e:
+                    log.warning("Could not save the renamed comparison: %s", e)
+            for each in job.result["results"].values():
+                html = ((each.get("pipeline") or {}).get("report_files") or {}).get("html")
+                if html:
+                    history.rename(html, title)
+            return {"title": title}
         r.setdefault("pipeline", {})["custom_title"] = title
         job.save()
         report_html = (r.get("pipeline") or {}).get("report_files", {}).get("html")
@@ -670,7 +789,8 @@ def make_app(token: str) -> FastAPI:
     @app.post("/api/jobs/{job_id}/votes", dependencies=api)
     def vote(job_id: str, body: VoteBody, dub: Optional[str] = None) -> dict:
         """Records a reviewer's vote on one problem interval (dubeval/feedback.py)."""
-        rep = results_of(finished(job_id), dub)["report"]
+        job = finished(job_id)
+        rep = _current_report(job, results_of(job, dub), "en", dub)   # the list the review screen numbered
         if body.index >= len(rep["problem_intervals"]):
             raise HTTPException(status_code=404, detail="No problem interval with this number.")
         feedback.vote(rep["project"], rep["problem_intervals"][body.index], body.vote, reviewer="web")
@@ -936,12 +1056,19 @@ def _fixes(results: dict) -> dict:
     return fixes
 
 
-def _votes(results: dict) -> dict:
+def _current_report(job, results: dict, lang: str, dub: Optional[str]) -> dict:
+    """The report as the review screen shows it: rebuilt with the current rules, not the one saved when the job ran
+    (its problem intervals, and so the numbers votes refer to, change when a rule does)."""
+    return build_report(results, lang, dub=dub or "A") if "comparison" in job.result else build_report(results, lang)
+
+
+def _votes(rep: dict) -> dict:
     """The current vote per problem-interval index of this report."""
-    rep, current = results["report"], feedback.latest()
+    current = feedback.latest()
     out = {}
     for i, interval in enumerate(rep["problem_intervals"]):
-        entry = current.get(feedback.interval_key(rep["project"], interval))
+        entry = (current.get(feedback.interval_key(rep["project"], interval))
+                 or current.get(feedback.legacy_key(rep["project"], interval)))
         if entry:
             out[str(i)] = entry["vote"]
     return out

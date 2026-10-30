@@ -133,7 +133,10 @@ class JsonCache:
 
     def __setitem__(self, key: str, value) -> None:
         self.data[key] = value
-        _write_json(self.path, self.data)
+        try:
+            _write_json(self.path, self.data)
+        except OSError as e:                        # another program holding the file (Windows) never fails a run
+            log.warning("Couldn't save the cache %s: %s", self.path, e)
 
 
 def _link_cache_dir(token: str) -> Path:
@@ -595,7 +598,8 @@ def pair_videos(original_path: str, dub_path: str, cache, audio=None,
     audio: both waveforms when already loaded (evaluate.load_both). progress(message, fraction) follows the check.
     Never fails the run: a pairing that can't be measured is reported as not measured, with no shift applied.
     """
-    key = f"v{CACHE_VERSION}|pair|{inputs.fingerprint(original_path)}|{inputs.fingerprint(dub_path)}"
+    from dubeval.pairing import VERSION as PAIRING_VERSION
+    key = f"v{CACHE_VERSION}|pair{PAIRING_VERSION}|{inputs.fingerprint(original_path)}|{inputs.fingerprint(dub_path)}"
     found = cache.get(key)
     if isinstance(found, dict):
         return found

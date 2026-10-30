@@ -49,3 +49,12 @@ def test_feedback_cli(capsys):
     feedback.vote(PROJECT, iv(1.0), "real")
     assert cli.main(["feedback", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["real"] == 1
+
+
+def test_votes_on_a_dub_given_as_a_file_follow_the_file_not_the_title():
+    iv = {"category": "line_length", "start": 6.4, "end": 14.4}
+    dub = {"title": "Weather", "dub_id": "abc123"}
+    renamed, other = {**dub, "title": "Weather, Korean"}, {**dub, "dub_id": "def456"}
+    assert feedback.interval_key(dub, iv) == feedback.interval_key(renamed, iv) != feedback.interval_key(other, iv)
+    assert feedback.legacy_key(dub, iv) == "Weather|line_length|6.4|14.4"          # how votes were keyed before
+    assert feedback.interval_key({**dub, "perso_seq": 7}, iv).startswith("7|")      # a share link: as before

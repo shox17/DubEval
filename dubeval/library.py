@@ -184,14 +184,22 @@ def rename(run_id: str, title: str) -> dict:
         comp = _read(folder / "comparison.json") or {}
         comp["custom_title"] = title
         _write(folder / "comparison.json", comp)
+        for dub in comp.get("dubs") or []:            # every dub's own report: its tab and exports show the new title
+            if (folder / f"report_{dub}.json").is_file():
+                _retitle(folder, f"report_{dub}", title)
     else:
-        from dubeval.report import build_report
-        data = _read(folder / "report.json") or {}
-        results = {**(data.get("results") or {}), "report": data.get("report") or {}}
-        results.setdefault("pipeline", {})["custom_title"] = title
-        results["report"] = build_report(results, results["report"].get("lang") or "en")
-        pipeline.save_report_files(results, folder)
+        _retitle(folder, "report", title)
     return {"id": run_id, "title": title}
+
+
+def _retitle(folder: Path, name: str, title: str) -> None:
+    """Rewrites one saved report (<name>.json, .html, .txt) with a new title."""
+    from dubeval.report import build_report
+    data = _read(folder / f"{name}.json") or {}
+    results = {**(data.get("results") or {}), "report": data.get("report") or {}}
+    results.setdefault("pipeline", {})["custom_title"] = title
+    results["report"] = build_report(results, results["report"].get("lang") or "en")
+    pipeline.save_report_files(results, folder, name)
 
 
 def delete(run_id: str) -> list[Path]:

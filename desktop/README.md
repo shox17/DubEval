@@ -36,7 +36,9 @@ uninstalling keeps them.
 
 **Icon:** `build/icon.ico` is stamped into `DubEval.exe` by `after-pack.js` (with rcedit, which also sets the exe's
 name and version) and used for the installer and uninstaller; `build/icon.png` is the window icon when running from
-source.
+source. Both are rendered from `build/icon.svg` (48 px and up) and `build/icon-small.svg` (16-32 px), as are
+`docs/images/icon.png` (README) and `dubeval/web/icon.png` (the app's loading screen); after changing a source SVG,
+render them all again.
 
 ## How it works
 - **Starting:** a "Starting DubEval" page shows until the server prints `DubEval: http://127.0.0.1:<port>/?token_given=…`

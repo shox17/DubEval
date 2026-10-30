@@ -83,6 +83,20 @@ function players(data, jobId, q, onTime) {
   return ctl;
 }
 
+// The reviewer's votes on the problem intervals (index → "real" | "false_alarm"), cast on a problem's card.
+function voteStore(data, jobId, q) {
+  const votes = { ...(data.votes || {}) }, listeners = [];
+  return {
+    get: i => votes[String(i)],
+    async set(i, vote) {
+      await api(`/api/jobs/${jobId}/votes${q}`, { method: "POST", body: JSON.stringify({ index: i, vote }) });
+      votes[String(i)] = vote;
+      listeners.forEach(f => f(i, vote));
+    },
+    onChange: f => listeners.push(f),
+  };
+}
+
 // Problem intervals stacked into rows so overlapping ones stay visible.
 function stack(intervals) {
   const rowsEnd = [];
@@ -181,9 +195,10 @@ function timeline(data, onSeek, onSelect) {
     intervals.forEach((iv, i) => {
       const a = Math.max(GUTTER, x(iv.start)), b = x(iv.end);
       if (b < GUTTER || a > width) return;
+      const y = iy + 3 + rows[i] * rh2, w = Math.max(3, b - a), hh = Math.max(3, rh2 - 2);
       g.fillStyle = iv.severity === "poor" ? c.poor : c.check;
       g.globalAlpha = selected?.kind === "issue" && selected.i === iv.index ? 1 : 0.7;
-      g.fillRect(a, iy + 3 + rows[i] * rh2, Math.max(3, b - a), Math.max(3, rh2 - 2));
+      g.fillRect(a, y, w, hh);
       g.globalAlpha = 1;
     });
 
@@ -319,6 +334,7 @@ function timeline(data, onSeek, onSelect) {
       draw();
     },
     select(item) { selected = item; draw(); },
+    refresh: () => draw(),
     zoomIn: () => zoom(1.6),
     zoomOut: () => zoom(1 / 1.6),
     fit() { autoFit = true; view.pps = (width - GUTTER) / duration; view.start = 0; draw(); },
@@ -326,20 +342,16 @@ function timeline(data, onSeek, onSelect) {
   };
 }
 
-function detailPanel(data, jobId, q) {
+function detailPanel(data, store) {
   const rep = data.report, el = h("aside", { class: "detail card" });
-  const votes = { ...data.votes };
   const lineTexts = line => [texts(data.original_segments, line.original), texts(data.dub_segments, line.dub)];
   const speechIn = (segments, range) => segments.filter(s => overlaps(s, range)).map(s => s.text.trim()).join(" ");
 
+  // One problem's card: what was found, and the reviewer's verdict on it (saved for History and `dubeval feedback`).
   function issueRow(iv, i) {
-    const voteBtn = (v, label) => h("button", { type: "button", class: `vote ${votes[i] === v ? "on" : ""}`,
-      "aria-pressed": votes[i] === v ? "true" : "false", onclick: async () => {
-        try {
-          await api(`/api/jobs/${jobId}/votes${q}`, { method: "POST", body: JSON.stringify({ index: i, vote: v }) });
-          votes[i] = v;
-          show(current);
-        } catch (e) { alert(e.message); }
+    const voteBtn = (v, label) => h("button", { type: "button", class: `vote ${store.get(i) === v ? "on" : ""}`,
+      "aria-pressed": store.get(i) === v ? "true" : "false", onclick: async () => {
+        try { await store.set(i, v); } catch (e) { alert(e.message); }
       } }, label);
     return h("div", { class: "issue" },
       h("div", { class: "row" }, badge(rep, iv.severity), h("strong", {}, iv.check_label || iv.category_label),
@@ -411,7 +423,40 @@ function detailPanel(data, jobId, q) {
     }
   }
   show(null);
+  store.onChange(() => show(current));
   return { el, show };
+}
+
+// The review flow: every flagged moment in time order, one at a time; go(i) shows moment i. Returns null
+// when there is nothing to review.
+function reviewFlow(rep, go) {
+  const n = rep.problem_intervals.length;
+  if (!n) return null;
+  const el = h("div", { class: "review-flow" });
+  let cur = -1;                                      // -1: not started
+  const move = i => { cur = i; go(i); render(); };
+
+  function render() {
+    if (cur < 0) {
+      fill(el, h("div", { class: "row" }, h("strong", {}, t("w.flow.title")), h("span", { class: "grow" }),
+        h("span", { class: "muted small" }, t("w.flow.count", { total: n })),
+        h("button", { type: "button", class: "primary", onclick: () => move(0) }, t("w.flow.start"))),
+        h("p", { class: "muted small" }, t("w.flow.intro")));
+      return;
+    }
+    fill(el, h("div", { class: "row" }, h("strong", {}, t("w.flow.title")),
+      h("span", { class: "muted small" }, t("w.flow.position", { n: cur + 1, total: n })),
+      h("span", { class: "grow" }),
+      h("button", { type: "button", onclick: () => move((cur - 1 + n) % n) }, t("w.flow.prev")),
+      h("button", { type: "button", onclick: () => move((cur + 1) % n) }, t("w.flow.next"))),
+      h("p", { class: "muted small" }, t("w.flow.keys")));
+  }
+  render();
+  return {
+    el,
+    get active() { return cur >= 0; },
+    next: () => move((cur + 1) % n), prev: () => move((cur - 1 + n) % n),
+  };
 }
 
 // A link to the Settings tab that fixes a row (fixes: {metric id: "keys" | "models"}, from the server).
@@ -531,9 +576,14 @@ function editableTitle(title, jobId, dub) {
 // dub names one dub of a comparison (A, B, ...); embedded leaves out the page's own "evaluate another" link.
 export function renderReview(root, jobId, dub = null, embedded = false) {
   const q = dub ? `?dub=${dub}` : "";
-  let ctl = null, alive = true;
+  let ctl = null, alive = true, flow = null, setListen = null;
   const onKey = e => {
-    if (!ctl || ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(document.activeElement?.tagName)) return;
+    if (!ctl || ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+    if (flow?.active && !e.ctrlKey && !e.metaKey && !e.altKey) {     // the review flow's keys work on its buttons too
+      const act = { KeyN: flow.next, KeyP: flow.prev }[e.code];
+      if (act) { e.preventDefault(); act(); return; }
+    }
+    if (document.activeElement?.tagName === "BUTTON") return;
     if (e.code === "Space") { e.preventDefault(); ctl.toggle(); }
     if (e.code === "ArrowLeft") ctl.seek(ctl.time - (e.shiftKey ? 5 : 1));
     if (e.code === "ArrowRight") ctl.seek(ctl.time + (e.shiftKey ? 5 : 1));
@@ -543,7 +593,7 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
   api(`/api/jobs/${jobId}/report?lang=${state.lang}${dub ? `&dub=${dub}` : ""}`).then(data => {
     if (!alive) return;
     const rep = data.report, p = rep.project, o = rep.overall;
-    const detail = detailPanel(data, jobId, q);
+    const detail = detailPanel(data, voteStore(data, jobId, q));
     const clock = h("span", { class: "mono clock" }, "0:00.0");
     let tl = null;
     ctl = players(data, jobId, q, (s, playing) => {
@@ -551,16 +601,27 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
       tl?.setTime(s, playing);
     });
     tl = timeline(data, s => ctl.seek(s), item => { tl.select(item); detail.show(item); });
+    // The review flow shows each moment (selected on the timeline, its card, the videos at its start) and plays
+    // nothing by itself: Play or Space does.
+    flow = reviewFlow(rep, i => {
+      tl.select({ kind: "issue", i });
+      detail.show({ kind: "issue", i });
+      if (ctl.playing) ctl.toggle();
+      ctl.seek(rep.problem_intervals[i].start);
+    });
     for (const side of ["original", "dub"])
       api(`/api/jobs/${jobId}/peaks/${side}${q}`).then(pk => alive && tl.setPeaks(side, pk)).catch(() => {});
 
     const listen = h("div", { class: "segmented", role: "group", "aria-label": t("w.review.listen") },
       ["original", "dub"].map(side => h("button", { type: "button", class: side === "dub" ? "on" : "",
-        onclick: e => {
-          ctl.setListen(side);
-          listen.querySelectorAll("button").forEach(b => b.classList.toggle("on", b === e.currentTarget));
-        } }, side === "original" ? rep.labels.original : rep.labels.dub)));
-    const playBtn = h("button", { type: "button", class: "primary", onclick: () => ctl.toggle() }, t("w.review.play"));
+        "data-side": side, onclick: () => setListen(side) }, side === "original" ? rep.labels.original : rep.labels.dub)));
+    // Which track you hear; the buttons show it.
+    setListen = side => {
+      ctl.setListen(side);
+      listen.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.dataset.side === side));
+    };
+    const playBtn = h("button", { type: "button", class: "primary", onclick: () => ctl.toggle() },
+      t("w.review.play"));
     const label = () => { playBtn.textContent = ctl.playing ? t("w.review.pause") : t("w.review.play"); };
     for (const v of [ctl.original, ctl.dub]) for (const ev of ["play", "pause", "ended"]) v.addEventListener(ev, label);
 
@@ -592,7 +653,8 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
           h("button", { type: "button", onclick: () => tl.fit() }, t("w.tl.fit")),
           h("button", { type: "button", onclick: () => tl.zoomIn(), "aria-label": t("w.tl.zoom_in") }, "+")),
         tl.el,
-        h("p", { class: "muted small" }, t("w.tl.help"))),
+        h("p", { class: "muted small" }, t("w.tl.help")),
+        flow?.el),
       h("div", { class: "split" },
         h("section", { class: "card what-to-check" }, h("h2", {}, rep.labels.things),
           whatToCheck(rep, id => parts.open(id), goTo)),

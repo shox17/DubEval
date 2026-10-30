@@ -1,6 +1,6 @@
 // Comparison screen: the recommended dub and why, the ranking, every check side by side, then one tab per dub with
 // its own review (synced players and timeline). Decisions and levels come from the server; nothing is ranked here.
-import { api, fill, h, state, t } from "./app.js";
+import { api, fill, h, setAddress, state, t } from "./app.js";
 import { renderReview } from "./review.js";
 import { exportButton } from "./export.js";
 
@@ -72,7 +72,7 @@ export function renderCompare(root, jobId, firstDub) {
       });
       panel.replaceChildren();
       cleanupReview = renderReview(panel, jobId, dub, true);
-      history.replaceState(null, "", `#/compare/${jobId}/${dub}`);
+      setAddress(`#/compare/${jobId}/${dub}`);       // the dialogs over this screen come back to this tab
       if (scroll) tabs.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 

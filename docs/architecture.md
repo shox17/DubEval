@@ -9,7 +9,7 @@ dubeval web → dubeval/webapp.py     │   (page: dubeval/web/, plain JavaScrip
  │    POST /api/evaluations ──► jobs.start_job(run_files_evaluation | run_files_comparison |
  │                              run_share_evaluation | run_comparison) ──► #/job/<id>
  ├─ progress: polls GET /api/jobs/<id> every second ── done ──► #/report/<id> or #/compare/<id>/<dub>
- ├─ review: build_report(results, lang) + synced players, waveform timeline, lines, problems, votes
+ ├─ review: build_report(results, lang) + synced players, waveform timeline, lines, problems
  ├─ comparison: build_ranking(results...) → recommendation, ranking, side-by-side checks, a review per dub
  └─ history (#/history): history.summarize + feedback.summarize
                                 │
@@ -47,6 +47,21 @@ Pure: no file writes (only temp audio) and no side effects on import. `run_full_
 ### `dubeval/voice_quality.py`
 `voice_quality(y_orig, y_dub, orig_speech, dub_speech)` scores ~9 s windows where both tracks speak with DNSMOS P.835 (`dubeval/models/dnsmos_sig_bak_ovr.onnx`, onnxruntime on CPU, session loaded once) and returns `{measured, reason_key, dub, original, difference, windows[{start, end, dub, original, dub_sig, original_sig, dub_bak, original_bak}], model}`. `evaluate.run_full_evaluation` calls it through the per-link cache; a missing runtime becomes `not_measured("r.vq.error")`. Grading: `intervals.voice_window_level`, used by both the report row and the intervals.
 
+### `dubeval/lip_sync.py`
+`lip_sync(orig_video, y_orig, orig_speech, dub_video, y_dub, dub_speech, duration, check, dub_offset_sec)` (y_dub: the
+dub's own sound, not moved onto the original's timeline; the dub's frames and sound are read `dub_offset_sec` later;
+a recut dub is `not_measured("r.sync_lips.recut")`) runs only when the
+`lip_sync` pack is installed (`ready()`), in place of `analyze_lipsync`. `pick_moments` takes separate 16-frame
+moments (25 fps) where both tracks speak for ≥ 80% in the first 60 s; `face_seen` looks at each one's middle frame in
+both videos (read side by side in two threads); `lower_faces` prepares the 16 frames of up to 36 of them as LatentSync
+does (MediaPipe's three points → `align`, warp, 256×256, lower half); `best_shifts` embeds faces and sound
+(`mel`) with the two bundled graphs (`ort_session.cpu_session(graph, PACK_DIR)`: the weights are external data in the
+pack's `stable_syncnet.pt`) and searches the sound shift coarse-to-fine over ±15 frames. `typical_shift` of the
+original is the zero point. Returns `{measured, moments, original_match, dub_match, original_match_pct,
+dub_match_pct, dub_offset_ms, dub_offset_match_pct, timeline[{time, end, original, dub, dub_lines_up}]}` or
+`not_measured(reason_key)`; `evaluate._lip_sync` turns any failure into `r.sync_lips.error`. The graphs are built by
+`tools/build_syncnet_onnx.py` from the pinned checkpoint (torch and onnx, developer only).
+
 ### `dubeval/speaker.py`
 `voice_similarity(y_orig, y_dub, orig_segments, background)` embeds each original line ≥ 2 s and the dub over the same span with WeSpeaker ResNet34-LM (ONNX; `fbank` is a numpy port of torchaudio's Kaldi fbank defaults, then per-utterance mean normalisation) and returns `{measured, reason_key, median, lines[{start, end, similarity}], skipped_noisy, model}`. `background(audio)` is DNSMOS's background score; lines below `CLEAN_BACKGROUND` are skipped. `model_path()` downloads the model once to `~/.cache/dubeval/` (pinned commit URL, SHA-256 checked, atomic `.part` rename); failures become `not_measured("r.vs.no_model")`.
 
@@ -73,7 +88,9 @@ Pure. `parse_batch_file` reads one link per line with an optional person's verdi
 `record(results, mode)` (mode single / compare / batch / api / web) appends one JSON line per evaluated dub to `data/history.jsonl` (`DUBEVAL_HISTORY` overrides): time, tool version, mode (single / compare / batch), link, Perso project, languages and language pair, lip-sync, verdict, Poor/Check counts, problem seconds, meaning score, speech-timing overlap, every measure's level and the report path. Failures are logged, never raised. `summarize(records, days)` counts each dub once (latest run; by Perso project, link, or for files the `inputs` original|dub), and returns totals, per-pair verdict mix and averages, the most frequent Check/Poor measures, a weekly trend and the 20 latest runs; `render_history_text` prints it. `pipeline.run_share_evaluation` (with `history_mode`), `run_comparison` (every dub) and `run_batch` record.
 
 ### `dubeval/feedback.py`
-`vote(project, interval, verdict)` appends `{time, key, link, seq, category, check, severity, start, end, vote, reviewer}` to `data/feedback.jsonl` (`DUBEVAL_FEEDBACK` overrides); `interval_key` = Perso project | category | start | end, and `latest()` keeps the newest vote per key. `summarize(votes)` gives totals and, per check, confirmed / false-alarm counts, the confirmed share and a status (`few` under 3 votes, `noisy` at ≥ 50% false alarms, else `reliable`). Report things-to-check items carry their `interval`; the web review's real problem / false alarm buttons vote on `problem_intervals` by index.
+`vote(project, interval, verdict)` appends `{time, key, link, seq, category, check, severity, start, end, vote, reviewer}` to `data/feedback.jsonl` (`DUBEVAL_FEEDBACK` overrides); `interval_key` = the dub (Perso project, or `file:<dub_id>` for a dub given as a file: its path hashed, so a rename
+keeps its votes) | category | start | end (`legacy_key` finds votes keyed by title before `dub_id`), and `latest()` keeps
+the newest vote per key. `summarize(votes)` gives totals and, per check, confirmed / false-alarm counts, the confirmed share and a status (`few` under 3 votes, `noisy` at ≥ 50% false alarms, else `reliable`). Report things-to-check items carry their `interval`; the web review's real problem / false alarm buttons vote on `problem_intervals` by index.
 
 ### `dubeval/api.py`
 FastAPI app: `POST /evaluations`, `POST /comparisons` (validate links, then `jobs.start_job` with `run_share_evaluation` / `run_comparison` into a new run folder; 202 with the job url), `GET /jobs/{id}` (status, progress, elapsed, error; when done a result summary and report links), `GET /jobs/{id}/report?format=` (409 while running, 410 if pruned), `GET /history`, `GET /feedback`, `GET /health`. `require_token` checks `Authorization: Bearer` with `hmac.compare_digest` when `DUBEVAL_API_TOKEN` is set, and without it answers only a local `Host` header (`localweb.is_local_host`, against DNS rebinding); `serve()` refuses non-local hosts without it.
@@ -87,7 +104,11 @@ to start, then one card per draft and per finished evaluation from `GET /api/eva
 each card's "..." menu, search, and polling while a started draft runs), new (`#/new`, `#/new/compare` with two dub
 cards), draft (`#/draft/<id>`: the start page filled in again from `GET /api/drafts/<id>`; the page saves its fields
 with `POST`/`PUT /api/drafts` 0.7 s after each change once a video is given, adds chosen files with
-`POST /api/uploads` at once so the draft holds them, and passes `draft_id` when it starts the run), plus settings (`#/settings/<models|keys|privacy|about>`, PersoDub's tabbed sheet: Models = `packs.catalog()` grouped with sizes and download/stop/resume/remove; API keys for Claude, Gemini and ChatGPT as password fields, never shown back, plus the checker in use; Privacy with the data folder and `POST /api/settings/open-data`; About with version, language, license and acknowledgements; `#/downloads` redirects to Models), history (`#/history`: totals, week-by-week bars, language pairs, the most frequent problems, reviewer votes per check, the latest runs with their reports), progress (`#/job/<id>`, polled every second), comparison (`#/compare/<id>/<dub>`: the recommendation and its reasoning, the ranking, every check side by side, then one tab per dub holding that dub's review) and review (`#/report/<id>`): two players kept in sync on the original's clock (the dub follows through the applied shift or parts and is re-synced past 0.25 s of drift), a canvas timeline (ruler, both waveforms, lines, problem intervals; scroll, Ctrl+scroll zoom, click to seek or select), a detail panel (both texts, lengths, problems with votes), things to check and every section's measures. It shows the server's levels and texts only; nothing is graded in the browser.
+`POST /api/uploads` at once so the draft holds them, and passes `draft_id` when it starts the run), plus settings (`#/settings/<keys|models|storage|privacy|about>`, PersoDub's dialog with Cancel and Save: Save keeps
+typed API keys and a new language, everything else acts at once; Storage = `GET /api/settings/storage` (evaluations,
+downloaded videos and the part no evaluation or draft uses, models, the data folder) and
+`POST /api/settings/storage/clear` (deletes those unused downloads, never while a job or a link download runs, never
+an upload under a day old); Models = `packs.catalog()` grouped with sizes and download/stop/resume/remove; API keys for Claude, Gemini and ChatGPT as password fields, never shown back, plus the checker in use; Privacy with the data folder and `POST /api/settings/open-data`; About with version, language, license and acknowledgements; `#/downloads` redirects to Models), history (`#/history`: totals, week-by-week bars, language pairs, the most frequent problems, reviewer votes per check, the latest runs with their reports), progress (`#/job/<id>`, polled every second), comparison (`#/compare/<id>/<dub>`: the recommendation and its reasoning, the ranking, every check side by side, then one tab per dub holding that dub's review) and review (`#/report/<id>`): two players kept in sync on the original's clock (the dub follows through the applied shift or parts and is re-synced past 0.25 s of drift), a canvas timeline (ruler, both waveforms, lines, problem intervals; scroll, Ctrl+scroll zoom, click to seek or select), a detail panel (both texts, lengths, problems with votes), things to check and every section's measures. It shows the server's levels and texts only; nothing is graded in the browser.
 
 ### `dubeval/library.py`
 The home screen's Evaluations list. A finished run folder (`data/output/runs/<YYYYMMDD-HHMMSS_hex8>/`) is one card:
@@ -152,7 +173,7 @@ stopped, and its draft follows the new job.
 - `timing_alignment`: `overlap_pct`, `original_covered_pct`, `dub_in_original_pct`, `start_offset_sec`, `end_offset_sec`, `mismatches[{start, end, kind}]`, `original_speech[]`, `dubbed_speech[]`.
 - `voice_quality`: see `dubeval/voice_quality.py` above. `voice_similarity`: see `dubeval/speaker.py` above.
 - `video_integrity`: `original` / `dubbed` `{readable, width, height, fps, frames, duration_sec, has_audio}`, `same_resolution`, `same_fps`.
-- `lipsync_metrics`: `measured`, `valid`, `reason`, zero-lag and best-lag correlation, face coverage, the original's values, waveforms.
+- `lipsync_metrics`: `measured`, `sync` (the lip-sync check's result, `dubeval/lip_sync.py`; `None` when it didn't run, and then `valid`, `reason`, zero-lag and best-lag correlation, face coverage, the original's values and waveforms come from the lip-movement estimate).
 - `translation_judge`: `{measured, reason, model, meaning_score, summary, issues[]}`.
 - `report`: the output of `build_report`, including `problem_intervals[]`, `possible_asr_errors[]` and `problem_seconds`.
 - `pipeline`: `run_id`, `execution_mode`, local video paths, target language name/code/id, `share {share_url, seq, title, source_language_name, source_language_code, target_language_name, is_lipsync, evaluated_video, duration_ms, created, original_from}`, `timestamp`, `report_files`.
@@ -198,7 +219,8 @@ original_media, dub_media (probes), subtitles {original, dub: cue counts}}`; the
 One interface over faster-whisper (default) and openai-whisper, chosen by `DUBEVAL_ASR` (falls back to whichever is
 installed). `transcribe` returns `{text, language, segments[{start, end, text, avg_logprob, no_speech_prob,
 words[[start, end]]}]}` from both; `language_probs` returns `{code: probability}` from the first 30 s. Both are
-seeded (`SEED`). faster-whisper runs on the GPU in float16 when CTranslate2 sees one (tested once at load, so a
+seeded (`SEED`). `voice_activity` returns where Silero's voice detector (bundled with faster-whisper) hears speech;
+`evaluate.keep_voiced` uses it to drop recognized lines over music and effects. faster-whisper runs on the GPU in float16 when CTranslate2 sees one (tested once at load, so a
 missing CUDA library falls back to 8-bit CPU), else on the CPU; `DUBEVAL_DEVICE=cpu` forces the CPU. On Windows,
 PyTorch's `lib` folder is added to the DLL search path so CTranslate2 finds cuBLAS/cuDNN. Cache keys and
 `metadata.speech_recognizer` use `model_id()` (`faster-whisper:base`).

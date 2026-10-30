@@ -31,9 +31,16 @@ def feedback_file() -> Path:
 
 
 def interval_key(project: dict, interval: dict) -> str:
-    """A stable id for one problem interval of one dub: link, category and time range."""
-    link = project.get("perso_seq") or project.get("share_url") or project.get("title") or "?"
-    return f"{link}|{interval['category']}|{interval['start']:.1f}|{interval['end']:.1f}"
+    """A stable id for one problem interval of one dub: the dub (its share link, or for a file its dub_id), category
+    and time range."""
+    dub = project.get("perso_seq") or project.get("share_url") or (
+        f"file:{project['dub_id']}" if project.get("dub_id") else project.get("title") or "?")
+    return f"{dub}|{interval['category']}|{interval['start']:.1f}|{interval['end']:.1f}"
+
+
+def legacy_key(project: dict, interval: dict) -> str:
+    """The key votes had before dub_id (a file evaluation's title), so votes cast then are still found."""
+    return interval_key({**project, "dub_id": None}, interval)
 
 
 def vote(project: dict, interval: dict, verdict: str, reviewer: str = "") -> dict:

@@ -1,10 +1,10 @@
-// Home screen, as PersoDub's: a banner that starts a new evaluation (or takes a Perso share link), the ways to start,
+// Home screen, as PersoDub's: a banner that starts a new evaluation (and takes the dub: a file or any link), the ways to start,
 // then every evaluation as a card with its picture. Drafts (a start page filled in but not run) come first; a draft
 // that was started shows its progress and opens the progress screen. A card's "..." has Rename and Delete (a draft:
 // Delete only). Cards come from /api/evaluations; the list refreshes while an evaluation is running.
 import { api, confirmAlert, go, h, openModal, state, t } from "./app.js";
 
-export const PREFILL_KEY = "dubeval.prefill";        // a share link pasted on the banner, for the start page to use
+export const PREFILL_KEY = "dubeval.prefill";        // what the banner was given ({upload, name} or {link}): the dub
 const POLL_MS = 2000;
 
 function icon(paths, size = 16) {
@@ -25,6 +25,7 @@ function icon(paths, size = 16) {
 const ICONS = {
   plus: ["M5 12h14", "M12 5v14"],
   link: ["M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1", "M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"],
+  upload: ["M12 16V4", "m7 9 5-5 5 5", "M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"],
   one: ["M4 5h16v11H4z", "M8 20h8", "M12 16v4"],
   compare: ["M4 5h7v14H4z", "M13 5h7v14h-7z"],
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
@@ -46,25 +47,73 @@ function fmtLength(sec) {
   return `${m}:${String(s - m * 60).padStart(2, "0")}`;
 }
 
+// Adds a file chosen or dropped on the banner (as the start page does); resolves to {id: "upload:<id>", name}.
+function uploadFile(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest(), form = new FormData();
+    form.append("file", file);
+    xhr.open("POST", "/api/uploads");
+    xhr.setRequestHeader("Accept-Language", state.lang);
+    xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      xhr.status < 300 ? resolve({ id: data.id, name: data.name || file.name }) : reject(new Error(data.detail || xhr.statusText));
+    };
+    xhr.onerror = () => reject(new Error(t("w.err.upload")));
+    xhr.send(form);
+  });
+}
+
+// The banner takes the dub, a file or any kind of link, and opens the start page with it in the dub's card.
 function banner(alive) {
   const link = h("input", { type: "url", placeholder: t("w.home.link"), "aria-label": t("w.home.link"),
     autocomplete: "off" });
-  const useLink = () => {
-    const value = link.value.trim();
-    if (!value) return;
-    try { sessionStorage.setItem(PREFILL_KEY, value); } catch { /* the start page just opens empty */ }
+  const startWith = given => {
+    try { sessionStorage.setItem(PREFILL_KEY, JSON.stringify(given)); } catch { /* the start page just opens empty */ }
     go("#/new");
   };
+  const useLink = () => {
+    const value = link.value.trim();
+    if (value) startWith({ link: value });
+  };
+  const status = h("div", { class: "home-banner-status", hidden: true });
+  const fileInput = h("input", { type: "file", accept: "video/*,audio/*", class: "sr", tabindex: "-1" });
+  async function useFile(file) {
+    status.hidden = false;
+    status.textContent = t("w.home.uploading");
+    try {
+      const added = await uploadFile(file, f => { status.textContent = `${t("w.home.uploading")} ${Math.round(f * 100)}%`; });
+      if (alive()) startWith({ upload: added.id, name: added.name });
+    } catch (e) {
+      status.textContent = e.message;
+    }
+  }
+  fileInput.addEventListener("change", () => fileInput.files[0] && useFile(fileInput.files[0]));
+  const uploadBtn = h("button", { type: "button", class: "home-upload", onclick: () => fileInput.click() },
+    icon(ICONS.upload, 14), t("w.home.upload"));
   link.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); useLink(); } });
   link.addEventListener("paste", () => setTimeout(() => alive() && useLink(), 0));
   const field = h("label", { class: "home-link" }, icon(ICONS.link, 14), link);
-  // The field sits in the banner, whose own click opens the start page: clicks in the field stay in the field.
-  for (const ev of ["click", "mousedown"]) field.addEventListener(ev, e => e.stopPropagation());
-  return h("div", { class: "home-banner", role: "button", tabindex: "0", "aria-label": t("w.nav.new"),
+  const inputs = h("div", { class: "home-inputs" }, uploadBtn, field);
+  // The inputs sit in the banner, whose own click opens the start page: clicks in them stay in them. That includes the
+  // hidden file field: its click (the one that opens the file picker) would otherwise reach the banner and leave Home
+  // before a file is chosen.
+  for (const el of [inputs, status, fileInput]) for (const ev of ["click", "mousedown"]) el.addEventListener(ev, e => e.stopPropagation());
+  const el = h("div", { class: "home-banner", role: "button", tabindex: "0", "aria-label": t("w.nav.new"),
     onclick: () => go("#/new"), onkeydown: e => { if (e.key === "Enter" && e.target === e.currentTarget) go("#/new"); } },
     h("div", { class: "home-banner-head" }, h("span", { class: "home-banner-plus" }, icon(ICONS.plus, 18)),
       h("span", {}, t("w.nav.new"))),
-    h("div", { class: "home-banner-sub" }, t("w.home.banner_sub")), field);
+    h("div", { class: "home-banner-sub" }, t("w.home.banner_sub")), inputs, status, fileInput);
+  // A video dropped anywhere on the banner is the dub.
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("over"); });
+  el.addEventListener("dragleave", () => el.classList.remove("over"));
+  el.addEventListener("drop", e => {
+    e.preventDefault();
+    el.classList.remove("over");
+    if (e.dataTransfer.files[0]) useFile(e.dataTransfer.files[0]);
+  });
+  return el;
 }
 
 function toolCard(paths, title, desc, hash) {

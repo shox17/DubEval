@@ -133,10 +133,14 @@ a { color: var(--primary-ink); }
 .modal-foot button { min-width: 72px; height: 28px; }
 .wn-list { margin: 0; padding-left: 18px; }
 .wn-list li { margin: 4px 0; }
-.help-item + .help-item { margin-top: 12px; }
-.help-item b { display: block; margin-bottom: 2px; }
-.help-item p { margin: 0; }
-.help-links { margin: 14px 0 0; }
+/* Help: PersoDub's "What PersoDub does": a darker panel of parts, each a title, what it does and a grey line. */
+.help-panel { display: flex; flex-direction: column; gap: 16px; padding: 16px 14px; border-radius: var(--radius);
+  background: var(--desk); }
+.help-item b { display: block; margin-bottom: 4px; font-size: 12.5px; font-weight: 600; }
+.help-item p { margin: 0; font-size: 12.5px; line-height: 1.45; }
+.help-item .help-more { margin-top: 3px; font-size: 11px; color: var(--muted-foreground); }
+.help-links { margin: 0; font-size: 12.5px; }
+.help-links a { color: var(--primary-ink); text-decoration: underline; text-underline-offset: 2px; }
 .upd-versions { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
 .export-list { display: flex; flex-direction: column; gap: 8px; }
 .export-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; border: 1px solid var(--border);
@@ -367,18 +371,24 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
 .status.noisy { color: var(--destructive); font-weight: 600; } .status.reliable { color: var(--success); }
 @media (max-width: 600px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
 
-/* ---------- settings (PersoDub's sheet: one row of tabs, one darker panel of label | control rows) ---------- */
-/* Settings: PersoDub's 512 × 594 dialog: the title bar, one row of tabs, one darker panel that scrolls, Close. */
+/* ---------- settings: PersoDub's 512 × 594 dialog: the title bar, one row of tabs, one darker panel that scrolls,
+   Cancel and Save side by side. Models and Storage: bands (a group and its size) over rows of
+   name | size | state | button; the other tabs: "label | control" rows. ---------- */
 .settings-modal { width: min(512px, 92vw); height: min(594px, 90vh); max-height: none; }
-.settings-modal .modal-body { display: flex; flex-direction: column; gap: 16px; padding: 16px 16px 12px; overflow: hidden; }
+.settings-modal .modal-body { display: flex; flex-direction: column; gap: 16px; padding: 16px; overflow: hidden; }
 .settings-modal .set-tabs { flex: none; margin-bottom: 0; }
 .settings-modal .set-panel { flex: 1; min-height: 0; overflow-y: auto; }
+.settings-modal .modal-foot { height: auto; padding: 0 16px 16px; border-top: none; justify-content: stretch; }
+.settings-modal .modal-foot button { flex: 1 1 0; min-width: 0; height: 28px; border: 0; }
+.set-error { margin: -6px 16px 10px; }
+.set-error:empty { display: none; }
 .set-tabs { display: flex; height: 28px; border-radius: var(--radius-sm); background: var(--desk); margin-bottom: 12px; padding: 2px; }
 .set-tab { flex: 1 1 0; min-width: 0; height: 24px; padding: 0; border: 0; border-radius: 5px; background: none;
   color: var(--muted-foreground); font-size: 11.5px; font-weight: 500; }
 .set-tab:hover { background: none; color: var(--foreground); }
 .set-tab[aria-selected="true"] { background: var(--secondary); color: var(--foreground); }
-.set-panel { padding: 6px 20px; border-radius: var(--radius); background: var(--desk); }
+.set-panel { padding: 6px 24px; border-radius: var(--radius); background: var(--desk); }
+.set-panel.list { padding: 0; }
 .set-row { display: grid; grid-template-columns: 170px minmax(0, 1fr); column-gap: 12px; align-items: center;
   min-height: 46px; padding: 10px 0; font-size: 11.5px; }
 .set-row + .set-row { border-top: 1px solid var(--border); }
@@ -390,23 +400,32 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
 .set-panel input[type=password], .set-panel input[type=text], .set-panel select { height: 28px; padding: 0 8px;
   border: 1px solid transparent; border-radius: 5px; background: var(--secondary); font-size: 11.5px; }
 .set-panel input:focus, .set-panel select:focus { border-color: var(--primary); }
-.set-panel .btn { height: 26px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); font-size: 11px;
-  font-weight: 500; white-space: nowrap; background: var(--secondary); }
+.set-panel .btn { height: 24px; min-width: 76px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); font-size: 11.5px;
+  font-weight: 600; white-space: nowrap; background: var(--secondary); color: var(--foreground); text-decoration: none; }
+.set-panel a.btn { display: inline-flex; align-items: center; justify-content: center; }
 .set-panel .btn:hover { background: var(--divider); }
-.set-panel .btn.primary { background: var(--primary); }
+.set-panel .btn.primary { background: var(--primary); color: #ffffff; }
 .settings-hint { color: var(--muted-foreground); font-size: 11px; }
 .settings-hint:empty { display: none; }
 .settings-link { color: var(--primary-ink); font-weight: 500; }
-.set-summary { padding: 12px 0; font-size: 11px; color: var(--muted-foreground); }
-.model-group-head { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 0 6px;
-  border-top: 1px solid var(--border); font-weight: 600; font-size: 11.5px; }
-.model-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 0; }
+.set-summary { padding: 16px 24px; font-size: 11.5px; color: var(--muted-foreground); }
+.model-group-head { display: flex; justify-content: space-between; align-items: center; height: 37px; padding: 0 24px;
+  background: var(--head-bg); font-size: 13px; font-weight: 600; }
+.model-group-head .model-size { font-weight: 400; }
+.model-rows { padding: 2px 24px 10px; }
+.model-row { display: grid; grid-template-columns: 140px 62px minmax(0, 1fr) auto; align-items: center; column-gap: 0;
+  min-height: 45px; padding: 8px 0; font-size: 12px; }
 .model-row + .model-row { border-top: 1px solid var(--border); }
-.model-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.model-name { font-weight: 500; }
-.model-note { color: var(--muted-foreground); font-size: 11px; }
-.model-size { color: var(--muted-foreground); font-size: var(--font-label); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.model-row progress { margin: 4px 0 0; }
+.model-row > .btn { margin-left: 12px; }
+.model-name { font-weight: 500; overflow-wrap: anywhere; padding-right: 12px; }
+.model-size { color: color-mix(in srgb, var(--foreground) 80%, transparent); font-size: 11.5px;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.model-state { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
+.model-ok { color: var(--success); font-weight: 600; font-size: 11.5px; }
+.model-state progress { flex-basis: 100%; margin: 4px 0 0; }
+.model-row.folder { grid-template-columns: minmax(0, 1fr) auto; }
+.model-row.folder .mono { overflow-wrap: anywhere; font-size: 11px; padding-right: 12px; }
+.folder-note { margin: 0 0 4px; }
 .judges { list-style: none; padding: 0; margin: 2px 0 0; display: grid; gap: 4px; }
 .license-list { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 4px; }
 .license-list li { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 3px 0; }
@@ -422,7 +441,7 @@ input.switch:checked::after { left: 21px; }
 
 /* ---------- home: PersoDub's first screen, with Evaluations where it lists projects ---------- */
 /* A blue banner that starts a new evaluation (and takes a Perso share link), the ways to start, then the cards. */
-.home { display: flex; flex-direction: column; gap: 14px; max-width: 1100px; }
+.home { display: flex; flex-direction: column; gap: 14px; }   /* stretches with the window, as PersoDub's */
 .home-banner { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
   height: 150px; flex: none; padding: 0 18px; border-radius: var(--radius-lg); cursor: pointer; text-align: center;
   color: #ffffff; background: radial-gradient(120% 140% at 70% 0%, #4fa3ff 0%, #166CFB 45%, #0f3e9e 100%); }
@@ -434,7 +453,13 @@ input.switch:checked::after { left: 21px; }
 .home-banner-sub { font-size: 12px; color: rgba(255, 255, 255, 0.8); margin-top: -6px; }
 /* The link field in the banner, as PersoDub's: a white 34px bar with the link icon and the words together in the
    middle (the input is only as wide as what it holds); a click anywhere in it types. */
-.home-link { display: flex; align-items: center; justify-content: center; gap: 8px; width: min(460px, 92%); height: 34px;
+.home-inputs { display: flex; align-items: center; justify-content: center; gap: 8px; width: min(640px, 96%); }
+.home-upload { display: inline-flex; align-items: center; gap: 6px; height: 34px; flex: none; padding: 0 14px;
+  border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.55); background: rgba(11, 18, 32, 0.25); color: #ffffff; }
+.home-upload:hover { background: rgba(11, 18, 32, 0.4); }
+.home-banner.over { box-shadow: inset 0 0 0 2px #ffffff; }
+.home-banner-status { font-size: 12px; color: #ffffff; }
+.home-link { display: flex; align-items: center; justify-content: center; gap: 8px; flex: 1; min-width: 0; height: 34px;
   padding: 0 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.92); color: #5a6477; cursor: text; }
 .home-link:focus-within { background: #ffffff; box-shadow: 0 0 0 2px rgba(11, 18, 32, 0.5); }
 .home-link .icon { flex: none; color: #5a6477; }
@@ -442,7 +467,7 @@ input.switch:checked::after { left: 21px; }
   background: none; padding: 0; color: #0b1220; font-size: 12px; }
 .home-link input::placeholder { color: #5a6477; }
 .home-link input:focus, .home-link input:focus-visible { outline: none; box-shadow: none; }
-.home-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.home-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }   /* the row fills the width */
 .home-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; height: auto; padding: 14px;
   text-align: left; background: var(--well); border: 1px solid var(--border); border-radius: var(--radius); }
 .home-card:hover { background: var(--secondary); }
@@ -463,12 +488,12 @@ input.switch:checked::after { left: 21px; }
 
 /* Square cards: the picture (a chip top-left: the verdict, Draft, Evaluating n%; the length bottom-right), the name,
    one line under it and "..." (shown on hover or focus). */
-.projects-grid { display: grid; grid-template-columns: repeat(auto-fill, 150px); gap: 20px 18px; }
+.projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 20px 18px; }
 .projects-empty { grid-column: 1 / -1; padding: 20px 0; color: var(--muted-foreground); }
 .proj-card { display: flex; flex-direction: column; cursor: pointer; border-radius: var(--radius-sm); outline: none; }
 .proj-card:focus-visible { box-shadow: var(--focus-ring); }
 .proj-card[aria-busy="true"] { opacity: 0.6; cursor: progress; }
-.proj-thumb { position: relative; width: 150px; height: 150px; overflow: hidden; border-radius: var(--radius-sm);
+.proj-thumb { position: relative; width: 100%; aspect-ratio: 1; height: auto; overflow: hidden; border-radius: var(--radius-sm);
   background: var(--well); border: 1px solid var(--border); }
 .proj-card:hover .proj-thumb { border-color: var(--divider); }
 .proj-img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -620,3 +645,10 @@ body.booting .app { visibility: hidden; }
 .update-banner { position: fixed; top: 44px; left: 50%; transform: translateX(-50%); z-index: 30; display: flex;
   align-items: center; gap: 12px; padding: 8px 14px; border-radius: var(--radius); background: var(--primary-accent);
   border: 1px solid var(--primary-soft); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
+
+/* The review flow under the timeline: one flagged moment at a time. */
+.review-flow { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card-soft, var(--bg)); display: flex; flex-direction: column; gap: 6px; }
+.review-flow .row { gap: 8px; flex-wrap: wrap; align-items: center; }
+.review-flow button { height: 30px; padding: 0 12px; }
+.review-flow p { margin: 0; }

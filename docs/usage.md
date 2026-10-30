@@ -5,7 +5,7 @@ Everything DubEval can do, every check it runs and how to read the results. Inst
 ## What you can do with it
 | Way | How | What for |
 |---|---|---|
-| **Web interface** | `dubeval web` | Choose an original and its dub (or up to 8 dubs to compare and get a recommendation), follow the evaluation, then review it like an editor: both videos in sync, a timeline with both waveforms, every line and every problem; vote real problem / false alarm. **Settings** has PersoDub-style tabs: **Models** (built-in and optional models by purpose, with sizes: offline meaning check, NVIDIA GPU speed-up, a large speech model), **API keys** (Claude, Gemini, ChatGPT), **Privacy** and **About**. A report row that couldn't be measured for a fixable reason links straight to the tab that fixes it. A **History** page shows every past evaluation, trends and which checks reviewers call false alarms |
+| **Web interface** | `dubeval web` | Choose an original and its dub (or up to 8 dubs to compare and get a recommendation), follow the evaluation, then review it like an editor: both videos in sync, a timeline with both waveforms, every line and every problem. **Settings** is PersoDub's dialog: **API keys** (Claude, Gemini, ChatGPT), **Models** (built-in and optional models by purpose, with sizes: offline meaning check, NVIDIA GPU speed-up, a large speech model, the lip-sync check), **Storage** (what DubEval keeps on this computer; clear the downloaded videos no evaluation uses), **Privacy** and **About**, with **Cancel** and **Save** (Save keeps the keys you typed and a new interface language; downloads and removals happen at once). A report row that couldn't be measured for a fixable reason links straight to the tab that fixes it. A **History** page shows every past evaluation, trends and which checks reviewers call false alarms |
 | **Command line** | `dubeval evaluate --original A --dub B`, or `python qa.py "<share link>"` | A report in the terminal plus saved files |
 | **Compare** | **Add another dub** in `dubeval web`, or `python qa.py compare A B C …` | Rank 2–8 dubs of the same video and pick the one to deliver |
 | **Batch** | `python qa.py batch links.txt` | Check many links at once; one summary spreadsheet, and agreement with your own verdicts |
@@ -25,7 +25,7 @@ Everything DubEval can do, every check it runs and how to read the results. Inst
 | **Meaning similarity** *(offline)* | Does each dub line roughly mean what the original line says? | A multilingual sentence model (BGE-M3) compares every line pair on your computer; low lines are flagged for a check |
 | **Translation** *(when a judge is available)* | Same meaning? Anything missing or added? Names and numbers kept? Natural for this kind of dub? | A judge reads both sides line by line: Claude (`ANTHROPIC_API_KEY`), Gemini (`GEMINI_API_KEY`), or a local model (Qwen3 8B, downloaded in Settings → Models with the part of Ollama it needs, ~5.3 GB; it runs on the graphics card through Vulkan and nothing leaves the computer, but it is slower and less exact); `--dub-type human` lets it accept intended localization |
 | **Video integrity** | Is the picture unchanged, with an audio track? | Resolution, frame rate and audio stream of both files |
-| **Lip movement** *(experimental, lip-synced dubs only)* | Does the mouth move with the voice? | MediaPipe mouth opening vs loudness, compared with the original; measured automatically when the dub is lip-synced; never part of the verdict |
+| **Lip sync** *(lip-synced dubs only)* | Do the lips follow the dubbed speech? | With the lip-sync download (Settings → Models, ByteDance's StableSyncNet, 1.6 GB, about 30 s more per dub): how many of up to 30 moments line up, next to the original, and whether the sound is late or early. Without it, the experimental lip-movement estimate (MediaPipe mouth opening vs loudness). Measured automatically when the dub is lip-synced; never part of the verdict |
 | **Script accuracy** *(CLI, when you pass a script)* | Is the script you expected heard in the dub? | Whisper transcript vs your script: CER for Korean, Japanese, Chinese and Thai, WER otherwise |
 
 Every run saves `report.html` (a standalone page to share), `report.json` and `report.txt` in the `--out` folder (default `./output`). Compare mode saves `comparison.txt` / `.json` / `.html` plus `report_A.*`, `report_B.*`, … (one per dub).
@@ -62,9 +62,10 @@ In Perso, open the dubbed video, choose **Share**, and copy the link. It looks l
 ### The web interface
 `dubeval web` opens DubEval in your browser (only this computer can use it, with the link it prints).
 
-The first screen is **Evaluations**, laid out like PersoDub's home: a blue **New evaluation** banner (click it, or
-paste a Perso share link into it), the ways to start (evaluate a dub, compare dubs, History), then every evaluation as
-a card with a picture of the video, its verdict and its length. Click a card to open its review. A card's **...** has
+The first screen is **Home**, laid out like PersoDub's and as wide as the window: a blue **New evaluation** banner
+that takes the **dub**: **Upload a file** (or drop a video on the banner) or paste **a video link of any kind**; the
+start page then opens with it in the dub's card, and you add the original there. Below: the ways to start (evaluate a
+dub, compare dubs, History), then every evaluation as a card with a picture of the video, its verdict and its length. Click a card to open its review. A card's **...** has
 **Rename** and **Delete** (Delete removes its report and results from this computer, never your own video files).
 **Search** filters the cards by name.
 
@@ -74,13 +75,13 @@ Delete). A started draft shows its progress on its card; if the evaluation fails
 opens the filled-in page to try again. Evaluations stay until you delete them, and so do the videos they play (files
 you chose are copied into DubEval's data folder as soon as you choose them).
 
-1. Choose the **original video** and the **dubbed video**: a file (choose or drop it), a path on this computer, or a link. Each one is **previewed** (picture, title, length) before anything runs. Paste a **Perso share link** in either box and DubEval fills in the rest: the share is the dub, its original comes with it, and both languages are set (Perso shares no subtitles; add subtitle files under More options if you have them). A **Perso share link** in the dub box is enough on its own: it includes the original, and for a lip-synced dub the **lip-synced video is evaluated** and **lip movement is measured automatically**.
+1. Choose the **original video** and the **dubbed video**: a file (choose or drop it), a path on this computer, or a link. Each one is **previewed** (picture, title, length) before anything runs. **A pasted link is downloaded right away**, whatever kind it is: a video page (YouTube, TikTok, Reels and the other sites yt-dlp reads), a link to a video file, or a Dropbox, Google Drive or OneDrive share (turned into a download of the file); the card shows the progress, then holds the video like a chosen file. A video that needs signing in to its site (some Vimeo videos) can't be downloaded: download it yourself and choose the file. Paste a **Perso share link** in either box and DubEval fills in the rest: the share is the dub, its original comes with it, and both languages are set (Perso shares no subtitles; add subtitle files under More options if you have them). A **Perso share link** in the dub box is enough on its own: it includes the original, and for a lip-synced dub the **lip-synced video is evaluated** and **lip movement is measured automatically**.
 2. On each dub card you can set its **kind** (AI cloned voice, AI stock voice, human voice actors; hover over **?** to see what each one changes) and its **language** (detected automatically; choose it from the list for less common languages such as Uzbek). Each video card (the original and every dub, also in a comparison) takes its own **subtitle file** (SRT or WebVTT, optional). **More options** has the translation checker, the speech model and lip movement.
 3. Choose the **translation checker** from the list (Claude, Gemini, ChatGPT or a local model; one without a key is greyed out, with a link to Settings), or don't check. Subtitle files are used by the checker, shown next to each line in the review (share links too), and a dub whose speech matches its subtitle file is taken to be in that file's language even when recognition guesses another (Uzbek is often heard as Kazakh). To also score an approved script, use the command line (`--script` / `--script-file`).
 4. Press **Start evaluation** and follow the stages (a green tick marks each one done). **Stop** asks first, like PersoDub (**Keep going** or **Stop**), then stops within moments, even in the middle of speech recognition or the translation check. A stopped evaluation offers **Continue** (it runs again and reuses the speech already recognized) and **Change and start again** (its draft). The review shows what matters first: the verdict, both videos with the timeline, then **What to check**, Poor first and then Check (each result that isn't Good, with what it means, and every moment to look at; click one to go there). Every part of the result (Same video, Timing & audio, Translation, ...) is folded below with a one-line summary; open one to see its measures. The review fills the window: the **verdict**, both videos side by side (**Play** plays the one chosen under **Listen to**, with its sound, and the other follows it to the same moment), a **timeline** with both waveforms, every line and every problem (click one to see both texts, the lengths and what was found), the things to check, and every measure with how it's graded.
 5. Click the result's **title** to rename it (History, exports and its card follow). **Export** (top right of the result) saves the report (HTML), the problem list (Excel: every check graded Check or Poor, every warning and every timed problem), a text summary or the data (JSON), in the interface language; several files come as one ZIP.
 
-The sidebar's **Help** explains what DubEval does, **Send feedback** opens the project's issues page, and the **What's new** card lists what changed in this version. The desktop app updates itself, as PersoDub does: a new version downloads in the background and the **Version update** window opens once to say so (current and new version, release date, the new version's What's new). **Restart to update** installs it, with the installer's progress bar, and DubEval says "Updated to …" when it's back. The What's new card opens the same window any time; Settings → About → Updates checks by hand. The interface language is in Settings → About. Settings opens as a window over the screen you're on; drag the sidebar's right edge to make it wider or narrower.
+The sidebar's **Help** explains what DubEval does, **Send feedback** opens the project's issues page, and the **What's new** card lists what changed in this version. The desktop app updates itself, as PersoDub does: a new version downloads in the background and the **Version update** window opens once to say so (current and new version, release date, the new version's What's new). **Restart to update** installs it, with the installer's progress bar, and DubEval says "Updated to …" when it's back. The What's new card opens the same window any time; Settings → About → Updates checks by hand. The interface language is in Settings → About (press **Save**). Settings opens as a window over the screen you're on; drag the sidebar's right edge to make it wider or narrower.
 
 ### Problem intervals
 Every issue in the report is a time range you can jump to, with its category, severity (Poor or Check), the check that found it and a one-line description, e.g. `12.4s-15.1s | missing speech | Poor | Translation check | the line about … is not spoken`. Overlapping or nearby ranges of the same kind are merged.
@@ -99,7 +100,7 @@ Every issue in the report is a time range you can jump to, with its category, se
 | voice quality | the dub's voice sounds clearly worse (robotic, distorted) than the original's there |
 | different voice | this line's voice doesn't match the original speaker while the rest of the dub does |
 
-Probable speech-recognition mistakes are listed separately as "possible ASR error" and never count. Mark each interval as a **real problem** or a **false alarm** in the web interface (see Reviewer feedback below).
+Probable speech-recognition mistakes are listed separately as "possible ASR error" and never count. Mark each problem as a **real problem** or a **false alarm** on its card (see Reviewer feedback below).
 
 **Interface language:** English, 한국어, Português or Español (top right of the web interface). Everything follows it: the report's explanations, verdict and things to check, Gemini's translation comments, error messages, and the downloaded HTML report. The command line takes `--lang ko` (the default), `en`, `es` or `pt`.
 
@@ -122,7 +123,7 @@ Every dub goes through the full pipeline. **Decision rule**, stopping at the fir
 6. higher translation meaning score (average over the lines, out of 10)
 7. higher speech-timing alignment (%)
 
-Still tied → the earlier dub (A before B), and the comparison says it's a tie. With 3+ dubs the same rule sorts all of them into a ranking, and the reasoning explains #1 against #2. A rule is skipped when any dub has no value for it (for example, no translation check), and the comparison then says the decision was made without translation. If the recommended dub still has key checks that weren't measured (every dub lacked them, so rule 1 couldn't separate them), the recommendation carries a clear **caution** to watch it before delivering. If **every dub is Poor**, the best one is still named, with a clear "neither is ready to deliver" warning and what to fix first.
+Still tied → the earlier dub (A before B), and the comparison says it's a tie. With 3+ dubs the same rule sorts all of them into a ranking, and the reasoning explains #1 against #2. A rule is skipped when any dub has no value for it (for example, no translation check), and the comparison then says the decision was made without translation. If the recommended dub still has key checks that weren't measured (every dub lacked them, so rule 1 couldn't separate them), the recommendation carries a clear **caution** to watch it before delivering. If **every dub is Poor**, the best one is still named, with a clear "neither is ready to deliver" warning and what to fix first. If DubEval **isn't sure of the dub it ranks first** (little or unclear speech, or its translation wasn't checked), it keeps the order but **holds the recommendation**: "No confident recommendation yet: Dub B ranks first, but its translation wasn't checked. Listen to the dubs before choosing." (the exit code is still 0).
 
 `comparison.txt` and the top of `comparison.html` start with **1. Recommended version**, **2. Problem intervals** (per dub, e.g. `12.4s-15.1s | Dub B | missing speech | Poor | Translation check | The line about … is not spoken`) and **3. Reasoning** (the rule, the values for A and B, a short summary), followed by every check side by side, each link's details, measurement notes, the tool version and the run time. Probable speech-recognition errors are listed separately and never count.
 
@@ -154,6 +155,7 @@ Keep the videos and a sheet with private paths out of git.
 overall), and DubEval's verdict shown only after you answer, so it doesn't sway you. Answers are saved into the sheet:
 ```bash
 dubeval label testset.csv --results ./output/testset          # opens http://127.0.0.1:<port> in your browser
+dubeval validate testset.csv --out data/validation/run1       # known problems: caught per check, false alarms (docs/validation.md)
 ```
 Only the printed link opens the page (it carries a new token each time), so no other web page can read or change your labels.
 
@@ -165,8 +167,11 @@ python qa.py history --csv history.csv            # every recorded evaluation as
 ```
 Reruns of the same link count once in the totals (the latest run wins).
 
+### Going through the problems
+**Review the problems**, under the timeline, walks through every flagged moment: **Start reviewing**, then **Previous** and **Next** (keys `N` and `P`). Each one is selected on the timeline, its card opens and the videos move to its start; nothing plays until you press **Play** (or Space), and **Listen to** picks the original or the dub.
+
 ### Reviewer feedback
-On every problem in the web interface's review, mark it **real problem** or **false alarm** (the latest vote counts, so you can change your mind). Votes are saved in `data/feedback.jsonl`. The History page and `python qa.py feedback` then show, per check, how many flags reviewers confirmed and which checks **flag too much** (half or more false alarms, after at least 3 votes): the place to loosen a threshold.
+Open a problem (click it on the timeline or in the list, or reach it with **Review the problems**) and mark it **Real problem** or **False alarm** on its card (the latest vote counts, so you can change your mind). Votes always refer to the moments the review shows, even on an evaluation run before a rule changed, and are saved in `data/feedback.jsonl`. They don't change this report: the History page and `python qa.py feedback` add them up per check and name the checks that **flag too much** (half or more false alarms, after at least 3 votes), the first thresholds to loosen.
 
 ### The command line
 ```bash
@@ -196,9 +201,11 @@ Full detail in [metrics.md](metrics.md).
 | Voice similarity to the original speaker (lines with a quiet background) | ≥ 50% | below (never Poor) | |
 | Voice quality (vs the original, per ~9 s stretch) | voice < 0.6 and whole sound < 0.5 below | below that | voice ≥ 1.0 or whole sound ≥ 0.9 below |
 | Speech timing overlap | ≥ 75% | ≥ 55% | below |
-| Meaning (every line 1–10) | no line ≤ 6 | a line ≤ 6 | a line ≤ 4 |
+| Meaning (every line 1–10) | no line ≤ 6 | a line ≤ 6 (or one or two ≤ 4) | 3 or more lines, or most lines, ≤ 4 |
 | Natural wording · fits the context · consistent terms · localization (every line 1–10) | no line ≤ 6 | a line ≤ 6 | never |
 | Script accuracy | ≥ 80% | ≥ 50% | below |
-| Lip movement | always informational | | |
+| Lip sync / lip movement | always informational | | |
 
-The **lip movement number is not reliable on its own**; only compare it with the original video's score. The translation check works on speech-recognition transcripts, so a misheard word can look like a translation error; the report says when an issue may be one.
+Read **lip sync** next to the original's count: a dub without lip sync lines up about 1 time in 6 by chance. The
+**lip movement number** (shown without the download) is not reliable on its own; only compare it with the original
+video's score. The translation check works on speech-recognition transcripts, so a misheard word can look like a translation error; the report says when an issue may be one.

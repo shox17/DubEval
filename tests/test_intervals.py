@@ -64,7 +64,8 @@ def test_long_silence_and_timing_mismatch_from_speech_timing():
     r = make_results(timing_alignment={"mismatches": [
         {"start": 2.0, "end": 7.0, "kind": "original_only"},      # 5 s silent dub: Poor long silence
         {"start": 10.0, "end": 12.5, "kind": "original_only"},    # 2.5 s: Check long silence
-        {"start": 19.4, "end": 20.1, "kind": "dub_only"}]})
+        {"start": 15.0, "end": 15.6, "kind": "dub_only"},         # 0.6 s: word-timing jitter, not listed
+        {"start": 19.4, "end": 20.4, "kind": "dub_only"}]})
     out = build_intervals(r, tr, "en")["intervals"]
     assert [(i["category"], i["severity"]) for i in out] == [
         ("long_silence", "poor"), ("long_silence", "check"), ("timing_mismatch", "check")]
@@ -98,7 +99,8 @@ def test_clipping_language_and_clarity_ranges():
                 {"start": 10.0, "end": 20.0, "language": "en", "probability": 0.9, "expected_probability": 0.05},
                 {"start": 20.0, "end": 28.68, "language": "ja", "probability": 0.4, "expected_probability": 0.3}],
             "clarity": {"confident_pct": 80.0, "mean_logprob": -0.8, "segments": 3,
-                        "unclear_segments": [{"start": 22.0, "end": 23.0, "text": "음"}]}})
+                        "unclear_segments": [{"start": 22.0, "end": 23.0, "text": "음"},
+                                             {"start": 25.0, "end": 25.2, "text": "어"}]}})   # 0.2 s: not listed
     out = build_intervals(r, tr, "en")["intervals"]
     assert spans(out) == [(3.0, 3.6, "distortion"), (10.0, 20.0, "wrong_language"), (22.0, 23.0, "unclear_speech")]
     lang = out[1]
@@ -143,3 +145,16 @@ def test_a_translation_issue_takes_the_line_starting_at_its_time():
                      acoustic_metrics={"dubbed_duration_sec": 60.0, "original_duration_sec": 60.0})
     (i,) = build_intervals(r, tr, "en")["intervals"]
     assert (i["start"], i["end"]) == (26.8, 30.0)
+
+
+def test_the_original_language_left_in_is_found_when_it_clearly_leads():
+    # An 8 s English part in a Spanish dub: the 10 s window still hears some Spanish (about 0.3).
+    windows = [{"start": 20.0, "end": 30.0, "language": "en", "probability": 0.74, "expected_probability": 0.29},
+               {"start": 40.0, "end": 50.0, "language": "en", "probability": 0.55, "expected_probability": 0.45},
+               {"start": 60.0, "end": 70.0, "language": "it", "probability": 0.9, "expected_probability": 0.3}]
+    r = make_results(timing_alignment={"mismatches": []}, speech_recognition={"dubbed_language_windows": windows})
+    r["metadata"]["target_language"] = "es"
+    r["pipeline"]["target_language_code"] = "es"
+    out = [i for i in build_intervals(r, tr, "en")["intervals"] if i["category"] == "wrong_language"]
+    # English leads Spanish by 0.45: found; by only 0.1: unsure; another language needs Spanish under 0.2
+    assert [(i["start"], i["severity"]) for i in out] == [(20.0, "check")]

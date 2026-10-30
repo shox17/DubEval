@@ -145,14 +145,20 @@ Finish the setup, not just a plan. Tell me any step you could not do.
 
 DubEval measures; it doesn't replace watching the dub. Use the verdict to decide where to look first.
 
-- **Any language pair works, without a promise.** The grades have been compared with a person's on 12 dubs (6 English
-  → Korean, 4 English → Uzbek, 2 English → Spanish). DubEval agreed on 5 of the 6 Korean dubs, 1 of 4 Uzbek and 0 of 2
-  Spanish. Treat languages other than Korean as a first look.
+- **Tested two ways.** With problems put into dubs on purpose, DubEval catches 79 of 109 (18 of 24 on dubs it was never
+  tuned on). Against a person's grades on 19 real dubs it agrees on 14: 11 of 13 English → Korean, 2 of 2 English →
+  Spanish, 1 of 4 English → Uzbek.
+- **It says when it isn't sure.** Mostly music, very little speech, or a language it couldn't make out: the verdict
+  is "Needs review" with the reason, never a confident Good or Poor.
 - **Speech recognition makes mistakes, and they spread.** Timing, clarity and the translation check read what
-  Whisper heard; misheard words are marked as possible mishearings and never lower a grade.
-- **Lip sync is shown for information only** in this beta.
+  Whisper heard; misheard words are marked as possible mishearings and never make a dub Poor (a very low one is still a moment to
+  listen to).
+- **Lip sync is shown for information only** in this beta. The real lip-sync check (ByteDance's StableSyncNet, a
+  1.6 GB download in Settings → Models) tells a lip-synced dub from a plain one and finds a sound delay to the
+  frame; until graded lip-synced dubs confirm it, it never changes the verdict. Without it, a rough lip-movement
+  estimate is shown instead.
 
-More in the [FAQ](docs/faq.md#how-accurate-is-it).
+How each check works, how it was tested and what it can't do yet: [How DubEval measures](docs/methodology.md).
 
 ## Details
 

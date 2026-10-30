@@ -15,16 +15,20 @@ Tr = Callable[..., str]
 
 MERGE_GAP_SEC = 0.5                  # same-category ranges closer than this become one
 LINE_POOR_PCT = 30.0                 # a dub line this much longer or shorter than the original's is Poor
-LINE_MIN_DIFF_SEC = 0.3              # ...and differences under this many seconds are never a problem
 LINE_OVERRUN_POOR_SEC = 1.0          # a dub line running this far into the next one is Poor
 MISSING_PART_POOR_SEC = 5.0          # a part of the original missing from the dub: Check, Poor from this long
 LONG_SILENCE_SEC = (2.0, 4.0)        # original speaks, dub silent: Check from 2 s, Poor from 4 s
+TIMING_MIN_SEC = 0.8                 # shorter timing mismatches aren't listed: word timings move about this much when
+                                     # the sound changes slightly (validation: 0.5-0.8 s ones came and went)
+SLIVER_SEC = 0.5                     # unclear speech or a missing part shorter than this isn't listed
 LOUDNESS_JUMP_DB = (10.0, 16.0)      # dub vs original level, after removing the overall offset
 LOUDNESS_ACTIVE_DB = -45.0           # both tracks must be louder than this for the loudness comparison
 LOUDNESS_MIN_SEC = 1.0               # a level difference must last this long to count
 LANG_SOURCE = (0.5, 0.8)             # the original's language heard in the dub: Check from 0.5, Poor from 0.8
 LANG_OTHER = (0.8, 0.95)             # any other language: stricter, because Whisper guesses odd languages on noise
-LANG_EXPECTED_MAX = 0.2              # ...in both cases only while the expected language stays below this
+LANG_EXPECTED_MAX = 0.2              # ...another language only while the expected one stays below this...
+LANG_SOURCE_LEAD = 0.3               # ...the original's while it leads the expected one by this much: an 8 s part left
+                                     # in a 10 s window keeps the dub's language near 0.3 (validation, EN>ES)
 VOICE_SIG_DROP = (0.6, 1.0)          # dub speech score below the original's in the same window: Check / Poor...
 VOICE_OVRL_DROP = (0.5, 0.9)         # ...or its overall score (clean real dubs: at most 0.25 below)
 VOICE_CHANGE_DROP = 0.2              # a line this far below the dub's typical voice similarity...
@@ -48,6 +52,7 @@ CATEGORIES = {
     "voice_quality": "r.cat.voice_quality",
     "voice_change": "r.cat.voice_change",
     "missing_in_dub": "r.cat.missing_in_dub",
+    "sound_sync": "r.cat.sound_sync",
     "line_length": "r.cat.line_length",
     "line_overrun": "r.cat.line_overrun",
     "meaning_drift": "r.cat.meaning_drift",
@@ -81,7 +86,7 @@ def _timing(tr: Tr, ta: dict) -> list[dict]:
             sev = "poor" if length >= LONG_SILENCE_SEC[1] else "check"
             out.append(_item(tr, m["start"], m["end"], "long_silence", sev, "speech_overlap",
                              tr("r.int.long_silence", sec=f"{length:.1f}")))
-        else:
+        elif length >= TIMING_MIN_SEC:
             out.append(_item(tr, m["start"], m["end"], "timing_mismatch", "check", "speech_overlap",
                              tr(f"r.todo.{m['kind']}")))
     return out
@@ -89,11 +94,11 @@ def _timing(tr: Tr, ta: dict) -> list[dict]:
 
 def _line_items(tr: Tr, sa: Optional[dict]) -> list[dict]:
     """Lines whose length differs from the original's beyond the band, and lines running into the next one."""
-    from dubeval.report import LINE_BAND_PCT, graded_lines
+    from dubeval.report import graded_lines, line_off
     out = []
     for ln in graded_lines(sa):
-        pct, diff = ln["diff_pct"], ln["diff_sec"]
-        if abs(pct) > LINE_BAND_PCT and abs(diff) >= LINE_MIN_DIFF_SEC:
+        pct = ln["diff_pct"]
+        if line_off(ln):
             sev = "poor" if abs(pct) > LINE_POOR_PCT else "check"
             key = "r.int.line_long" if pct > 0 else "r.int.line_short"
             out.append(_item(tr, ln["start"], ln["end"], "line_length", sev, "line_length",
@@ -121,7 +126,19 @@ def _missing_parts(tr: Tr, pr: Optional[dict]) -> list[dict]:
     if not pr or not pr.get("measured") or pr.get("same_video") is False:
         return []
     return [_item(tr, s, e, "missing_in_dub", "poor" if e - s >= MISSING_PART_POOR_SEC else "check", "coverage",
-                  tr("r.int.missing_in_dub", sec=f"{e - s:.1f}")) for s, e in pr.get("missing") or []]
+                  tr("r.int.missing_in_dub", sec=f"{e - s:.1f}")) for s, e in pr.get("missing") or [] if e - s >= SLIVER_SEC]
+
+
+def _sound_sync(tr: Tr, pr: Optional[dict], length: Optional[float]) -> list[dict]:
+    """The whole dub, when its sound is behind or ahead of its picture (the level comes from report.sound_sync_level)."""
+    from dubeval.report import sound_sync_level
+    sync = (pr or {}).get("sound_sync")
+    level = sound_sync_level(sync)
+    if level in (None, "good") or not length:
+        return []
+    shift = sync["shift_sec"]
+    return [_item(tr, 0.0, length, "sound_sync", level, "sound_sync",
+                  tr("r.int.sound_late" if shift > 0 else "r.int.sound_early", sec=f"{abs(shift):.1f}"))]
 
 
 def _distortion(tr: Tr, ac: dict, poor: bool) -> list[dict]:
@@ -170,12 +187,14 @@ def _language(tr: Tr, sr: dict, expected: Optional[str], source: Optional[str], 
     out = []
     name = lambda code: names.get(code) or _language_name(code)
     for w in sr.get("dubbed_language_windows") or []:
-        bands = LANG_SOURCE if source and w["language"] == source else LANG_OTHER
-        if not expected or w["language"] == expected or w["probability"] < bands[0] \
-                or w.get("expected_probability", 0.0) >= LANG_EXPECTED_MAX:
+        is_source = bool(source) and w["language"] == source
+        bands = LANG_SOURCE if is_source else LANG_OTHER
+        heard = w.get("expected_probability", 0.0)
+        unsure = w["probability"] - heard < LANG_SOURCE_LEAD if is_source else heard >= LANG_EXPECTED_MAX
+        if not expected or w["language"] == expected or w["probability"] < bands[0] or unsure:
             continue
         sev = "poor" if w["probability"] >= bands[1] else "check"
-        if source and w["language"] == source:
+        if is_source:
             msg = tr("r.int.original_language", lang=name(source))
         else:
             msg = tr("r.int.other_language", detected=name(w["language"]), expected=name(expected))
@@ -224,7 +243,7 @@ def _voice_change(tr: Tr, vs: Optional[dict]) -> list[dict]:
 def _clarity(tr: Tr, sr: dict) -> list[dict]:
     """Stretches of the dub that speech recognition could not understand confidently."""
     return [_item(tr, s["start"], s["end"], "unclear_speech", "check", "clarity", tr("r.todo.unclear", text=s["text"]))
-            for s in (sr.get("clarity") or {}).get("unclear_segments", [])]
+            for s in (sr.get("clarity") or {}).get("unclear_segments", []) if s["end"] - s["start"] >= SLIVER_SEC]
 
 
 def _line_end(segments: list[dict], start: float) -> float:
@@ -244,6 +263,7 @@ def _translation(tr: Tr, tj: Optional[dict], sr: dict, lang: str,
                  spans: Optional[dict] = None) -> tuple[list[dict], list[dict]]:
     """Translation-check issues as intervals (on their line's time span when the judge named the line), and the
     probable speech-recognition errors kept apart."""
+    from dubeval.report import RUBRIC_POOR
     counted, asr = [], []
     if not tj or not tj.get("measured"):
         return counted, asr
@@ -253,20 +273,26 @@ def _translation(tr: Tr, tj: Optional[dict], sr: dict, lang: str,
         if category is None:
             continue
         maybe = bool(i.get("may_be_recognition_error"))
+        # Very low meaning: a mishearing or a real error, the judge can't tell; a person listens (Check, never Poor).
+        doubtful = maybe and i.get("criterion") == "semantic_accuracy" and (i.get("score") or 10) <= RUBRIC_POOR
         quote = " → ".join(q for q in (f"“{i['original']}”" if i.get("original") else "",
                                        f"“{i['dubbed']}”" if i.get("dubbed") else "") if q)
         kind = i.get("error_type")                 # the rubric's error type, with its suggested translation
         desc = (tr(f"r.tcat.{kind}") + ": " if kind and kind != "no_error" else "") \
-            + local_text(i.get("explanation"), lang) + (" " + tr("r.todo.maybe_asr") if maybe else "") \
+            + local_text(i.get("explanation"), lang) \
+            + (" " + tr("r.todo.maybe_asr_or_real") if doubtful else " " + tr("r.todo.maybe_asr") if maybe else "") \
             + (f" {quote}" if quote else "") \
             + (" " + tr("r.todo.suggested", text=i["ideal_translation"]) if i.get("ideal_translation") else "")
         start = float(i.get("start_sec") or 0.0)
         end = _line_end(sr.get("original_segments"), start)
         if i.get("line") in spans:
             start, end = spans[i["line"]]
-        item = _item(tr, start, end, category,
-                     "poor" if i.get("severity") == "major" else "check", "translation_check", desc.strip())
-        (asr if maybe else counted).append({**item, "asr": True} if maybe else item)
+        severity = "check" if doubtful else "poor" if i.get("severity") == "major" else "check"
+        item = _item(tr, start, end, category, severity, "translation_check", desc.strip())
+        if maybe and not doubtful:
+            asr.append({**item, "asr": True})
+        else:
+            counted.append(item)
     return counted, asr
 
 
@@ -343,7 +369,8 @@ def build_intervals(r: dict, tr: Tr, lang: str, clipping_poor: bool = False, dub
     trusted = not problem or problem["kind"] != "unrecognized"     # otherwise speech-based ranges are noise
     counted, asr = _translation(tr, tj, sr, lang, spans) if trusted else ([], [])
     counted += _distortion(tr, ac, clipping_poor) + _loudness(tr, ac) + _voice(tr, r.get("voice_quality")) \
-        + _voice_change(tr, r.get("voice_similarity")) + _missing_parts(tr, r.get("pairing"))
+        + _voice_change(tr, r.get("voice_similarity")) + _missing_parts(tr, r.get("pairing")) \
+        + _sound_sync(tr, r.get("pairing"), video_length(r))
     if trusted:
         from dubeval.report import subtitles_confirm_language
         languages = _language(tr, sr, expected, source, names)

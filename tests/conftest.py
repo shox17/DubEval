@@ -91,6 +91,9 @@ def no_real_translation_judge(monkeypatch, tmp_path):
     from dubeval import local_judge, packs
     monkeypatch.setattr(local_judge, "ensure_running", lambda: None)            # nor start DubEval's own
     monkeypatch.setattr(packs, "MODELS_DIR", tmp_path / "models")               # nor read the real model folders
+    from dubeval import lip_sync
+    monkeypatch.setattr(lip_sync, "PACK_DIR", tmp_path / "models" / "latentsync-syncnet")  # nor the lip-sync pack
+    lip_sync.unload()
 
 
 @pytest.fixture(autouse=True)

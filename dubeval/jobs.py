@@ -222,6 +222,12 @@ def start_job(runner: Callable[[Callable[[Progress], None], threading.Event], di
     return job
 
 
+def busy() -> bool:
+    """Whether a job (an evaluation or a download) is running in this process."""
+    with _registry_lock:
+        return any(j.status == "running" for j in _jobs.values())
+
+
 def restore_job(params: dict, stages: list[str], result: dict) -> Job:
     """A finished job made again from a past run's saved files (History opens it like any other result)."""
     job = Job(id=uuid.uuid4().hex[:12], params=params, stages=stages, stage=stages[-1], status="done",

@@ -47,15 +47,16 @@ def test_language_windows_skip_silence_and_report_each_window(monkeypatch):
     seen = []
 
     def fake_probs(chunk, model):
-        """English for the second window, Korean otherwise."""
+        """English for the third window (10-20 s), Korean otherwise."""
         seen.append(len(chunk))
-        return {"ko": 0.1, "en": 0.9} if len(seen) == 2 else {"ko": 0.95, "en": 0.05}
+        return {"ko": 0.1, "en": 0.9} if len(seen) == 3 else {"ko": 0.95, "en": 0.05}
     monkeypatch.setattr(evaluate, "_language_probs", fake_probs)
     y = np.zeros(16000 * 35, dtype=np.float32)
-    speech = [[0.0, 9.0], [10.5, 19.0], [31.0, 31.5]]              # last window has only 0.5 s of speech
+    speech = [[0.0, 9.0], [10.5, 19.0], [31.0, 31.5]]              # 20-30 s silent; 25-35 s only 0.5 s of speech
     out = evaluate.language_windows(y, None, speech, "ko")
-    assert [(w["start"], w["end"], w["language"]) for w in out] == [(0.0, 10.0, "ko"), (10.0, 20.0, "en")]
-    assert out[1]["expected_probability"] == 0.1 and seen == [160000, 160000]
+    assert [(w["start"], w["end"], w["language"]) for w in out] == [
+        (0.0, 10.0, "ko"), (5.0, 15.0, "ko"), (10.0, 20.0, "en"), (15.0, 25.0, "ko")]   # windows overlap by half
+    assert out[2]["expected_probability"] == 0.1 and seen == [160000] * 4
     assert evaluate.language_windows(y, None, speech, None) == []   # no Whisper model for the language
 
 

@@ -73,10 +73,10 @@ def test_batch_cli_writes_summary_and_goes_on_after_a_broken_link(batch_env, tmp
     out = tmp_path / "out"
     assert cli.main(["batch", str(links), "--out", str(out), "--lang", "en", "--no-translation-check"]) == 2
     text = (out / "summary.txt").read_text(encoding="utf-8")
-    assert "3 links: 1 Good · 0 Needs review · 1 Poor · 1 failed" in text
+    assert "3 links: 0 Good · 1 Needs review · 1 Poor · 1 failed" in text    # no translation check: never Good
     assert "Agreement with your verdicts: 1 of 2 (50%). Stricter than you: 0. More lenient: 1." in text
     rows = list(csv.DictReader(io.StringIO((out / "summary.csv").read_text(encoding="utf-8-sig"))))
-    assert [r["verdict"] for r in rows] == ["poor", "", "good"] and "share link" in rows[1]["error"]
+    assert [r["verdict"] for r in rows] == ["poor", "", "check"] and "share link" in rows[1]["error"]
     assert (out / "001" / "report.html").is_file() and (out / "003" / "report.json").is_file()
     assert json.loads((out / "summary.json").read_text(encoding="utf-8"))["agreement"]["labelled"] == 2
     assert "1 failed" in capsys.readouterr().out

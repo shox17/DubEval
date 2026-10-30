@@ -59,12 +59,24 @@ MISMATCH_MIN_SEC = 0.5             # only-one-track-speaks stretches shorter tha
 MAX_MISMATCHES = 50                # longest mismatches kept (every one becomes a problem interval)
 WHISPER_LOGPROB_OK = -1.0          # Whisper's own thresholds for trusting a segment
 WHISPER_NO_SPEECH_OK = 0.6
+VOICED_SHARE_OK = 0.5              # a recognized line is kept only if the voice detector hears speech in this share of it...
+GAP_MIN_SEC = 1.0                  # detected speech this long that the transcript barely covers...
+GAP_COVERED_MAX = 0.3              # ...(less than this share) is recognized again on its own (fill_gaps)...
+GAP_MERGE_SEC = 0.5                # ...detected speech closer than this counts as one stretch...
+GAP_PAD_SEC = 0.3                  # ...and is recognized with this much sound either side
+GAP_DUPLICATE_SHARE = 0.5          # a re-recognized line this much inside a line already heard is that line again
+PARTNER_SHARE_OK = 0.3            # ...or the other track's kept lines cover this share of it (a shout the detector
+                                   # half missed; validation: dropped on one side only, it read as a line added or left out)...
+PARTNER_VOICED_MIN = 0.2           # ...as long as the detector hears some voice in it (a real shout over music: 0.36;
+                                   # words read into music: 0.0; keeping those too doubled the validation false alarms)
 CACHE_VERSION = 5                  # bump when cached results would change (2: seeded Whisper, 3: voice quality,
                                    # 4: recognizer backend in the keys, 5: recognizer device in the keys)
 CLIP_MERGE_GAP_SEC = 0.5           # clipped samples closer than this form one distortion interval
 MAX_CLIP_INTERVALS = 50
 LANG_WINDOW_SEC = 10.0             # the dub's language is checked per window of this length...
-LANG_MAX_WINDOWS = 60              # ...widened for long videos so at most this many windows are checked
+LANG_MAX_WINDOWS = 120             # ...widened for long videos so at most this many windows are checked...
+LANG_OVERLAP = 2                   # ...each starting 1/this of a window after the last: a part in the wrong language
+                                   # that straddles two windows still fills one (validation: 8 s split 5 + 3 was missed)
 LANG_MIN_SPEECH_SEC = 3.0          # windows with less speech than this are skipped
 SEGMENT_MIN_SHARE = 0.3            # segments overlapping by this share of the shorter one are matched
 LINE_MIN_SEC = 1.0                 # lines shorter than this on the original side aren't graded on length
@@ -227,7 +239,8 @@ def language_windows(y: np.ndarray, whisper_model, speech: list[list[float]], ex
     """The dub's language window by window, so a part left in the original language (or another one) is found.
 
     Each window with enough speech gets Whisper's top language, its probability and the expected language's
-    probability. Windows widen on long videos so at most LANG_MAX_WINDOWS are checked. speech should include the
+    probability. Windows overlap by half (LANG_OVERLAP) and widen on long videos so at most LANG_MAX_WINDOWS are
+    checked. speech should include the
     original's speech times: a dub in the wrong language transcribes badly, so its own speech times are unreliable.
     """
     duration = len(y) / sr if sr else 0.0
@@ -240,9 +253,9 @@ def language_windows(y: np.ndarray, whisper_model, speech: list[list[float]], ex
         else:
             merged.append([s, e])
     speech = merged
-    width = max(LANG_WINDOW_SEC, duration / LANG_MAX_WINDOWS)
-    windows, start = [], 0.0
-    while start < duration:
+    width = max(LANG_WINDOW_SEC, LANG_OVERLAP * duration / LANG_MAX_WINDOWS)
+    windows, start, end = [], 0.0, 0.0
+    while end < duration:
         if check:
             check()
         end = min(duration, start + width)
@@ -253,7 +266,7 @@ def language_windows(y: np.ndarray, whisper_model, speech: list[list[float]], ex
             windows.append({"start": round(start, 2), "end": round(end, 2), "language": top,
                             "probability": round(float(probs[top]), 3),
                             "expected_probability": round(float(probs.get(expected, 0.0)), 3)})
-        start = end
+        start += width / LANG_OVERLAP
     return windows
 
 
@@ -350,6 +363,69 @@ def clipping_intervals(y: np.ndarray, sr: int = SAMPLE_RATE) -> list[list[float]
 def _is_real_speech(seg: dict) -> bool:
     """False for segments Whisper itself would treat as silence (likely hallucinated over music or noise)."""
     return not (seg["no_speech_prob"] > WHISPER_NO_SPEECH_OK and seg["avg_logprob"] < WHISPER_LOGPROB_OK)
+
+
+def unheard_speech(stt: dict, voiced: Optional[list[list[float]]]) -> list[list[float]]:
+    """Stretches the voice detector hears speech in but the transcript doesn't cover: long audio is recognized in
+    30 s chunks, and after loud music the recognizer can skip ahead past real lines."""
+    if not voiced:
+        return []
+    merged: list[list[float]] = []
+    for a, b in sorted(voiced):
+        if merged and a - merged[-1][1] <= GAP_MERGE_SEC:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    covered = [[s["start"], s["end"]] for s in stt["segments"]]
+    return [[a, b] for a, b in merged
+            if b - a >= GAP_MIN_SEC and _share({"start": a, "end": b}, covered) < GAP_COVERED_MAX]
+
+
+def fill_gaps(stt: dict, y: np.ndarray, voiced: Optional[list[list[float]]], whisper_model,
+              language: Optional[str] = None, check=None, sr: int = SAMPLE_RATE) -> dict:
+    """The transcript with each unheard stretch (unheard_speech) recognized again on its own and its lines added."""
+    gaps = unheard_speech(stt, voiced)
+    if not gaps:
+        return stt
+    segments = list(stt["segments"])
+    heard = [[s["start"], s["end"]] for s in segments]
+    for a, b in gaps:
+        start = max(0.0, a - GAP_PAD_SEC)
+        part = transcribe(y[int(start * sr):int((b + GAP_PAD_SEC) * sr)], whisper_model, language=language, check=check)
+        for s in part["segments"]:
+            new = {**s, "start": round(s["start"] + start, 2), "end": round(s["end"] + start, 2),
+                   "words": [[round(ws + start, 2), round(we + start, 2)] for ws, we in s["words"]]}
+            # A stretch can be partly heard already: a line mostly covered by one the transcript has is that line again.
+            if s["text"] and _share(new, heard) < GAP_DUPLICATE_SHARE:
+                segments.append(new)
+    segments.sort(key=lambda s: s["start"])
+    log.info("Recognized %d skipped stretch(es) again", len(gaps))
+    return {**stt, "segments": segments, "text": " ".join(s["text"] for s in segments).strip()}
+
+
+def _share(seg: dict, spans) -> float:
+    """The share of a segment's time covered by [start, end] spans."""
+    length = seg["end"] - seg["start"]
+    heard = sum(max(0.0, min(seg["end"], b) - max(seg["start"], a)) for a, b in spans)
+    return heard / length if length > 0 else 0.0
+
+
+def keep_voiced(stt: dict, voiced: Optional[list[list[float]]], partner: Optional[list[dict]] = None) -> dict:
+    """The transcript without lines the voice detector hears no speech in (the recognizer reading music or sound
+    effects as words, which moves with every small change of the sound); as is when there's no detector.
+
+    partner: the other track's kept lines. A line the detector misses (a shout over loud effects) is kept when the
+    other track speaks at that moment: dropping it on one side only reads as speech left out or added."""
+    if voiced is None:
+        return stt
+    spans = [[s["start"], s["end"]] for s in partner or []]
+
+    def keep(s):
+        heard = _share(s, voiced)
+        return heard >= VOICED_SHARE_OK or (bool(spans) and heard >= PARTNER_VOICED_MIN
+                                            and _share(s, spans) >= PARTNER_SHARE_OK)
+    kept = [s for s in stt["segments"] if keep(s)]
+    return {**stt, "segments": kept, "text": " ".join(s["text"] for s in kept).strip()}
 
 
 def speech_intervals(segments: list[dict], merge_gap: float = SPEECH_MERGE_GAP_SEC) -> list[list[float]]:
@@ -629,7 +705,7 @@ def _quality_warnings(orig_ac: dict, dub_ac: dict, stt: dict, dub_ls: dict, dub_
     if stt.get("error_rate") is not None and stt["error_rate"] > 0.8:
         warnings.append(_warning("r.warn.script", "Very little of the script was heard; check that the script "
                                  "belongs to this video and is in the dub's language."))
-    if not dub_ls["valid"] and dub_ls.get("reason_key") not in (None, "r.lips.skipped"):
+    if not dub_ls["valid"] and dub_ls.get("reason_key") not in (None, "r.lips.skipped", "r.lips.replaced"):
         warnings.append(_warning("r.warn.lips", f"Lip movement couldn't be measured: {dub_ls['reason']}."))
     return warnings
 
@@ -676,6 +752,39 @@ def _voice_similarity(y_orig: np.ndarray, y_dub: np.ndarray, segments: list) -> 
     except Exception as e:  # a broken runtime must not sink the evaluation
         log.warning("Voice similarity not measured: %s", e)
         return speaker.not_measured("r.vs.error")
+
+
+def _lip_sync_ready() -> bool:
+    """Whether the lip-sync check can run (its pack is installed)."""
+    from dubeval import lip_sync
+    try:
+        return lip_sync.ready()
+    except Exception as e:  # a broken pack folder must not sink the evaluation
+        log.warning("Lip sync not available: %s", e)
+        return False
+
+
+def _lip_sync(orig_video: str, y_orig: np.ndarray, orig_speech: list, dub_video: str, y_dub: np.ndarray,
+              dub_speech: list, duration: float, check=None, dub_offset_sec: float = 0.0) -> dict:
+    """The lip-sync check (dubeval/lip_sync.py); a model or video that can't be read is not measured, never fatal.
+    y_dub is the dub's own sound (not moved onto the original's timeline); dub_offset_sec is how much later the same
+    moment comes in the dub."""
+    from dubeval import lip_sync
+    try:
+        return lip_sync.lip_sync(orig_video, y_orig, orig_speech, dub_video, y_dub, dub_speech, duration, check,
+                                 dub_offset_sec)
+    except Exception as e:
+        if check:
+            check()                       # a Stop raised inside goes on (asking again raises it again)
+        log.warning("Lip sync not measured: %s", e)
+        return lip_sync.not_measured("r.sync_lips.error")
+
+
+def _spans_id(spans: list) -> str:
+    """A short id for a list of [start, end] spans, for cache keys: a changed transcript gives another id."""
+    import hashlib
+    import json
+    return hashlib.sha1(json.dumps(spans).encode("utf-8")).hexdigest()[:10]
 
 
 def _media_id(path: str) -> str:
@@ -727,6 +836,7 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
         step("Extracting audio from both videos...", 0.10)
         audio = load_both(original_video_path, dubbed_video_path)
     y_orig, y_dub = audio
+    y_dub_own = y_dub                                  # the dub's sound on its own timeline, with its own picture
     if dub_parts:
         from dubeval.pairing import align_dub_parts
         y_dub = align_dub_parts(y_dub, dub_parts, SAMPLE_RATE, len(y_orig))
@@ -753,6 +863,15 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
     step("Transcribing the dubbed speech...", 0.45)
     dub_stt = cached(f"v{CACHE_VERSION}|stt|{asr_id}|{stt_lang or 'auto'}|{dub_id}",
                      lambda: transcribe(y_dub, model(), language=stt_lang, check=check))
+    vad_orig = cached(f"v{CACHE_VERSION}|vad|{orig_id}", lambda: asr.voice_activity(y_orig))
+    vad_dub = cached(f"v{CACHE_VERSION}|vad|{dub_id}", lambda: asr.voice_activity(y_dub))
+    orig_stt = cached(f"v{CACHE_VERSION}|sttfill|{asr_id}|{src_lang or 'auto'}|{orig_id}",
+                      lambda: fill_gaps(orig_stt, y_orig, vad_orig, model(), src_lang, check))
+    dub_stt = cached(f"v{CACHE_VERSION}|sttfill|{asr_id}|{stt_lang or 'auto'}|{dub_id}",
+                     lambda: fill_gaps(dub_stt, y_dub, vad_dub, model(), stt_lang, check))
+    heard_orig, heard_dub = keep_voiced(orig_stt, vad_orig), keep_voiced(dub_stt, vad_dub)
+    orig_stt = keep_voiced(orig_stt, vad_orig, partner=heard_dub["segments"])
+    dub_stt = keep_voiced(dub_stt, vad_dub, partner=heard_orig["segments"])
     scores = score_transcript(ground_truth_text, dub_stt["text"], target_lang)
 
     step("Comparing when each track speaks...", 0.65)
@@ -762,19 +881,33 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
     segments = match_segments(orig_stt["segments"], dub_stt["segments"])
     clarity = speech_clarity(dub_stt["segments"])
     step("Rating the voice quality of both tracks...", 0.66)
-    vq = cached(f"v{CACHE_VERSION}|vq|{orig_id}|{dub_id}|{len(orig_speech)}|{len(dub_speech)}",
+    speech_id = _spans_id(orig_speech + [None] + dub_speech)    # what the speech-time steps below were given
+    vq = cached(f"v{CACHE_VERSION}|vq|{orig_id}|{dub_id}|{speech_id}",
                 lambda: _voice_quality(y_orig, y_dub, orig_speech, dub_speech))
     step("Checking the dub's language part by part...", 0.67)
     step("Comparing the dub voice with the original speakers...", 0.665)
-    vs = cached(f"v{CACHE_VERSION}|vs|{orig_id}|{dub_id}|{len(orig_stt['segments'])}",
+    vs = cached(f"v{CACHE_VERSION}|vs|{orig_id}|{dub_id}|{_spans_id([[s['start'], s['end']] for s in orig_stt['segments']])}",
                 lambda: _voice_similarity(y_orig, y_dub, orig_stt["segments"]))
-    lang_windows = cached(f"v{CACHE_VERSION}|langwin|{asr_id}|{stt_lang}|{dub_id}",
+    lang_windows = cached(f"v{CACHE_VERSION}|langwin{LANG_OVERLAP}|{asr_id}|{stt_lang}|{dub_id}|{speech_id}",
                           lambda: language_windows(y_dub, model(), orig_speech + dub_speech, stt_lang, check=check))
     integrity = video_integrity(original_video_path, dubbed_video_path)
 
-    if include_lipsync:
+    sync = None
+    if include_lipsync and _lip_sync_ready():
+        # The real check (the lip_sync pack) replaces the lip-movement estimate, which then isn't run.
+        step("Checking lip sync in both videos...", 0.70)
+        duration = min(orig_ac["duration_sec"], dub_ac["duration_sec"])
+        if dub_parts:                    # cut differently: no one shift takes the original's moments to the dub's
+            from dubeval import lip_sync
+            sync = lip_sync.not_measured("r.sync_lips.recut")
+        else:
+            sync = cached(f"v{CACHE_VERSION}|lipsync|{orig_id}|{dub_id}|{speech_id}",
+                          lambda: _lip_sync(original_video_path, y_orig, orig_speech, dubbed_video_path, y_dub_own,
+                                            dub_speech, duration, check, dub_offset_sec))
+        dub_ls = orig_ls = {**LIPSYNC_SKIPPED, "reason": "replaced by the lip-sync check", "reason_key": "r.lips.replaced"}
+    elif include_lipsync:
         step("Analyzing lip movement in the dubbed video...", 0.70)
-        dub_ls = analyze_lipsync(dubbed_video_path, y_dub, check=check)
+        dub_ls = analyze_lipsync(dubbed_video_path, y_dub_own, check=check)   # its picture with its own sound
         step("Analyzing lip movement in the original video...", 0.85)
         orig_ls = analyze_lipsync(original_video_path, y_orig, check=check)
     else:
@@ -844,6 +977,8 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
         "voice_similarity": vs,
         "lipsync_metrics": {
             "measured": include_lipsync,
+            # The lip-sync check (dubeval/lip_sync.py) when its pack is installed; None when it didn't run.
+            "sync": sync,
             "valid": dub_ls["valid"],
             "reason": dub_ls["reason"],
             "reason_key": dub_ls.get("reason_key"),
