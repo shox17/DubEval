@@ -23,7 +23,7 @@ Pairs are split by original video, never by dub: a video's dubs are all in the t
 import hashlib
 import logging
 import subprocess
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Callable, Optional
 
 import numpy as np
@@ -59,8 +59,8 @@ def split_of(info: dict, original: str) -> str:
     if path.is_file():                              # by content: copies of one video often share a name like original.mp4
         with open(path, "rb") as f:
             key = f"{path.stat().st_size}:".encode() + f.read(1 << 20)
-    else:
-        key = path.name.lower().encode("utf-8")
+    else:                                           # either separator: a sheet written on Windows reads the same anywhere
+        key = PureWindowsPath(original).name.lower().encode("utf-8")
     digest = hashlib.sha1(key).hexdigest()
     return "holdout" if int(digest, 16) % HOLDOUT_SHARE == 0 else "tune"
 
