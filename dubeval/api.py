@@ -49,6 +49,7 @@ class EvaluationRequest(BaseModel):
     link: str = Field(description="Perso share link (or its seq token)")
     lang: Lang = Field("ko", description="Report language")
     translation_check: bool = Field(True, description="Check the translation with Gemini/Claude when a key is set")
+    lock_model: bool = Field(False, description="Only the translation checker's first AI model, never a backup")
     lipsync: Optional[bool] = Field(None, description="None = automatic (only for lip-synced dubs)")
 
 
@@ -57,6 +58,7 @@ class ComparisonRequest(BaseModel):
     links: list[str] = Field(min_length=2, max_length=MAX_DUBS, description="Share links of dubs A, B, C, ...")
     lang: Lang = "ko"
     translation_check: bool = True
+    lock_model: bool = Field(False, description="Only the translation checker's first AI model, never a backup")
     lipsync: Optional[bool] = None
 
 
@@ -87,6 +89,11 @@ def health() -> dict:
     return {"status": "ok", "version": TOOL_VERSION}
 
 
+def _judge_choice(body) -> object:
+    """use_translation_judge for the pipeline."""
+    return {"judge": None, "lock": True} if body.translation_check and body.lock_model else body.translation_check
+
+
 @app.post("/evaluations", status_code=202, dependencies=[Depends(require_token)])
 def start_evaluation(body: EvaluationRequest, request: Request) -> dict:
     """Starts evaluating one dub; poll the returned url for progress and the result."""
@@ -94,7 +101,7 @@ def start_evaluation(body: EvaluationRequest, request: Request) -> dict:
     _, folder = pipeline.new_run_dir()
     job = jobs.start_job(lambda report, cancel: pipeline.run_share_evaluation(
         link, report=report, cancel_event=cancel, report_lang=body.lang, out_dir=folder,
-        use_translation_judge=body.translation_check, include_lipsync=body.lipsync, history_mode="api"),
+        use_translation_judge=_judge_choice(body), include_lipsync=body.lipsync, history_mode="api"),
         {"share_url": link, "kind": "evaluation"}, pipeline.share_stages())
     return _started(job, request)
 
@@ -106,7 +113,7 @@ def start_comparison(body: ComparisonRequest, request: Request) -> dict:
     _, folder = pipeline.new_run_dir()
     job = jobs.start_job(lambda report, cancel: pipeline.run_comparison(
         links[0], links[1], folder, more_urls=tuple(links[2:]), report=report, cancel_event=cancel,
-        report_lang=body.lang, use_translation_judge=body.translation_check, include_lipsync=body.lipsync),
+        report_lang=body.lang, use_translation_judge=_judge_choice(body), include_lipsync=body.lipsync),
         {"share_url": links[0], "links": links, "kind": "comparison"}, pipeline.compare_stages(len(links)))
     return _started(job, request)
 

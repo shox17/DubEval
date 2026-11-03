@@ -17,12 +17,13 @@ Everything DubEval can do, every check it runs and how to read the results. Inst
 | Section | What it checks | How |
 |---|---|---|
 | **Same video** | Are the two files the same video? Is the dub shifted in time? Is any part of the original missing? | Motion and picture fingerprints of both videos, refined by the background sound; shifts are corrected before anything else is measured, and clearly different videos are refused |
-| **Timing & audio** | Same length? Same loudness? Unusual gaps? Distortion? Rushed speech? | `librosa` on both tracks: duration, RMS loudness (dB), silence, clipping, chars/words per second |
+| **Timing & audio** | Same length? Same loudness? Unusual gaps? Distortion? Noise? Rushed speech? | `librosa` on both tracks: duration, RMS loudness (dB), silence, clipping, bursts of noise, chars/words per second |
 | **Speech** | Is the dub in the right language? Is the voice clear? | Whisper language detection, and the share of speech Whisper recognises confidently |
 | **Voice** | Does the voice sound clean, not robotic or distorted? Does it still sound like the original speaker? | A voice-quality model (DNSMOS P.835) comparing the dub with the original at the same moments, and a speaker-recognition model (WeSpeaker) comparing each original line with the dub (lines with a quiet background only) |
 | **Line by line** | Does each dub line take about as long as the original's? Does it end before the next line starts? | Original and dub sentences matched by time; each line's speaking time compared (±15%), and lines that run into the next one flagged with their line number |
 | **Timing alignment** | Does the dub speak when the original speaks? | Whisper word timings of both tracks → overlap of speech (IoU) and the places where only one track speaks |
-| **Meaning similarity** *(offline)* | Does each dub line roughly mean what the original line says? | A multilingual sentence model (BGE-M3) compares every line pair on your computer; low lines are flagged for a check |
+| **Meaning similarity** *(offline)* | Does each dub line roughly mean what the original line says? | A multilingual sentence model (BGE-M3) compares every line pair on your computer; low lines are flagged for a check when no translation judge ran (with one, it's shown for information) |
+| **Numbers** *(offline)* | Does the dub say the same numbers as the original? | Every number in each dub line is compared with its original line (1,000 = 1.000; a number said as a word on one side is skipped); a changed number is flagged for a check |
 | **Translation** *(when a judge is available)* | Same meaning? Anything missing or added? Names and numbers kept? Natural for this kind of dub? | A judge reads both sides line by line: Claude (`ANTHROPIC_API_KEY`), Gemini (`GEMINI_API_KEY`), or a local model (Qwen3 8B, downloaded in Settings → Models with the part of Ollama it needs, ~5.3 GB; it runs on the graphics card through Vulkan and nothing leaves the computer, but it is slower and less exact); `--dub-type human` lets it accept intended localization |
 | **Video integrity** | Is the picture unchanged, with an audio track? | Resolution, frame rate and audio stream of both files |
 | **Lip sync** *(lip-synced dubs only)* | Do the lips follow the dubbed speech? | With the lip-sync download (Settings → Models, ByteDance's StableSyncNet, 1.6 GB, about 30 s more per dub): how many of up to 30 moments line up, next to the original, and whether the sound is late or early. Without it, the experimental lip-movement estimate (MediaPipe mouth opening vs loudness). Measured automatically when the dub is lip-synced; never part of the verdict |
@@ -81,7 +82,7 @@ you chose are copied into DubEval's data folder as soon as you choose them).
 4. Press **Start evaluation** and follow the stages (a green tick marks each one done). **Stop** asks first, like PersoDub (**Keep going** or **Stop**), then stops within moments, even in the middle of speech recognition or the translation check. A stopped evaluation offers **Continue** (it runs again and reuses the speech already recognized) and **Change and start again** (its draft). The review shows what matters first: the verdict, both videos with the timeline, then **What to check**, Poor first and then Check (each result that isn't Good, with what it means, and every moment to look at; click one to go there). Every part of the result (Same video, Timing & audio, Translation, ...) is folded below with a one-line summary; open one to see its measures. The review fills the window: the **verdict**, both videos side by side (**Play** plays the one chosen under **Listen to**, with its sound, and the other follows it to the same moment), a **timeline** with both waveforms, every line and every problem (click one to see both texts, the lengths and what was found), the things to check, and every measure with how it's graded.
 5. Click the result's **title** to rename it (History, exports and its card follow). **Export** (top right of the result) saves the report (HTML), the problem list (Excel: every check graded Check or Poor, every warning and every timed problem), a text summary or the data (JSON), in the interface language; several files come as one ZIP.
 
-The sidebar's **Help** explains what DubEval does, **Send feedback** opens the project's issues page, and the **What's new** card lists what changed in this version. The desktop app updates itself, as PersoDub does: a new version downloads in the background and the **Version update** window opens once to say so (current and new version, release date, the new version's What's new). **Restart to update** installs it, with the installer's progress bar, and DubEval says "Updated to …" when it's back. The What's new card opens the same window any time; Settings → About → Updates checks by hand. The interface language is in Settings → About (press **Save**). Settings opens as a window over the screen you're on; drag the sidebar's right edge to make it wider or narrower.
+The sidebar's **Help** explains what DubEval does, **Send feedback** opens the project's issues page, and the **What's new** card lists what changed in this version. The desktop app updates itself, as PersoDub does: a new version downloads in the background and the **Version update** window opens once to say so (current and new version, release date, the new version's What's new). The What's new card gets a red dot and, once the download is done, reads **Update X is ready**. **Restart to update** installs it, with the installer's progress bar, and DubEval says "Updated to …" when it's back. You pick the moment: closing DubEval doesn't install anything. The card opens the same window any time; Settings → About → Updates checks by hand and has **Restart to update** too. The interface language is in Settings → About (press **Save**). Settings opens as a window over the screen you're on; drag the sidebar's right edge to make it wider or narrower.
 
 ### Problem intervals
 Every issue in the report is a time range you can jump to, with its category, severity (Poor or Check), the check that found it and a one-line description, e.g. `12.4s-15.1s | missing speech | Poor | Translation check | the line about … is not spoken`. Overlapping or nearby ranges of the same kind are merged.
@@ -91,9 +92,10 @@ Every issue in the report is a time range you can jump to, with its category, se
 | long silence | the original speaks for 2 s or more but the dub is silent |
 | timing | only one of the two tracks speaks for a moment |
 | missing / added speech | the translation check found content left out or invented |
-| mistranslation · name or number | the translation check found a wrong meaning, name or term |
+| mistranslation · name or number | the translation check found a wrong meaning, name or term, or a dub line says a number its original doesn't |
 | translation wording | the translation check found unnatural wording, a wrong tone or register, or a line that doesn't fit its context |
 | distortion | the dub's audio clips |
+| noise | the dub fills with hiss or static the original doesn't have |
 | loudness jump | the dub is much louder or quieter than the original at that moment |
 | wrong language | this part sounds like another language, or like the original's (the original voice may be left in) |
 | clarity | speech recognition couldn't understand the dub there |
@@ -125,9 +127,19 @@ Every dub goes through the full pipeline. **Decision rule**, stopping at the fir
 
 Still tied → the earlier dub (A before B), and the comparison says it's a tie. With 3+ dubs the same rule sorts all of them into a ranking, and the reasoning explains #1 against #2. A rule is skipped when any dub has no value for it (for example, no translation check), and the comparison then says the decision was made without translation. If the recommended dub still has key checks that weren't measured (every dub lacked them, so rule 1 couldn't separate them), the recommendation carries a clear **caution** to watch it before delivering. If **every dub is Poor**, the best one is still named, with a clear "neither is ready to deliver" warning and what to fix first. If DubEval **isn't sure of the dub it ranks first** (little or unclear speech, or its translation wasn't checked), it keeps the order but **holds the recommendation**: "No confident recommendation yet: Dub B ranks first, but its translation wasn't checked. Listen to the dubs before choosing." (the exit code is still 0).
 
-`comparison.txt` and the top of `comparison.html` start with **1. Recommended version**, **2. Problem intervals** (per dub, e.g. `12.4s-15.1s | Dub B | missing speech | Poor | Translation check | The line about … is not spoken`) and **3. Reasoning** (the rule, the values for A and B, a short summary), followed by every check side by side, each link's details, measurement notes, the tool version and the run time. Probable speech-recognition errors are listed separately and never count.
+First place isn't always a recommendation. `recommendation.status` in `comparison.json` (and the screen) says which:
 
-**Exit codes:** `0` the recommended dub is Good or Needs review · `1` every dub is Poor · `2` input or runtime error (invalid link, sharing turned off, …).
+| Status | Means | On screen |
+|---|---|---|
+| `recommended` | Deliver it (`ready` is true) | ★ and "Deliver Dub A" |
+| `provisional` | First place, but DubEval isn't sure of it (for example, the translation wasn't checked): listen before choosing | ☆ and "Provisional first place" |
+| `not_ready` | Every dub is Poor: the best one to start fixing | ☆ and "Best starting point" |
+
+If different AI models checked the dubs' translations, the comparison says so, since part of a gap may come from the models. To rule that out, use **Use one AI model only** under More options (`--lock-model` on the command line); if that model is busy, the translation isn't checked.
+
+`comparison.txt` and the top of `comparison.html` start with **1. Recommended version** (or the provisional or starting-point title above), **2. Problem intervals** (per dub, e.g. `12.4s-15.1s | Dub B | missing speech | Poor | Translation check | The line about … is not spoken`) and **3. Reasoning** (the rule, the values for A and B, a short summary), followed by every check side by side, each link's details, measurement notes, the tool version and the run time. Probable speech-recognition errors are listed separately and never count.
+
+**Exit codes:** `0` the first-place dub is Good or Needs review (read `recommendation.status` to see whether it's a recommendation) · `1` every dub is Poor · `2` input or runtime error (invalid link, sharing turned off, …).
 
 ### Batch mode: many links, one summary
 ```bash
@@ -191,18 +203,20 @@ Full detail in [metrics.md](metrics.md).
 | Measure | Good | Check | Poor |
 |---|---|---|---|
 | Length match | ≤ 5% | ≤ 15% | above |
-| Loudness match | within ±2 dB | within ±4 dB | beyond |
+| Loudness match | within ±3 dB | within ±6 dB | beyond |
 | Extra silence in the dub | ≤ 5 pts | ≤ 15 pts | above |
+| Noise (hiss or static the original doesn't have, 1.5 s or longer) | none | any | never |
 | Speaking pace (Korean) | ≤ 7.5 chars/s | ≤ 9 | above |
 | Speaking pace (English) | ≤ 3.2 words/s | ≤ 3.8 | above |
 | Speaking pace (Spanish) | ≤ 3.5 words/s | ≤ 4.2 | above |
 | Dub language | matches | unsure | different |
 | Voice clarity | ≥ 90% | ≥ 70% | below |
 | Voice similarity to the original speaker (lines with a quiet background) | ≥ 50% | below (never Poor) | |
-| Voice quality (vs the original, per ~9 s stretch) | voice < 0.6 and whole sound < 0.5 below | below that | voice ≥ 1.0 or whole sound ≥ 0.9 below |
+| Voice quality (vs the original, per ~9 s stretch) | voice < 0.6 and whole sound < 0.5 below | below that | voice ≥ 2.5 or whole sound ≥ 1.5 below |
 | Speech timing overlap | ≥ 75% | ≥ 55% | below |
 | Meaning (every line 1–10) | no line ≤ 6 | a line ≤ 6 (or one or two ≤ 4) | 3 or more lines, or most lines, ≤ 4 |
 | Natural wording · fits the context · consistent terms · localization (every line 1–10) | no line ≤ 6 | a line ≤ 6 | never |
+| Numbers (lines with digits on both sides) | every line keeps its numbers | a line says a different number | never |
 | Script accuracy | ≥ 80% | ≥ 50% | below |
 | Lip sync / lip movement | always informational | | |
 

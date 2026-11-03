@@ -25,6 +25,35 @@ def test_updates_come_from_the_repository_the_app_names():
     assert REPOSITORY_URL == f"https://github.com/{publish['owner']}/{publish['repo']}"
 
 
+def test_an_installed_app_can_read_the_new_versions_lines_at_its_tag():
+    # desktop/updater.js reads this file at the release's tag for the Version update window, in the app's language.
+    from dubeval.version import REPOSITORY_URL
+    updater = (ROOT / "desktop" / "updater.js").read_text(encoding="utf-8")
+    assert f'"{REPOSITORY_URL.replace("https://github.com", "https://raw.githubusercontent.com")}"' in updater
+    assert "/dubeval/release_notes.json" in updater
+    data = json.loads((ROOT / "dubeval" / "release_notes.json").read_text(encoding="utf-8"))
+    assert all(isinstance(line, str) for lines in data[TOOL_VERSION].values() for line in lines)
+    assert '"release_notes.json"' in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+
+def test_the_desktop_app_leaves_the_port_to_the_server():
+    # The server takes its usual port, so the page's settings last; the app must not ask for a new one at each launch.
+    assert '"--port"' not in (ROOT / "desktop" / "main.js").read_text(encoding="utf-8")
+
+
+def test_the_start_page_opens_in_the_packaged_app():
+    # With this fuse off, a window can't open a file:// page inside the archive: up to 0.1.3 the app was blank while it
+    # started, and its failure messages never showed. The fuse stays off; the page moves out of the archive.
+    build = json.loads((ROOT / "desktop" / "package.json").read_text(encoding="utf-8"))["build"]
+    assert build["electronFuses"]["grantFileProtocolExtraPrivileges"] is False
+    assert "status.html" in build["asarUnpack"] and "status.html" in build["files"]
+    assert "app.asar.unpacked" in (ROOT / "desktop" / "main.js").read_text(encoding="utf-8")
+
+
+def test_a_downloaded_update_installs_only_on_restart_to_update():
+    assert "updater.autoInstallOnAppQuit = false;" in (ROOT / "desktop" / "updater.js").read_text(encoding="utf-8")
+
+
 def test_every_whats_new_line_is_a_whole_sentence():
     from dubeval.release_notes import NOTES
     for version, langs in NOTES.items():

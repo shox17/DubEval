@@ -22,7 +22,7 @@ from dubeval.batch import agreement, render_batch_text, summary_row, to_csv
 from dubeval import history
 from dubeval.paths import DATA_DIR
 from dubeval.compare import LABELS, build_ranking, render_comparison_html, render_comparison_text
-from dubeval import asr, inputs, meaning, pairing, schema, speaker
+from dubeval import asr, inputs, meaning, numbers, pairing, schema, speaker
 from dubeval.version import TOOL_VERSION
 from dubeval.evaluate import (run_full_evaluation, DEFAULT_WHISPER_MODEL, CACHE_VERSION, base_lang, load_both,
                               detect_language, extract_audio, get_whisper_model, load_audio, FFMPEG_EXE,
@@ -328,6 +328,7 @@ def evaluate_share(
     apply_dub_type(eval_results, dub_type)
     judge_cache = JsonCache(folder / "judge_cache.json")
     _abandonable(lambda: check_meaning_screen(eval_results, notify, cache=judge_cache), check_cancel)
+    check_numbers(eval_results)
     _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache), check_cancel)
     return eval_results
 
@@ -384,8 +385,8 @@ def _speech_unrecognized(results: dict) -> bool:
 def check_translation(results: dict, enabled, notify: Callable[..., None], cache=None) -> None:
     """Adds the translation check to results; any failure becomes a not-measured result, never an error.
 
-    enabled: False (off), True (the checker DUBEVAL_JUDGE picks, auto by default) or a checker's name (claude,
-    gemini, openai, ollama), as chosen on the start page.
+    enabled: False (off), True (the checker DUBEVAL_JUDGE picks, auto by default), a checker's name (claude, gemini,
+    openai, ollama), as chosen on the start page, or {"judge": name or None, "lock": True} for only its first model.
 
     The judge reads the speech line by line (judge_lines) and the dub type (human dubs may adapt freely). A
     successful review is cached (when cache is given) under a fingerprint of everything it was shown, the prompt
@@ -407,8 +408,9 @@ def check_translation(results: dict, enabled, notify: Callable[..., None], cache
             name(share.get("target_language_name"), meta.get("target_language")))
     lines, dub_type = judge_lines(results), share.get("dub_type")
     title = p.get("custom_title") or share.get("title")          # the rubric's description of the video
-    named = enabled if isinstance(enabled, str) else None
-    key = _short_hash(json.dumps([args, lines, dub_type, title, judge_fingerprint(named)], ensure_ascii=False,
+    choice = enabled if isinstance(enabled, dict) else {"judge": enabled if isinstance(enabled, str) else None}
+    named, lock = choice.get("judge"), bool(choice.get("lock"))
+    key = _short_hash(json.dumps([args, lines, dub_type, title, judge_fingerprint(named, lock)], ensure_ascii=False,
                                  sort_keys=True))
     cached = cache.get(key) if cache is not None else None
     if cached:
@@ -420,9 +422,17 @@ def check_translation(results: dict, enabled, notify: Callable[..., None], cache
         asr.unload()
         meaning.unload()
     results["translation_judge"] = judge_translation(*args, lines=lines, dub_type=dub_type, provider=named,
-                                                     description=title)
+                                                     description=title, lock=lock)
     if cache is not None and results["translation_judge"].get("measured"):
         cache[key] = results["translation_judge"]
+
+
+def check_numbers(results: dict) -> None:
+    """Adds the numbers check (dubeval/numbers.py): the numbers each dub line says against its original line."""
+    if _speech_unrecognized(results):
+        results["numbers"] = numbers.not_measured("r.num.unrecognized")
+        return
+    results["numbers"] = numbers.check(judge_lines(results))
 
 
 def check_meaning_screen(results: dict, notify: Callable[..., None], cache=None) -> None:
@@ -756,6 +766,7 @@ def evaluate_files(
             "text": f"The dub's language was guessed as {target_lang}, only {target_prob:.0%} sure."})
     judge_cache = JsonCache(folder / "judge_cache.json")
     _abandonable(lambda: check_meaning_screen(eval_results, notify, cache=judge_cache), check_cancel)
+    check_numbers(eval_results)
     _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache), check_cancel)
     return eval_results
 

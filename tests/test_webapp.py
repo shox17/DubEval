@@ -578,8 +578,54 @@ def test_an_upload_larger_than_the_limit_is_refused_and_removed(client, monkeypa
     assert not list((tmp_path / "uploads").glob("*"))
 
 
+def test_the_page_keeps_its_address_between_launches(monkeypatch, capsys):
+    # What the page keeps in the browser belongs to its address: a new port at each launch lost the language and the rest.
+    from dubeval import localweb
+    busy, free = localweb.bind("127.0.0.1", 0), localweb.bind("127.0.0.1", 0)
+    first, second = busy.getsockname()[1], free.getsockname()[1]
+    free.close()
+    monkeypatch.setattr(webapp, "USUAL_PORTS", (first, second))
+    served = {}
+    monkeypatch.setattr(webapp, "run", lambda app, sock: served.update(port=sock.getsockname()[1], sock=sock))
+    try:
+        webapp.serve(open_browser=False)                   # the first is busy: the next one, not a random one
+        assert served["port"] == second and f"http://127.0.0.1:{second}/" in capsys.readouterr().out
+        served["sock"].close()
+        busy.close()
+        webapp.serve(open_browser=False)                   # back on the first once it's free, settings and all
+        assert served["port"] == first
+    finally:
+        busy.close()
+        served["sock"].close()
+
+
+def test_any_free_port_when_the_usual_ones_are_taken_and_a_port_asked_for_is_exact(monkeypatch):
+    from dubeval import localweb
+    taken = localweb.bind("127.0.0.1", 0)
+    usual = taken.getsockname()[1]
+    monkeypatch.setattr(webapp, "USUAL_PORTS", (usual,))
+    served = {}
+    monkeypatch.setattr(webapp, "run", lambda app, sock: served.update(port=sock.getsockname()[1], sock=sock))
+    try:
+        webapp.serve(open_browser=False)
+        assert served["port"] not in (usual, 0)
+        served["sock"].close()
+        webapp.serve(0, open_browser=False)                # 0 asks for any free port, not the usual one
+        assert served["port"] != usual
+        exact = served["port"]
+        served["sock"].close()
+        webapp.serve(exact, open_browser=False)
+        assert served["port"] == exact
+        served["sock"].close()
+        with pytest.raises(OSError):                       # a port asked for is that port or nothing
+            webapp.serve(usual, open_browser=False)
+    finally:
+        taken.close()
+
+
 def test_the_launch_link_is_printed_only_once_the_port_is_ours(monkeypatch, capsys):
     from dubeval import localweb
+    monkeypatch.setattr(webapp, "USUAL_PORTS", ())         # any free port: not the one a running DubEval may be using
     served = {}
     monkeypatch.setattr(webapp, "run", lambda app, sock: served.update(port=sock.getsockname()[1], sock=sock))
     webapp.serve(open_browser=False)

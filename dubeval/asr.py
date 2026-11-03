@@ -4,7 +4,7 @@ Both backends return the same shapes, so the rest of DubEval never knows which o
   transcribe() -> {"text", "language", "segments": [{start, end, text, avg_logprob, no_speech_prob, words}]}
   language_probs() -> {language code: probability}
 DUBEVAL_ASR picks the backend ("faster-whisper" or "openai-whisper"); an unset or unavailable choice falls back to
-whichever is installed. Both are seeded, so the same audio always gives the same transcript.
+whichever is installed. Both are seeded, though a graphics card can still give slightly different text for the same audio.
 """
 import functools
 import os
@@ -219,15 +219,19 @@ def language_probs(y: np.ndarray, model) -> dict:
     return probs
 
 
-def voice_activity(y: np.ndarray) -> Optional[list[list[float]]]:
+def voice_activity(y: np.ndarray, fine: bool = False) -> Optional[list[list[float]]]:
     """Where a voice detector (Silero, shipped with faster-whisper) hears speech: [start, end] seconds; None when it
-    isn't installed. Unlike the recognizer, it doesn't read music or sound effects as words."""
+    isn't installed. Unlike the recognizer, it doesn't read music or sound effects as words.
+
+    Its defaults join anything closer than 2 s and pad 0.4 s either side: right for "is there speech around here",
+    blind to a short gap. fine keeps gaps of 0.1 s and pads 0.03 s, to tell whether a track speaks at a given moment."""
     try:
         from faster_whisper.vad import VadOptions, get_speech_timestamps
     except ImportError:
         return None
     try:
-        spans = get_speech_timestamps(y.astype(np.float32), VadOptions(), sampling_rate=SAMPLE_RATE)
+        options = VadOptions(min_silence_duration_ms=100, speech_pad_ms=30) if fine else VadOptions()
+        spans = get_speech_timestamps(y.astype(np.float32), options, sampling_rate=SAMPLE_RATE)
     except Exception as e:  # its model can't be loaded or run: the evaluation goes on without the detector
         log.warning("Voice detector not used: %s", e)
         return None

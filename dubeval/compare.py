@@ -48,7 +48,9 @@ def facts(rep: dict, r: dict) -> dict:
     overlap = (r.get("timing_alignment") or {}).get("overlap_pct")
     level = rep["overall"]["level"]
     rows = {m["id"]: m for s in rep["sections"] for m in s["metrics"]}
-    missing = [k for k in KEY_CHECKS if k in rows and rows[k]["level"] == "not_measured"]
+    # A row DubEval chose not to grade (a mostly-music video) isn't a check that failed: speech share differs a little
+    # per dub, so near the limit it would rank a Good dub below a Poor one (rule 1 comes before the verdict).
+    missing = [k for k in KEY_CHECKS if k in rows and rows[k]["level"] == "not_measured" and not rows[k].get("not_graded")]
     return {
         "unmeasured": len(missing),
         "unmeasured_checks": missing,
@@ -59,6 +61,7 @@ def facts(rep: dict, r: dict) -> dict:
         "problem_seconds": round(float(rep.get("problem_seconds") or 0.0), 1),
         "meaning_score": tj.get("meaning_score") if tj.get("measured") else None,
         "meaning_scale": tj.get("scale") or 5,
+        "judge_models": (tj.get("models") or [tj["model"]]) if tj.get("measured") and tj.get("model") else [],
         "overlap_pct": round(float(overlap), 1) if overlap is not None else None,
     }
 
@@ -199,8 +202,10 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
         why = tr(f"c.why.{dec['rule']}", win=win, lose=lose, win_value=_shown(tr, dec["rule"], f[win]),
                  lose_value=_shown(tr, dec["rule"], f[lose]))
     other = _problems(reps[lose])
-    summary = [why, tr("c.loser_problems", dub=lose, items=", ".join(other)) if other else tr("c.loser_clean", dub=lose),
-               tr(f"c.ready.{f[win]['verdict']}", dub=win)]
+    held = list(dict.fromkeys(HOLD_FOR[k] for k in reps[win]["overall"].get("unsure", []) if k in HOLD_FOR))
+    # A held first place isn't deliverable yet: "can be delivered after a review" would contradict the headline.
+    summary = [why, tr("c.loser_problems", dub=lose, items=", ".join(other)) if other else tr("c.loser_clean", dub=lose)] \
+        + ([] if held else [tr(f"c.ready.{f[win]['verdict']}", dub=win)])
     values = ({dub: _shown(tr, dec["rule"], f[dub]) for dub in dubs} if dec["rule"] else
               {dub: tr(f"verdict.{f[dub]['verdict']}") for dub in dubs})
     ranking = [{"rank": i, "dub": d, "title": reps[d]["project"].get("title"), "verdict": f[d]["verdict"],
@@ -208,19 +213,29 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
                 "problem_seconds": f[d]["problem_seconds"]} for i, d in enumerate(dec["order"], 1)]
     not_ready = (tr("c.not_ready", d=win) if len(dubs) == 2 else tr("c.not_ready_all", d=win)) if all_poor else None
     # Every dub may lack the same key checks (rule 1 then can't separate them): the recommendation still says so.
-    caution = tr("c.caution.unmeasured", d=win, items=", ".join(tr(f"r.m.{k}") for k in f[win]["unmeasured_checks"])) \
-        if f[win]["unmeasured"] else None
-    held = list(dict.fromkeys(HOLD_FOR[k] for k in reps[win]["overall"].get("unsure", []) if k in HOLD_FOR))
+    cautions = [tr("c.caution.unmeasured", d=win, items=", ".join(tr(f"r.m.{k}") for k in f[win]["unmeasured_checks"]))] \
+        if f[win]["unmeasured"] else []
+    # Different AI models graded the dubs: part of a gap in translation scores may be the models', not the dubs'.
+    judges_differ = len({tuple(f[d]["judge_models"]) for d in dubs if f[d]["judge_models"]}) > 1
+    if judges_differ:
+        cautions.append(tr("c.caution.judges", models=", ".join(dict.fromkeys(m for d in dubs for m in f[d]["judge_models"]))))
+    caution = " ".join(cautions) or None
+    status = "not_ready" if all_poor else "provisional" if held else "recommended"
     if held:
         headline = tr("c.held", d=win, why=" ".join(tr(f"c.held.{k}", d=win) for k in held))
+    elif all_poor:
+        headline = tr("c.start_from", d=win)
     else:
         headline = tr("c.recommend_tie", d=win, other=lose) if dec["tie"] else tr("c.recommend", d=win)
     return {
-        "comparison_version": 2,
+        "comparison_version": 3,
         "lang": lang,
         "dubs": dubs,
         "recommendation": {
-            "dub": win, "tie": dec["tie"], "both_poor": all_poor, "all_poor": all_poor, "ready": not all_poor,
+            # dub is the first place; only status "recommended" (ready) says to deliver it: "provisional" is first
+            # place while DubEval is unsure of it, "not_ready" the best starting point when every dub is Poor.
+            "dub": win, "status": status, "status_label": tr(f"c.sec.{status}"), "ready": status == "recommended",
+            "tie": dec["tie"], "both_poor": all_poor, "all_poor": all_poor, "judges_differ": judges_differ,
             "title": reps[win]["project"].get("title"), "verdict": f[win]["verdict"],
             "verdict_label": tr(f"verdict.{f[win]['verdict']}"),
             "headline": headline, "held": held,
@@ -311,7 +326,7 @@ def render_comparison_text(comp: dict, width: int = 100) -> str:
     icon = ICONS[rec["verdict"]]
     title = f" {lb['title'].upper()}"
     lines = [bar, title + " " * max(1, width - text_width(title) - len(comp["meta"]["generated"])) + comp["meta"]["generated"], bar,
-             f" 1. {lb['sec.recommended'].upper()}"]
+             f" 1. {rec['status_label'].upper()}"]
     lines += w_(f"{icon} {rec['headline']}", "    ")
     lines += w_(f"{lb['dub_' + rec['dub']]}: {rec['title'] or ''} · {lb['verdict']}: {rec['verdict_label']}", "    ")
     if rec.get("caution"):
@@ -384,7 +399,7 @@ def render_comparison_html(comp: dict) -> str:
            f"content='width=device-width,initial-scale=1'><title>{e(lb['title'])}</title><style>{_CSS}{_EXTRA_CSS}"
            f"</style></head><body><main><h1>{e(lb['title'])}</h1><div class='meta muted'>"
            f"<span>{e(comp['meta']['generated'])}</span></div>",
-           f"<div class='card rec {rec['verdict']}'><h2>1. {e(lb['sec.recommended'])}</h2>"
+           f"<div class='card rec {rec['verdict']}'><h2>1. {e(rec['status_label'])}</h2>"
            f"<div class=big>{ICONS[rec['verdict']]} {e(rec['headline'])}</div>"
            f"<p>{e(lb['dub_' + rec['dub']])}: <b>{e(rec['title'])}</b> · {e(lb['verdict'])}: "
            f"<span class='badge b-{rec['verdict']}'>{e(rec['verdict_label'])}</span></p>"]

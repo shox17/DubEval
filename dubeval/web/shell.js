@@ -2,7 +2,8 @@
 //
 // Updates come from the desktop app (desktop/preload.js puts window.dubevalShell on the page): it downloads a new
 // version in the background and reports {phase, version, pct}; phase is idle | checking | none | downloading |
-// ready | error. In a plain browser there is no shell, so nothing is announced and the card only shows the notes.
+// ready | download-failed | error. In a plain browser there is no shell, so nothing is announced and the card only
+// shows the notes.
 import { h, openModal, state, t } from "./app.js";
 
 const shell = window.dubevalShell || null;
@@ -31,6 +32,10 @@ export function watchUpdatesFor(el, fn) {
 
 export const updatesAvailable = () => !!shell;
 export const checkForUpdates = () => shell && shell.checkForUpdates();
+export const restartToUpdate = () => shell && shell.restartToUpdate();
+
+// An update exists: found and downloading, on disk, or its download broke.
+const live = u => !!u.version && ["downloading", "ready", "download-failed"].includes(u.phase);
 
 function setUpdate(next) {
   update = next || { phase: "idle" };
@@ -39,13 +44,13 @@ function setUpdate(next) {
   if (state.info) maybeAnnounce(update);
 }
 
-// The card's title and dot: "What's new in 0.1.0", or the update once there is one.
+// The card's dot while there is an update, and its title: "What's new in 0.1.0", or "Update 0.1.1 is ready" once the
+// update is on disk.
 export function refreshSidebar() {
   const card = document.getElementById("nav-whats-new");
   if (!card || !state.info) return;
-  const live = update.phase === "downloading" || update.phase === "ready";
-  card.classList.toggle("live", live);
-  card.title = live ? t("w.nav.update_available") : "";
+  card.classList.toggle("live", live(update));
+  card.title = live(update) ? t("w.nav.update_available") : "";
   card.querySelector(".side-label").textContent = update.phase === "ready"
     ? t("w.nav.update_ready", { version: update.version }) : t("w.nav.whats_new", { version: state.info.version });
 }
@@ -61,8 +66,6 @@ function helpDialog() {
     h("p", { class: "help-links" }, link(docs("usage"), "w.help.guide"), " · ", link(docs("faq"), "w.help.faq"))),
   [{ label: t("w.ok"), primary: true }]);
 }
-
-const live = u => !!u.version && (u.phase === "downloading" || u.phase === "ready");
 
 // "2026-10-26" in the viewer's own time zone, or "" for a date that can't be read.
 function releaseDay(iso) {
@@ -88,8 +91,15 @@ function noteLines(notes, version) {
     .filter(l => l && !/^what.?s new/i.test(l));
 }
 
+// What the window lists for an update: the new version's own lines in the interface language, else the release's
+// description (in English).
+function updateLines(u) {
+  const own = u.whatsNew && (u.whatsNew[state.lang] || u.whatsNew.en);
+  return own && own.length ? own : noteLines(u.releaseNotes, u.version);
+}
+
 // Whether an evaluation is running now (restarting would stop it): a started draft's card says so.
-async function evaluationRunning() {
+export async function evaluationRunning() {
   try {
     const list = await fetch("/api/evaluations", { credentials: "same-origin" }).then(r => r.json());
     return (list.drafts || []).some(d => d.state === "running");
@@ -103,18 +113,21 @@ function versionWindow() {
   if (windowOpen) return;
   windowOpen = true;
   const title = h("h3", {});
-  const current = h("p", { class: "muted" }, t("w.upd.current", { version: state.info.version }));
-  const next = h("p", { class: "upd-next" });
-  const go = h("button", { type: "button", class: "primary", hidden: true, onclick: () => shell.restartToUpdate() });
-  const running = h("p", { class: "upd-running small", hidden: true }, t("w.upd.running_stops"));
+  const next = h("span", {});
+  const go = h("button", { type: "button", class: "primary", hidden: true, onclick: () => restartToUpdate() });
+  const running = h("p", { class: "upd-note", hidden: true }, t("w.upd.running_stops"));
+  const failed = h("p", { class: "upd-note", hidden: true });
   const check = h("button", { type: "button", class: "link", hidden: true, onclick: () => checkForUpdates() },
     t("w.upd.check"));
-  const notes = h("ul", { class: "wn-list" });
+  const notes = h("ul", {});
   const link = h("a", { href: "#", target: "_blank", rel: "noopener", hidden: true }, t("w.upd.release_page"));
+  const right = h("div", { class: "upd-right" }, h("span", { class: "upd-h" }, t("w.upd.whats_new")), notes, link);
   const body = h("div", { class: "upd-body" },
-    h("div", { class: "upd-left" }, title, current, next, h("span", { class: "grow" }), go, running, check),
-    h("div", { class: "upd-right" }, h("span", { class: "upd-h muted" }, t("w.upd.whats_new")), notes, link));
-  const close = openModal(t("w.upd.title"), body, [{ label: t("w.close") }], { width: 760 });
+    h("div", { class: "upd-left" }, title,
+      h("div", { class: "upd-ver" }, h("span", {}, t("w.upd.current", { version: state.info.version })), next),
+      h("span", { class: "grow" }), go, running, failed, check),
+    right);
+  const close = openModal(t("w.upd.title"), body, [{ label: t("w.close") }]);
   const modal = body.closest(".modal");
   modal.classList.add("upd-modal");
   const done = () => { windowOpen = false; };
@@ -128,31 +141,47 @@ function versionWindow() {
       : u.phase === "checking" ? t("w.upd.checking")
       : u.phase === "error" ? t("w.upd.failed_short") : t("w.upd.up_to_date");
     const day = releaseDay(u.releaseDate);
-    next.textContent = isLive ? t("w.upd.next", { version: u.version }) + (day ? ` · ${t("w.upd.released", { day })}` : "") : "";
+    // The day in a span that doesn't wrap, so "2026-10-26" never breaks at a hyphen.
+    next.replaceChildren(isLive ? t("w.upd.next", { version: u.version }) : "",
+      h("span", { class: "upd-day" }, isLive && day ? ` · ${t("w.upd.released", { day })}` : ""));
     next.hidden = !isLive;
-    go.hidden = !isLive;
-    if (isLive) {
+    const broke = u.phase === "download-failed";
+    go.hidden = !isLive || broke;
+    if (!go.hidden) {
       const ready = u.phase === "ready";
-      go.textContent = ready ? t("w.upd.restart") : t("w.upd.downloading", { pct: Math.round(u.pct || 0) });
+      go.textContent = ready ? t("w.upd.restart") : t("w.upd.downloading", { pct: u.pct || 0 });
       go.disabled = !ready;
     }
-    check.hidden = !shell || isLive || u.phase === "checking";
-    const lines = isLive ? noteLines(u.releaseNotes, u.version) : state.info.whats_new;
+    failed.hidden = !broke && u.phase !== "error";
+    if (!failed.hidden) failed.textContent = t(broke ? "w.upd.download_failed" : "w.upd.check_failed_hint");
+    running.hidden = !(evaluating && isLive && !broke);
+    check.hidden = !shell || (isLive && !broke) || u.phase === "checking";
+    const lines = isLive ? updateLines(u) : state.info.whats_new;
     notes.replaceChildren(...lines.map(n => h("li", {}, n)));
     link.hidden = !(isLive && !lines.length);
     if (!link.hidden) link.href = `${state.info.repository}/releases/tag/v${u.version}`;
+    right.hidden = !lines.length && link.hidden;
+    body.classList.toggle("single", right.hidden);
   };
+  let evaluating = false;
   watchUpdatesFor(body, paint);
-  evaluationRunning().then(on => { running.hidden = !(on && live(update)); });
+  evaluationRunning().then(on => { evaluating = on; paint(update); });
   return close;
 }
 
-// After an update: "Updated to 0.1.1 · What's new · ×" once, at the top of the work panel (as PersoDub).
+// Whether this is the first run of a new version. The desktop app knows, whatever the page's address; in a plain browser
+// the page's own storage is all there is.
 const SEEN_KEY = "dubeval.seenVersion";
-function updatedBanner() {
+async function justUpdated() {
+  if (shell) return shell.justUpdated().catch(() => false);
   let seen = null;
-  try { seen = localStorage.getItem(SEEN_KEY); localStorage.setItem(SEEN_KEY, state.info.version); } catch { return; }
-  if (!seen || seen === state.info.version) return;
+  try { seen = localStorage.getItem(SEEN_KEY); localStorage.setItem(SEEN_KEY, state.info.version); } catch { return false; }
+  return !!seen && seen !== state.info.version;
+}
+
+// After an update: "Updated to 0.1.1 · What's new · ×" once, at the foot of the window (as PersoDub).
+async function updatedBanner() {
+  if (!(await justUpdated())) return;
   const banner = h("div", { class: "update-banner", role: "status" },
     h("span", {}, t("w.upd.updated", { version: state.info.version })),
     h("button", { type: "button", class: "link", onclick: () => { banner.remove(); versionWindow(); } }, t("w.upd.whats_new")),
@@ -220,7 +249,8 @@ export function initSidebar() {
   updatedBanner();
   if (shell) {
     shell.onUpdate(setUpdate);
-    shell.getUpdate().then(setUpdate).catch(() => {});
+    // The state can change before this answer comes: it never replaces what the listener has had since.
+    shell.getUpdate().then(u => { if (update.phase === "idle") setUpdate(u); }).catch(() => {});
   }
   refreshSidebar();
 }

@@ -6,6 +6,8 @@ rates audio the way listeners do on three 1-5 scales: SIG (the speech signal), B
 and effects, so a lower dub score points at the dub's own sound. Both SIG and OVRL are kept because they catch
 different damage (tested on real dubs: a robotic, quantised voice drops SIG ~0.9 but OVRL ~0.4; clipping distortion
 drops OVRL ~0.7 but SIG ~0.25, since the model books it under background; clean dubs never dropped more than 0.25).
+The dub is scored at the original's volume: the model's scores move with volume alone (a copy only 3 dB quieter moved a
+window by up to 1.1, against 0.5 with the volumes matched), and volume has its own checks.
 Known blind spot: a muffled (low-passed) voice barely changes any score. Grading is in dubeval/intervals.py.
 
 Pure apart from loading the model: arrays in, a dict out.
@@ -21,6 +23,7 @@ WINDOW_SEC = 9.01                    # the model's input length
 HOP_SEC = 2.0                        # step between windows...
 MAX_WINDOWS = 120                    # ...widened on long videos so at most this many windows are scored per track
 MIN_SPEECH_SEC = 3.0                 # a window counts when both tracks speak at least this long in it
+SILENT_RMS = 1e-5                    # a window this quiet has no volume to match
 # DNSMOS P.835 calibration polynomials (raw model output -> MOS), from the DNS Challenge reference code.
 POLY_SIG = np.poly1d([-0.08397278, 1.22083953, 0.0052439])
 POLY_BAK = np.poly1d([-0.13166888, 1.60915514, -0.39604546])
@@ -52,6 +55,14 @@ def score_window(audio: np.ndarray, session=None) -> tuple[float, float, float]:
     return float(POLY_SIG(sig)), float(POLY_BAK(bak)), float(POLY_OVR(ovr))
 
 
+def _at_volume_of(audio: np.ndarray, reference: np.ndarray) -> np.ndarray:
+    """audio at reference's volume, or as near as it gets without clipping (that would damage the voice being scored)."""
+    level, target = float(np.sqrt(np.mean(np.square(audio)))), float(np.sqrt(np.mean(np.square(reference))))
+    if level < SILENT_RMS or target < SILENT_RMS:
+        return audio
+    return audio * min(target / level, 1.0 / float(np.max(np.abs(audio))))
+
+
 def _spoken(speech: list[list[float]], start: float, end: float) -> float:
     """Seconds of speech inside [start, end]."""
     return sum(max(0.0, min(e, end) - max(s, start)) for s, e in speech)
@@ -59,7 +70,7 @@ def _spoken(speech: list[list[float]], start: float, end: float) -> float:
 
 def voice_quality(y_orig: np.ndarray, y_dub: np.ndarray, orig_speech: list[list[float]],
                   dub_speech: list[list[float]], session=None) -> dict:
-    """Voice-quality scores of the dub and the original at the same moments, where both speak.
+    """Voice-quality scores of the dub and the original at the same moments and volume, where both speak.
 
     Returns windows [{start, end, dub_sig, original_sig}] and their averages; measured is False (with a reason key)
     when no window has enough speech in both tracks.
@@ -73,7 +84,7 @@ def voice_quality(y_orig: np.ndarray, y_dub: np.ndarray, orig_speech: list[list[
         if _spoken(orig_speech, start, end) < MIN_SPEECH_SEC or _spoken(dub_speech, start, end) < MIN_SPEECH_SEC:
             continue
         a, b = int(start * SAMPLE_RATE), int(end * SAMPLE_RATE)
-        orig, dub = score_window(y_orig[a:b], session), score_window(y_dub[a:b], session)
+        orig, dub = score_window(y_orig[a:b], session), score_window(_at_volume_of(y_dub[a:b], y_orig[a:b]), session)
         windows.append({"start": round(float(start), 2), "end": round(float(end), 2),
                         "dub": round(dub[2], 2), "original": round(orig[2], 2),
                         "dub_sig": round(dub[0], 2), "original_sig": round(orig[0], 2),

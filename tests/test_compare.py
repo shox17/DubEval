@@ -113,6 +113,14 @@ def test_the_recommendation_is_held_when_dubeval_is_unsure_of_the_dub_ranked_fir
         assert "{" not in build_comparison(a, b, lang)["recommendation"]["headline"]
 
 
+def test_a_mostly_music_dub_isnt_ranked_below_a_poor_one_for_its_line_rows():
+    # Speech share differs a little per dub: near the limit one dub's line rows aren't graded and the other's are.
+    music = make_results(translation_judge=JUDGED, timing_alignment={"original_speech": [[0.0, 6.0], [10.0, 14.0]], "overlap_pct": 90.0})
+    comparison = build_comparison(music, as_b(poor_dub()), "en")
+    assert comparison["facts"]["A"]["unmeasured"] == 0 and comparison["facts"]["A"]["verdict"] != "poor"
+    assert comparison["facts"]["B"]["verdict"] == "poor" and comparison["recommendation"]["dub"] == "A"
+
+
 def test_problem_seconds_break_a_tie_on_counts():
     gap = {"mismatches": [{"start": 2.0, "end": 3.0, "kind": "dub_only"}]}
     a = make_results(translation_judge=JUDGED, timing_alignment=gap)
@@ -381,3 +389,62 @@ def test_a_cache_file_that_cannot_be_saved_never_fails_the_run(tmp_path, monkeyp
     cache = pipeline.JsonCache(tmp_path / "whisper_cache.json")
     cache["stt|x"] = {"text": "hi"}
     assert cache.get("stt|x") == {"text": "hi"}                   # still used for the rest of this run
+
+
+# ---------------- first place and a recommendation are different things ----------------
+def held_comparison(lang="en"):
+    a = make_results(translation_judge=JUDGE_OFF, timing_alignment={"overlap_pct": 76.0})
+    b = as_b(make_results(translation_judge=JUDGE_OFF, timing_alignment={"overlap_pct": 80.0}))
+    return build_comparison(a, b, lang)
+
+
+def test_a_clean_win_is_recommended():
+    comp = build_comparison(make_results(), as_b(make_results(acoustic_metrics={"rms_ratio": 2.5})), "en")
+    rec = comp["recommendation"]
+    assert rec["status"] == "recommended" and rec["ready"] and rec["status_label"] == "Recommended version"
+    assert "1. RECOMMENDED VERSION" in render_comparison_text(comp)
+
+
+def test_a_held_first_place_is_provisional_everywhere():
+    comp = held_comparison()
+    rec = comp["recommendation"]
+    assert rec["dub"] == "B" and rec["status"] == "provisional" and not rec["ready"]    # was ready, under a held headline
+    assert rec["status_label"].startswith("Provisional first place")
+    assert not any("can be delivered" in line for line in comp["reasoning"]["summary"])  # it contradicted the headline
+    text, page = render_comparison_text(comp), render_comparison_html(comp)
+    assert "1. PROVISIONAL FIRST PLACE" in text and "RECOMMENDED VERSION" not in text
+    assert "1. Provisional first place" in page and "Recommended version" not in page
+
+
+def test_when_every_dub_is_poor_nothing_says_deliver():
+    comp = build_comparison(poor_dub(), as_b(poor_dub()), "en")
+    rec = comp["recommendation"]
+    assert rec["status"] == "not_ready" and not rec["ready"] and rec["status_label"].startswith("Best starting point")
+    assert "Deliver" not in rec["headline"] and rec["headline"].startswith("Don't deliver yet")
+    assert "1. BEST STARTING POINT" in render_comparison_text(comp)
+
+
+@pytest.mark.parametrize("lang", ["ko", "pt", "es"])
+def test_the_status_reads_in_every_language(lang):
+    held, clean = held_comparison(lang)["recommendation"], build_comparison(poor_dub(), as_b(poor_dub()), lang)["recommendation"]
+    assert held["status_label"] and "{" not in held["status_label"] and "{" not in clean["headline"]
+
+
+def test_a_partial_translation_review_holds_the_recommendation():
+    from dubeval.translation_judge import not_measured
+    partial = not_measured("r.judge.incomplete", model="m", done=1, total=3)
+    comp = build_comparison(make_results(translation_judge=partial, timing_alignment={"overlap_pct": 80.0}),
+                            as_b(make_results(translation_judge=partial, timing_alignment={"overlap_pct": 76.0})), "en")
+    assert comp["recommendation"]["status"] == "provisional" and comp["recommendation"]["held"] == ["translation"]
+    assert any("1 of 3 lines" in note for note in comp["notes"])
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_different_ai_models_are_called_out(lang):
+    judged_by = lambda model: {**JUDGED, "model": model, "models": [model]}
+    rec = build_comparison(make_results(translation_judge=judged_by("model-a")),
+                           as_b(make_results(translation_judge=judged_by("model-b"))), lang)["recommendation"]
+    assert rec["judges_differ"] and "model-a, model-b" in rec["caution"] and "{" not in rec["caution"]
+    same = build_comparison(make_results(translation_judge=judged_by("model-a")),
+                            as_b(make_results(translation_judge=judged_by("model-a"))), lang)["recommendation"]
+    assert not same["judges_differ"] and same["caution"] is None

@@ -475,6 +475,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   window.addEventListener(INFO_EVENT, refreshCheckers);
   const needKeys = checkers.some(([id]) => id !== "ollama" && !ready(id));
   const lipsync = h("input", { type: "checkbox", id: "lipsync" });
+  const lockModel = h("input", { type: "checkbox", id: "lock-model" });
   const error = h("p", { class: "error", role: "alert" });
   const savedNote = h("p", { class: "muted small", hidden: true }, t("w.start.draft_saved"));
   const startBtn = h("button", { type: "submit", class: "primary" }, t("w.start.go"));
@@ -488,6 +489,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   const more = h("details", { class: "more" }, h("summary", {}, t("w.start.more")),
     h("div", { class: "options" },
       h("label", {}, t("w.start.translation"), check),
+      h("label", { class: "check", title: t("w.start.lock_model_hint") }, lockModel, t("w.start.lock_model")),
       needKeys ? h("a", { class: "fix-link", href: "#/settings/keys" }, t("w.start.judge_add")) : null,
       !ready("ollama") ? h("a", { class: "fix-link", href: "#/settings/models" }, t("w.start.get_local")) : null,
       missing.map(([key, href]) => h("a", { class: "fix-link", href }, t(key)))),
@@ -501,7 +503,8 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
 
   // ----- the draft -----
   const formState = () => ({ original: original.state(), original_subs: originalSubs.state(), source_lang: sourceLang.value,
-    dubs: dubs.map(d => d.state()), judge: check.value, lipsync: lipsync.checked, speech_model: speechModel.value,
+    dubs: dubs.map(d => d.state()), judge: check.value, lock_model: lockModel.checked, lipsync: lipsync.checked,
+    speech_model: speechModel.value,
     more_open: more.open });
   const given = () => !original.empty() || dubs.some(d => !d.empty());
   // The card's name and picture: the first dub's (the chosen file's own name, or a link's title), else the original's.
@@ -552,6 +555,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
         await Promise.all((f.dubs || []).map((saved, i) => dubs[i].restore(saved)));
         pick(sourceLang, f.source_lang || "");    // a share link's preview may have set it: the saved choice wins
         pick(check, f.judge || "");
+        lockModel.checked = !!f.lock_model;
         lipsync.checked = !!f.lipsync;
         pick(speechModel, f.speech_model || "auto");
         if (more.open !== !!f.more_open) { restoredToggle = true; more.open = !!f.more_open; }
@@ -595,7 +599,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
         original_subtitles: await originalSubs.value(),
         source_lang: sourceLang.value || null, dub_options: await Promise.all(dubs.map(d => d.settings())),
         speech_model: info.large_model ? speechModel.value : "auto",
-        translation_check: check.value !== "off", judge: check.value, lipsync: lipsync.checked,
+        translation_check: check.value !== "off", judge: check.value, lock_model: lockModel.checked, lipsync: lipsync.checked,
         lang: state.lang, draft_id: draft };
       submitted = true;
       const job = await api("/api/evaluations", { method: "POST", body: JSON.stringify(body) });
