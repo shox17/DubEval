@@ -13,8 +13,9 @@ The exact thresholds are in [metrics.md](metrics.md); the test runs are in [vali
   why it got its level.
 - **It says when it isn't sure.** Mostly music, very little speech, speech it couldn't make out: the verdict becomes
   "Needs review" with the reason, instead of a confident Good or Poor.
-- **It has been tested two ways:** with problems put into dubs on purpose (it catches 79 of 109, and 18 of 24 on dubs
-  it was never tuned on), and against a person's grades on 19 real dubs (it agrees on 14).
+- **It has been tested two ways:** with problems put into dubs on purpose (it catches 102 of 112, and 18 of 24 on dubs
+  it was never tuned on), and against one person's grades on 20 real dubs (it agrees on 12 to 15, mostly depending on
+  which AI model reviewed the translation).
 - **It runs on your computer.** Only the translation check can use an online AI, and only with your own key.
 
 ## Who makes DubEval
@@ -37,8 +38,11 @@ DubEval treats a dub the same way whichever service made it:
 - **Same rules:** every threshold is fixed in the code, the same for every service, and printed next to each grade.
   Nothing is tuned per service; the test sets mix Perso, ElevenLabs and Descript dubs.
 - **Same translation judge:** the first AI service with a key, asked with the same instructions for every dub. One
-  difference can creep in: when a service is busy it falls back to a backup model, which the report notes. For a
-  benchmark, fix the model (`GEMINI_MODEL`) and check that every dub's report names the same one.
+  difference can creep in: when a service is busy it falls back to a backup model, which the report notes (Gemini's
+  models are fixed names, and one dub's requests stay with one model). For a benchmark, lock the model (**Use one AI model
+  only** under More options, or `--lock-model`): only the first model is used, a busy one makes the check not measured
+  instead of switching, and every dub's report names the model that judged it. A review that leaves lines out isn't
+  graded at all.
 - **Same type of dub, same standard:** an AI dub is held to a close translation; a dub marked as made by human voice
   actors may adapt jokes and idioms. Compare dubs of the same type.
 
@@ -46,7 +50,7 @@ DubEval treats a dub the same way whichever service made it:
 
 | Language pair | Graded by a person (DubEval agreed) | Problems put into dubs | Translation mistakes put into transcripts | Status |
 |---|---|---|---|---|
-| English → Korean | 13 dubs (11) | 13 dubs | 19 of 19 found (Gemini) | **Tested**: the most evidence; one reviewer |
+| English → Korean | 14 dubs (9 to 12) | 14 dubs | 19 of 19 found (Gemini) | **Tested**: the most evidence; one reviewer |
 | English → Spanish | 2 dubs (2) | 2 dubs | 4 of 4 found (Gemini) | **First evidence**: too few dubs to rely on |
 | English → Uzbek | 4 dubs (1) | 4 dubs | Not testable | **Not reliable**: speech recognition hears Uzbek as Kazakh, so the words aren't checked and no dub is called Good |
 | Any other pair | none | none | none | **Untested**: every check runs, without a promise |
@@ -74,7 +78,8 @@ DubEval treats a dub the same way whichever service made it:
 | Length, loudness, silence, distortion | Does the dub run as long, sound as loud and as clean as the original? | High for distortion and loudness jumps (caught 15 of 15 and 13 of 15); silence and loudness are capped at Check when the dub replaced the background |
 | Speech timing, line length | Does the dub speak when the original speaks, and is each line about as long? | Good on speech, weaker on music-heavy videos (DubEval says so) |
 | Original voice left in | Is any part still in the original language? | Good: 8 of 9 caught on tune dubs, 2 of 3 on unseen ones |
-| Voice quality | Does the dub voice sound robotic or distorted next to the original? | Good for robotic and distorted voices; misses noise mixed in at voice level (3 of 15) |
+| Voice quality | Does the dub voice sound robotic or distorted next to the original? | Medium: a simulated robotic voice was flagged on 9 of 17 dubs, and volume alone doesn't count against a dub. Distortion has its own check. Misses a muffled voice |
+| Noise | Does the dub fill with hiss or static the original doesn't have? | Found 15 of 15 planted bursts, with no false alarm on 22 real dubs; none has been seen in a real dub yet. Misses hum, buzz, crackle and bursts under 1.5 s |
 | Voice similarity | Does the dub sound like the same person? | Measured only with a clean background; never Poor, since a new voice can be on purpose |
 | Translation | Does each line mean what the original said, naturally? | With Gemini, high: 23 of 23 planted wrong numbers, reversed meanings and left-out lines found, no harmless rewording flagged. With the local model, low: 4 of 23. It reads transcripts, not audio, and scores vary between runs |
 | Lip sync | Do the lips follow the dub's speech? | With the lip-sync download (StableSyncNet): on a real Perso dub it told the lip-synced version from the plain one and measured planted sound delays to the frame; tested on one video, so information only. Without it, a rough lip-movement measure |
@@ -110,32 +115,41 @@ is a false alarm. Thresholds were set on 16 "tune" dubs only; 3 "holdout" dubs w
 
 | | Before the fixes | After |
 |---|---|---|
-| Problems caught (16 tune dubs) | 67 of 101 | 79 of 109 |
+| Problems caught (tune dubs: 16, now 17) | 67 of 101 | 102 of 112 |
 | Problems caught (3 unseen dubs) | 14 of 24 | 18 of 24 |
-| False alarms (16 tune dubs) | 167 | 69 |
-| Harmless copy flagged | 10 of 16 | 6 of 16 |
+| False alarms (tune dubs) | 167 | 42 |
+| Harmless copy flagged | 10 of 16 | 4 of 17 |
 
 False alarms were down to 37 before the last two fixes, which recover lines that speech recognition lost on real dubs
 (a line shouted over music, a stretch skipped after loud music). Those fixes raised agreement with the person but made
-two music-heavy dubs' flags less steady on the planted copies; real dubs count more, so they stay.
+two music-heavy dubs' flags less steady on the planted copies; real dubs count more, so they stay. A voice detector
+now has to confirm timing moments, which took false alarms from 65 to 53 without losing a catch, and checks that read words
+line by line are no longer graded on mostly-music videos, which took them to 41. Scoring voices at the same volume then removed 4
+more, but the first full run since the noise check came to 42: it found 2 noise false alarms an estimate had missed, and speech
+recognition doesn't repeat exactly between runs. About a third of those left are the offline meaning check, which only lists
+moments when no AI check ran.
 
-**A person's grades on real dubs.** One reviewer graded 19 real dubs (Perso, ElevenLabs, Descript) on DubEval's
-review page before seeing DubEval's results. DubEval's verdict matched theirs on **14 of 19**: 11 of 13 English →
-Korean, 2 of 2 English → Spanish and 1 of 4 English → Uzbek. All 5 dubs the person graded Poor, DubEval graded Poor.
+**A person's grades on real dubs.** One reviewer graded 20 real dubs (Perso, ElevenLabs, Descript) on DubEval's
+review page before seeing DubEval's results. Under today's rules, two saved runs of those dubs match the person on **12
+and 15 of 20**: 9 and 12 of 14 English → Korean, 2 of 2 English → Spanish and 1 of 4 English → Uzbek. Most of the gap is
+which AI model reviewed the translation in each run. Of the 5 dubs the person graded Poor, DubEval graded 2 and 4 Poor
+and the rest Needs review. It graded none of the person's Good dubs Poor.
 
-These are counts, not percentages: 19 dubs and one person say where DubEval stands and which way to improve it, not
+These are counts, not percentages: 20 dubs and one person say where DubEval stands and which way to improve it, not
 how good it is in general.
 
 ## What DubEval can't do yet
 
-- **Noise mixed into the voice** for a few seconds is mostly missed: the voice-quality model judges 9-second
-  stretches, and normal music-heavy dubs vary as much.
+- **Hum, buzz and crackle** aren't detected, nor is noise shorter than 1.5 s or noise across the whole dub: the noise
+  check looks for a rise above the dub's own usual level, and it was tested on noise made for the test.
 - **Music, singing and shouting over effects** confuse speech recognition. DubEval detects these cases and says it
   isn't sure, but it can't grade the speech in them well.
 - **Less common languages** are recognized poorly (an Uzbek dub was heard as Kazakh). DubEval then doesn't grade the
-  words and never calls the dub Good; adding the dub's subtitle file helps.
+  words and never calls the dub Good; adding the dub's subtitle file helps. Long silences are still found, by a voice
+  detector that doesn't need the words.
 - **The translation check isn't fully repeatable.** An AI model's scores can change between runs, more so when a busy
-  service falls back to a smaller model. **The local model is private but weak**: in testing it found 4 of 23 planted
+  service falls back to a smaller model (locking the model stops that). Even one model doesn't repeat itself exactly:
+  scores move, and on one dub of six reviewed more than once, the verdict flipped between Needs review and Poor. **The local model is private but weak**: in testing it found 4 of 23 planted
   translation mistakes, against 23 of 23 for Gemini.
 - **Lip sync** never changes the verdict. The lip-sync check (an optional 1.6 GB download) has been tested on one
   real dub and planted delays; without it, only a rough lip-movement measure is shown.

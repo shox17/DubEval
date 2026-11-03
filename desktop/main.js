@@ -1,5 +1,5 @@
-// DubEval desktop: starts the Python server (`python -m dubeval web`) on a free port, reads the launch link it
-// prints, and shows the web interface in a window. No terminal; closing the window stops the server.
+// DubEval desktop: starts the Python server (`python -m dubeval web`), reads the launch link it prints, and shows the
+// web interface in a window. No terminal; closing the window stops the server.
 //
 // Proof of concept: Python comes from the repository's .venv (or DUBEVAL_PYTHON). A packaged build will ship its
 // own Python next to the app (resources/python), found the same way.
@@ -15,6 +15,9 @@ const START_TIMEOUT_MS = 120_000;            // the first start imports torch an
 const LANGUAGES = ["en", "ko", "pt", "es"];
 const REPO = path.resolve(__dirname, "..");
 const DEV_ICON = path.join(__dirname, "build", "icon.png");
+// The start and failure page. Packaged, it sits outside the app's archive (asarUnpack in package.json): with the
+// grantFileProtocolExtraPrivileges fuse off, a window can't open a file:// page inside the archive, only blank.
+const STATUS_PAGE = path.join(__dirname.replace(/app\.asar$/, "app.asar.unpacked"), "status.html");
 
 let server = null;          // the Python child process
 let origin = null;          // http://127.0.0.1:<port>, the only place the window may go
@@ -47,7 +50,7 @@ function language() {
 
 function showStatus(state, detail = "") {
   if (!win) return;
-  win.loadFile(path.join(__dirname, "status.html"), { query: { state, lang: language(), detail: detail.slice(-2000) } });
+  win.loadFile(STATUS_PAGE, { query: { state, lang: language(), detail: detail.slice(-2000) } });
 }
 
 function logFile() {
@@ -64,7 +67,7 @@ function startServer() {
     const log = fs.createWriteStream(logFile(), { flags: "w" });
     // --exit-with-parent: the server waits on this process and exits when the app is gone, even after a crash.
     // Its stdin stays closed: a thread reading a stdin pipe froze scipy's first import on Windows.
-    const serve = ["-m", "dubeval", "web", "--port", "0", "--no-browser", "--exit-with-parent"];
+    const serve = ["-m", "dubeval", "web", "--no-browser", "--exit-with-parent"];
     const bundle = bundleOf(python);
     let options;
     if (bundle) {
@@ -140,7 +143,7 @@ function createWindow() {
   });
   // Only DubEval's own pages open in the window (the server's, and this app's status page, no other local file);
   // other links go to the person's browser.
-  const statusPage = pathToFileURL(path.join(__dirname, "status.html")).href;
+  const statusPage = pathToFileURL(STATUS_PAGE).href;
   win.webContents.on("will-navigate", (event, url) => {
     if (url.split(/[?#]/)[0] === statusPage || (origin && new URL(url).origin === origin)) return;
     event.preventDefault();

@@ -3,7 +3,7 @@
 // name | size | state | button; the other tabs are "label | control" rows. Keys are written once and never shown back;
 // models download with progress, stop and resume.
 import { api, confirmAlert, fill, h, loadInfo, state, t } from "./app.js";
-import { checkForUpdates, updatesAvailable, watchUpdatesFor } from "./shell.js";
+import { checkForUpdates, evaluationRunning, restartToUpdate, updatesAvailable, watchUpdatesFor } from "./shell.js";
 
 const TABS = ["keys", "models", "storage", "privacy", "about"];
 const POLL_MS = 1000;
@@ -238,19 +238,27 @@ function aboutTab(panel, view) {
       h("div", { class: "set-wide" }, list, h("span", { class: "settings-hint" }, t("w.about.notice")))));
 }
 
-// About → Updates: a "Check for updates" button and what the check found (desktop app only).
+// About → Updates: a "Check for updates" button, "Restart to update" once an update is ready, and what the check found
+// (desktop app only).
 function updatesControl() {
   if (!updatesAvailable()) return [h("span", { class: "settings-hint" }, t("w.upd.desktop_only"))];
   const status = h("span", { class: "settings-hint" }, t("w.upd.auto"));
-  const button = h("button", { type: "button", class: "btn", onclick: () => checkForUpdates() }, t("w.upd.check"));
-  watchUpdatesFor(button, u => {
+  let ready = false, evaluating = false, last = null;
+  const button = h("button", { type: "button", class: "btn", onclick: () => (ready ? restartToUpdate() : checkForUpdates()) });
+  const paint = u => {
+    last = u;
+    ready = u.phase === "ready";
+    button.textContent = t(ready ? "w.upd.restart" : "w.upd.check");
     button.disabled = u.phase === "checking" || u.phase === "downloading";
     status.textContent = {
       checking: t("w.upd.checking"), none: t("w.upd.latest"), error: t("w.upd.failed"),
-      downloading: t("w.upd.downloading", { pct: Math.round(u.pct || 0) }),
-      ready: t("w.nav.update_ready", { version: u.version }),
+      downloading: t("w.upd.downloading", { pct: u.pct || 0 }),
+      "download-failed": t("w.upd.download_failed"),
+      ready: evaluating ? t("w.upd.running_stops") : t("w.nav.update_ready", { version: u.version }),
     }[u.phase] || t("w.upd.auto");
-  });
+  };
+  watchUpdatesFor(button, paint);
+  evaluationRunning().then(on => { evaluating = on; if (last) paint(last); });    // a restart would stop it
   return [button, status];
 }
 

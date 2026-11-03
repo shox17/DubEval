@@ -25,9 +25,10 @@ log = logging.getLogger(__name__)
 
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 # Tried in order: each one is retried on overload (503) or rate limits (429), then the next model is used. Google's
-# "high demand" errors are usually per model, so a longer chain keeps the check working during demand spikes.
-GEMINI_MODELS = [os.getenv("GEMINI_MODEL", "gemini-3.5-flash"), "gemini-flash-latest", "gemini-3.8-flash",
-                 "gemini-3.1-flash-lite"]
+# "high demand" errors are usually per model, so a longer chain keeps the check working during demand spikes. No
+# "latest" aliases, which change model under one name. Google can still serve a newer version under a fixed name
+# (gemini-3.5-flash answered as gemini-3.6-flash, 2026-11-02), so results keep both (chunks: requested, model).
+GEMINI_MODELS = [os.getenv("GEMINI_MODEL", "gemini-3.5-flash"), "gemini-3.8-flash", "gemini-3.1-flash-lite"]
 GEMINI_THINKING = os.getenv("GEMINI_THINKING", "low")      # low ≈ 3 s per review, high ≈ 40 s
 CLAUDE_MODEL = os.getenv("CLAUDE_JUDGE_MODEL", "claude-opus-5-5")
 OPENAI_API = "https://api.openai.com/v1/chat/completions"
@@ -307,11 +308,30 @@ def judge_configured() -> bool:
     return judge_provider() is not None
 
 
-def judge_fingerprint(provider: Optional[str] = None) -> str:
+def judge_pinned() -> bool:
+    """DUBEVAL_JUDGE_PIN: only the first model of a provider answers, never a backup (calibration and comparison runs:
+    a backup model scores differently; one dub's meaning went 9.7 -> 7.3 on the same transcripts). Busy is then
+    reported as busy."""
+    return (os.getenv("DUBEVAL_JUDGE_PIN") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def model_order(models: list[str], prefer: Optional[str] = None, lock: bool = False) -> list[str]:
+    """The models to try, in order: only the first when locked; otherwise the one that judged this dub's first lines
+    first (one dub, one model), then the rest of the chain."""
+    chain = list(dict.fromkeys(models))
+    if lock or judge_pinned():
+        return chain[:1]
+    if prefer in chain:
+        chain.remove(prefer)
+        chain.insert(0, prefer)
+    return chain
+
+
+def judge_fingerprint(provider: Optional[str] = None, lock: bool = False) -> str:
     """What decides the judge's answer besides the transcripts: provider (the named one, else the one DUBEVAL_JUDGE
-    picks), models, thinking, prompt and schema. Changing any of them invalidates cached reviews."""
+    picks), models, the model lock, thinking, prompt and schema. Changing any of them invalidates cached reviews."""
     return json.dumps([provider or judge_provider(), GEMINI_MODELS, GEMINI_THINKING, CLAUDE_MODEL, OPENAI_MODELS, OLLAMA_MODEL, SYSTEM_PROMPT,
-                       RESULT_SCHEMA, DUB_TYPE_RULES, LOCAL_SYSTEM_PROMPT], sort_keys=True)
+                       RESULT_SCHEMA, DUB_TYPE_RULES, LOCAL_SYSTEM_PROMPT, lock or judge_pinned()], sort_keys=True)
 
 
 def not_measured(key: str, **params) -> dict:
@@ -370,60 +390,89 @@ def judge_translation(original_segments: list[dict], dubbed_segments: list[dict]
                       target_lang: str, client=None, session=None,
                       sleep: Callable[[float], None] = time.sleep, lines: Optional[list[dict]] = None,
                       dub_type: Optional[str] = None, provider: Optional[str] = None,
-                      description: Optional[str] = None) -> dict:
+                      description: Optional[str] = None, lock: bool = False) -> dict:
     """Scores every line against the rubric with the chosen judge, CHUNK_LINES lines per request.
 
     lines: the speech line by line (pipeline.judge_lines); dub_type: ai_clone | ai_stock | human (human dubs may
-    adapt freely); description: the video's title. client: an Anthropic client (forces Claude); session: a
-    requests-like session (forces Gemini, or Ollama with provider="ollama"). Both are for tests. A request that fails
-    makes the whole check "not measured", with its reason: half a translation check would mislead.
+    adapt freely); description: the video's title; lock: only the judge's first model, never a backup. client: an
+    Anthropic client (forces Claude); session: a requests-like session (forces Gemini, or Ollama with
+    provider="ollama"). Both are for tests. A request that fails, or lines still unanswered after asking again, make
+    the whole check "not measured", with the reason: half a translation check would mislead.
     """
     if not any(s.get("text") for s in original_segments) or not any(s.get("text") for s in dubbed_segments):
         return not_measured("r.judge.no_speech")
     lines = lines or _whole(original_segments, dubbed_segments)
     chunks = [[ln["n"] for ln in lines[i:i + CHUNK_LINES]] for i in range(0, len(lines), CHUNK_LINES)]
-    prompts = [build_prompt(original_segments, dubbed_segments, source_lang, target_lang, lines, dub_type, description,
-                            numbers) for numbers in chunks]
-    if client is not None:
-        return _rubric_result([_judge_claude(p, client) for p in prompts], lines)
-    if provider or session is not None:
-        return _rubric_result([_run_judge(provider or "gemini", p, session, sleep) for p in prompts], lines)
+    prompt_for = lambda numbers: build_prompt(original_segments, dubbed_segments, source_lang, target_lang, lines,
+                                              dub_type, description, numbers)
+    prompts = [prompt_for(numbers) for numbers in chunks]
+    if client is not None or provider or session is not None:
+        ask = (lambda p, prefer=None: _judge_claude(p, client, lock)) if client is not None else \
+            (lambda p, prefer=None: _run_judge(provider or "gemini", p, session, sleep, prefer, lock))
+        parts = [ask(prompts[0])]
+        parts += [ask(p, parts[0].get("model_id")) for p in prompts[1:]]
+        return _rubric_result(_ask_again(_asked(chunks, parts), ask, prompt_for), lines)
     chosen = judge_provider()
     if chosen is None:
         return not_measured("r.judge.no_key")
-    parts = [_run_judge(chosen, prompts[0], None, sleep)]
+    parts = [_run_judge(chosen, prompts[0], None, sleep, lock=lock)]
     if (os.getenv("DUBEVAL_JUDGE") or "auto").strip().lower() == "auto":
         # In auto mode a judge whose key is rejected or whose account has no credit hands over to the next one.
         for nxt in available_judges()[available_judges().index(chosen) + 1:]:
             if parts[0].get("reason_key") not in ACCOUNT_PROBLEMS:
                 break
             log.info("Translation judge %s unusable (%s); trying %s", chosen, parts[0].get("reason_key"), nxt)
-            chosen, parts = nxt, [_run_judge(nxt, prompts[0], None, sleep)]
+            chosen, parts = nxt, [_run_judge(nxt, prompts[0], None, sleep, lock=lock)]
+    ask = lambda p, prefer=None: _run_judge(chosen, p, None, sleep, prefer, lock)
     if parts[0].get("measured") and len(prompts) > 1:
         # The rest of a long video at once, a few requests at a time: the wait is about one request, not all of them.
+        # They start with the model that judged the first lines, so one dub isn't scored by two models.
         from concurrent.futures import ThreadPoolExecutor
+        prefer = parts[0].get("model_id")
         with ThreadPoolExecutor(PARALLEL_REQUESTS) as pool:
-            parts += list(pool.map(lambda p: _run_judge(chosen, p, None, sleep), prompts[1:]))
-    return _rubric_result(parts, lines)
+            parts += list(pool.map(lambda p: ask(p, prefer), prompts[1:]))
+    return _rubric_result(_ask_again(_asked(chunks, parts), ask, prompt_for), lines)
+
+
+def _asked(chunks: list[list[int]], parts: list[dict]) -> list[dict]:
+    """Each request's answer with the lines it was asked about."""
+    return [{**part, "asked": numbers} for numbers, part in zip(chunks, parts)]
+
+
+def _ask_again(parts: list[dict], ask: Callable, prompt_for: Callable) -> list[dict]:
+    """One more request for the lines an answer left out: a model sometimes skips one."""
+    if any(not p.get("measured") for p in parts):
+        return parts
+    again = []
+    for part in parts:
+        answered = {j["line"] for j in part["lines"]}
+        missing = [n for n in part["asked"] if n not in answered]
+        if missing:
+            log.warning("Translation judge left out %d of %d lines; asking again", len(missing), len(part["asked"]))
+            again.append({**ask(prompt_for(missing), part.get("model_id")), "asked": missing})
+    return parts + again
 
 
 def _rubric_result(parts: list[dict], lines: list[dict]) -> dict:
     """One result from the judged chunks: every line's scores, the averages, and an issue for every line with a score
     at or below report.RUBRIC_FLAG (major when its meaning score is at or below report.RUBRIC_POOR). The first failed
-    chunk's result is returned as it is."""
+    chunk's result is returned as it is. Only the lines a request asked about count, and every line must have an
+    answer: a grade from some of the lines would look complete."""
     from dubeval.report import RUBRIC_FLAG, RUBRIC_POOR
     failed = next((p for p in parts if not p.get("measured")), None)
     if failed is not None:
         return failed
     by_n = {ln["n"]: ln for ln in lines}
-    judged = {j["line"]: j for p in parts for j in p["lines"] if j["line"] in by_n}
+    judged = {j["line"]: j for p in parts for j in p["lines"] if j["line"] in p.get("asked", by_n)}
     if not judged:
         return not_measured("r.judge.unreadable", model=parts[0].get("model") or "")
+    if len(judged) < len(by_n):
+        log.warning("Translation judge evaluated %d of %d lines: not graded", len(judged), len(by_n))
+        return not_measured("r.judge.incomplete", model=parts[0].get("model") or "", done=len(judged),
+                            total=len(by_n))
     out_lines, issues = [], []
     for n, ln in by_n.items():
-        j = judged.get(n)
-        if j is None:
-            continue
+        j = judged[n]
         out_lines.append({**j, "start": ln["start"], "end": ln["end"]})
         low = [c for c in CRITERIA if j["scores"][c] <= RUBRIC_FLAG]
         if not low:
@@ -441,7 +490,11 @@ def _rubric_result(parts: list[dict], lines: list[dict]) -> dict:
 
     def mean(c):
         return round(sum(j["scores"][c] for j in out_lines) / len(out_lines), 1)
-    return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": parts[0]["model"],
+    models = list(dict.fromkeys(p["model"] for p in parts))
+    return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": " + ".join(models),
+            "models": models, "coverage": {"evaluated": len(out_lines), "total": len(by_n)},
+            "chunks": [{"lines": p.get("asked") or [j["line"] for j in p["lines"]], "model": p["model"],
+                        "requested": p.get("model_id"), "fallback": bool(p.get("fallback"))} for p in parts],
             "rubric": 1, "scale": 10, "meaning_score": mean("semantic_accuracy"),
             "criteria": {c: mean(c) for c in CRITERIA}, "summary": None, "lines": out_lines,
             "issues": issues[:MAX_ISSUES], "fallback": any(p.get("fallback") for p in parts)}
@@ -457,23 +510,26 @@ def available_judges() -> list[str]:
     return [name for name in JUDGES if checks[name]()]
 
 
-def _run_judge(provider: str, prompt: str, session, sleep: Callable[[float], None]) -> dict:
-    """One review by the named judge."""
+def _run_judge(provider: str, prompt: str, session, sleep: Callable[[float], None],
+               prefer: Optional[str] = None, lock: bool = False) -> dict:
+    """One review by the named judge; prefer: the model to try first (the one that judged the dub's first lines);
+    lock: only its first model."""
     if provider == "gemini":
-        return _judge_gemini(prompt, session or requests.Session(), sleep)
+        return _judge_gemini(prompt, session or requests.Session(), sleep, prefer, lock)
     if provider == "claude":
-        return _judge_claude(prompt, None)
+        return _judge_claude(prompt, None, lock)
     if provider == "openai":
-        return _judge_openai(prompt, session or requests.Session(), sleep)
+        return _judge_openai(prompt, session or requests.Session(), sleep, prefer, lock)
     if provider == "ollama":
         return _judge_ollama(prompt, session or requests.Session())
     return not_measured("r.judge.no_key")
 
 
-def _result(data: dict, model: str, provider: str, fallback: bool = False) -> dict:
+def _result(data: dict, model: str, provider: str, fallback: bool = False, model_id: Optional[str] = None) -> dict:
     """One request's judged lines from the model's JSON (scores kept within 1-10, reasons in four languages), or not
     measured if the JSON is incomplete. fallback: a backup model answered because the first choice failed (its
-    scores differ from run to run, so the report says so)."""
+    scores differ from run to run, so the report says so). model_id: the name the request used (model is the
+    version the service reports), so the dub's other requests can ask for the same one."""
     try:
         lines = []
         for j in data["lines"]:
@@ -485,7 +541,7 @@ def _result(data: dict, model: str, provider: str, fallback: bool = False) -> di
                           "error_type": error_type,
                           "may_be_recognition_error": bool(j.get("may_be_recognition_error"))})
         return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": model, "lines": lines,
-                "fallback": fallback}
+                "fallback": fallback, "model_id": model_id or model}
     except (KeyError, TypeError, ValueError):
         return not_measured("r.judge.unreadable", model=provider)
 
@@ -497,7 +553,8 @@ def _as_langs(value) -> dict:
     return {lang: str(value) for lang in LANGS}
 
 
-def _judge_gemini(prompt: str, session, sleep: Callable[[float], None]) -> dict:
+def _judge_gemini(prompt: str, session, sleep: Callable[[float], None], prefer: Optional[str] = None,
+                  lock: bool = False) -> dict:
     """One Gemini review with structured JSON output; retries overload and rate limits, then tries fallbacks."""
     key = gemini_key() or ""
     body = {
@@ -507,7 +564,7 @@ def _judge_gemini(prompt: str, session, sleep: Callable[[float], None]) -> dict:
                              "temperature": 0, "thinkingConfig": {"thinkingLevel": GEMINI_THINKING}},
     }
     busy = out_of_quota = False
-    for model in dict.fromkeys(GEMINI_MODELS):
+    for model in model_order(GEMINI_MODELS, prefer, lock):
         for attempt in range(2):
             try:
                 resp = session.post(GEMINI_API.format(model=model), headers={"x-goog-api-key": key},
@@ -551,7 +608,7 @@ def _judge_gemini(prompt: str, session, sleep: Callable[[float], None]) -> dict:
             text = "".join(p.get("text", "") for p in candidate["content"].get("parts", []) if not p.get("thought"))
             try:
                 return _result(json.loads(text), data.get("modelVersion") or model, "Gemini",
-                               fallback=model != GEMINI_MODELS[0])
+                               fallback=model != GEMINI_MODELS[0], model_id=model)
             except json.JSONDecodeError:
                 return not_measured("r.judge.unreadable", model="Gemini")
     if out_of_quota and not busy:
@@ -562,7 +619,7 @@ def _judge_gemini(prompt: str, session, sleep: Callable[[float], None]) -> dict:
 
 
 def _daily_quota_used(resp) -> bool:
-    """Whether a 429 says a daily request quota is used up (free keys allow a few dozen requests a day per model),
+    """Whether a 429 says a daily request quota is used up (a free key allowed 20 requests a day per model, 2026-11-02),
     rather than a short burst limit worth retrying."""
     try:
         text = json.dumps(resp.json())
@@ -571,14 +628,15 @@ def _daily_quota_used(resp) -> bool:
     return "PerDay" in text
 
 
-def _judge_openai(prompt: str, session, sleep: Callable[[float], None]) -> dict:
+def _judge_openai(prompt: str, session, sleep: Callable[[float], None], prefer: Optional[str] = None,
+                  lock: bool = False) -> dict:
     """One ChatGPT review (OpenAI API) with strict structured JSON output; retries overload, then tries fallbacks.
 
     The key goes only in the Authorization header. An account without credit (429 insufficient_quota) is reported
     as such, so auto mode can hand over to the next judge."""
     headers = {"Authorization": f"Bearer {openai_key() or ''}", "Content-Type": "application/json"}
     busy = False
-    for model in dict.fromkeys(OPENAI_MODELS):
+    for model in model_order(OPENAI_MODELS, prefer, lock):
         body = {"model": model,
                 "messages": [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
                 "response_format": {"type": "json_schema",
@@ -618,7 +676,7 @@ def _judge_openai(prompt: str, session, sleep: Callable[[float], None]) -> dict:
                 return not_measured("r.judge.cut_off", model="ChatGPT")
             try:
                 return _result(json.loads(message.get("content") or ""), data.get("model") or model, "ChatGPT",
-                               fallback=model != OPENAI_MODELS[0])
+                               fallback=model != OPENAI_MODELS[0], model_id=model)
             except json.JSONDecodeError:
                 return not_measured("r.judge.unreadable", model="ChatGPT")
     if busy:
@@ -626,8 +684,9 @@ def _judge_openai(prompt: str, session, sleep: Callable[[float], None]) -> dict:
     return not_measured("r.judge.error", model="ChatGPT")
 
 
-def _judge_claude(prompt: str, client) -> dict:
-    """One Claude review with structured JSON output and server-side refusal fallback."""
+def _judge_claude(prompt: str, client, lock: bool = False) -> dict:
+    """One Claude review with structured JSON output and server-side refusal fallback (none when locked: a declined
+    request then stays declined)."""
     if client is None:
         try:
             import anthropic
@@ -638,8 +697,7 @@ def _judge_claude(prompt: str, client) -> dict:
         response = client.beta.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=16000,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
+            **({} if lock or judge_pinned() else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}),
             output_config={"effort": "medium", "format": {"type": "json_schema", "schema": RESULT_SCHEMA}},
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -663,8 +721,12 @@ def _judge_claude(prompt: str, client) -> dict:
     if response.stop_reason == "max_tokens":
         return not_measured("r.judge.cut_off", model="Claude")
     text = next((b.text for b in response.content if b.type == "text"), "")
+    # A fallback_message in usage.iterations says a fallback model served the answer; response.model names it.
+    served = getattr(getattr(response, "usage", None), "iterations", None) or []
     try:
-        return _result(json.loads(text), getattr(response, "model", CLAUDE_MODEL), "Claude")
+        return _result(json.loads(text), getattr(response, "model", CLAUDE_MODEL), "Claude",
+                       fallback=any(getattr(i, "type", None) == "fallback_message" for i in served),
+                       model_id=CLAUDE_MODEL)
     except json.JSONDecodeError:
         return not_measured("r.judge.unreadable", model="Claude")
 

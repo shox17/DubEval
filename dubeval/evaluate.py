@@ -56,6 +56,11 @@ CLIP_LEVEL = 0.999                 # |sample| at or above this counts as clipped
 SPEECH_GRID_SEC = 0.05             # resolution of the speech-timing comparison
 SPEECH_MERGE_GAP_SEC = 0.3         # word gaps shorter than this are one stretch of speech
 MISMATCH_MIN_SEC = 0.5             # only-one-track-speaks stretches shorter than this are ignored
+MISMATCH_SILENT_VOICED_MAX = 0.5   # ...and so are those the voice detector doesn't confirm: the "silent" track speaks
+MISMATCH_SPEAKING_VOICED_MIN = 0.3 # this share of it, or the "speaking" one less than this. Word timings shift with any
+                                   # change anywhere in the file. Known-problem test: timing false alarms 18 -> 2, no
+                                   # catch lost (planted silences: silent <= 0.39, speaking >= 0.42; a person's real
+                                   # votes: <= 0.36, >= 0.54; their false alarm: silent 0.54)
 MAX_MISMATCHES = 50                # longest mismatches kept (every one becomes a problem interval)
 WHISPER_LOGPROB_OK = -1.0          # Whisper's own thresholds for trusting a segment
 WHISPER_NO_SPEECH_OK = 0.6
@@ -71,6 +76,10 @@ PARTNER_VOICED_MIN = 0.2           # ...as long as the detector hears some voice
                                    # words read into music: 0.0; keeping those too doubled the validation false alarms)
 CACHE_VERSION = 5                  # bump when cached results would change (2: seeded Whisper, 3: voice quality,
                                    # 4: recognizer backend in the keys, 5: recognizer device in the keys)
+NOISE_BAND_HZ = 1000               # noise is measured above this, where voices and music leave valleys for it to fill
+NOISE_WINDOW_SEC = 1.5             # each moment is the median over this much sound, so a consonant or a click doesn't count
+NOISE_ACTIVE_DB = 40.0             # a track's usual level is taken where it's within this of its loud parts...
+NOISE_USUAL_PCT = 40               # ...at this percentile, below the middle so a burst covering half a short clip still shows
 CLIP_MERGE_GAP_SEC = 0.5           # clipped samples closer than this form one distortion interval
 MAX_CLIP_INTERVALS = 50
 LANG_WINDOW_SEC = 10.0             # the dub's language is checked per window of this length...
@@ -214,8 +223,8 @@ def whisper_language(code: Optional[str]) -> Optional[str]:
 def transcribe(y: np.ndarray, whisper_model, language: Optional[str] = None, check=None) -> dict:
     """Transcribes a 16kHz waveform, keeping segment confidence and word timings (see dubeval/asr.py).
 
-    language=None lets the recognizer detect it. Its fallback sampling is seeded, so the same audio always gives the
-    same transcript (and scores). check (see run_full_evaluation) runs between recognized segments.
+    language=None lets the recognizer detect it. Its fallback sampling is seeded, though a graphics card can still give
+    slightly different text for the same audio. check (see run_full_evaluation) runs between recognized segments.
     """
     return asr.transcribe(y, whisper_model, language, check=check)
 
@@ -474,9 +483,21 @@ def _runs(mask: np.ndarray) -> list[tuple[int, int]]:
     return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
 
 
+def _detector_agrees(span: dict, speaking: Optional[list[list[float]]], silent: Optional[list[list[float]]]) -> bool:
+    """Whether the voice detector agrees that only one track speaks here; yes when there's no detector."""
+    if speaking is None or silent is None:
+        return True
+    return _share(span, silent) < MISMATCH_SILENT_VOICED_MAX and _share(span, speaking) >= MISMATCH_SPEAKING_VOICED_MIN
+
+
 def timing_alignment(original: list[list[float]], dubbed: list[list[float]], duration_sec: float,
-                     step: float = SPEECH_GRID_SEC) -> dict:
-    """How well the dub speaks at the same moments as the original (overlap of speech stretches)."""
+                     step: float = SPEECH_GRID_SEC, voiced_original: Optional[list[list[float]]] = None,
+                     voiced_dub: Optional[list[list[float]]] = None) -> dict:
+    """How well the dub speaks at the same moments as the original (overlap of speech stretches).
+
+    voiced_original / voiced_dub: where the voice detector (fine settings) hears each track speak. A stretch where
+    only one track's words were recognized is a mismatch only if the detector agrees (_detector_agrees). The overlap
+    score stays on the words: it grades the dub as a whole, where a slip here and there weighs little."""
     empty = {"overlap_pct": None, "original_covered_pct": None, "dub_in_original_pct": None,
              "start_offset_sec": None, "end_offset_sec": None, "mismatches": []}
     if duration_sec <= 0 or not original or not dubbed:
@@ -485,9 +506,11 @@ def timing_alignment(original: list[list[float]], dubbed: list[list[float]], dur
     o, d = _grid(original, n, step), _grid(dubbed, n, step)
     both, either = np.sum(o & d), np.sum(o | d)
     mismatches = []
-    for mask, kind in ((d & ~o, "dub_only"), (o & ~d, "original_only")):
+    for mask, kind, speaking, silent in ((d & ~o, "dub_only", voiced_dub, voiced_original),
+                                         (o & ~d, "original_only", voiced_original, voiced_dub)):
         for a, b in _runs(mask):
-            if (b - a) * step >= MISMATCH_MIN_SEC:
+            span = {"start": a * step, "end": b * step}
+            if (b - a) * step >= MISMATCH_MIN_SEC and _detector_agrees(span, speaking, silent):
                 mismatches.append({"start": round(a * step, 2), "end": round(b * step, 2), "kind": kind})
     mismatches.sort(key=lambda m: m["end"] - m["start"], reverse=True)
     return {
@@ -498,6 +521,31 @@ def timing_alignment(original: list[list[float]], dubbed: list[list[float]], dur
         "end_offset_sec": round(dubbed[-1][1] - original[-1][1], 2),
         "mismatches": sorted(mismatches[:MAX_MISMATCHES], key=lambda m: m["start"]),
     }
+
+
+def voice_gaps(voiced_original: Optional[list[list[float]]], voiced_dub: Optional[list[list[float]]],
+               duration_sec: float, step: float = SPEECH_GRID_SEC) -> Optional[list[dict]]:
+    """Silences found without reading a word, for a dub recognition can't read: where the voice detector hears the dub
+    silent and the original speak at least MISMATCH_MIN_SEC, [{"start", "end", "original_sec"}] from the original's
+    first to last voiced moment there. The original's own pauses don't split a silence (they hid planted ones), and a
+    blip of the dub's voice up to SPEECH_MERGE_GAP_SEC doesn't end one. None without a detector."""
+    if voiced_original is None or voiced_dub is None:
+        return None
+    n = int(np.ceil(duration_sec / step)) + 1
+    original, dub = _grid(voiced_original, n, step), _grid(voiced_dub, n, step)
+    silences: list[list[int]] = []
+    for a, b in _runs(~dub):
+        if silences and a - silences[-1][1] <= round(SPEECH_MERGE_GAP_SEC / step):
+            silences[-1][1] = int(b)
+        else:
+            silences.append([int(a), int(b)])
+    gaps = []
+    for a, b in silences:
+        heard = np.flatnonzero(original[a:b])
+        if len(heard) * step >= MISMATCH_MIN_SEC:
+            gaps.append({"start": round(float((a + heard[0]) * step), 2), "end": round(float((a + heard[-1] + 1) * step), 2),
+                         "original_sec": round(float(len(heard) * step), 2)})
+    return gaps
 
 
 def _cv2_path(path: str) -> str:
@@ -719,6 +767,42 @@ def loudness_envelope(y: np.ndarray, sr: int = SAMPLE_RATE, step_sec: float = 0.
     return [round(float(v), 1) for v in 20 * np.log10(np.maximum(rms, 1e-5))]
 
 
+def _noise_series(y: np.ndarray, sr: int, step_sec: float) -> tuple[np.ndarray, np.ndarray]:
+    """Per step, how far the spectrum's floor (the geometric mean of the power above NOISE_BAND_HZ) and its flatness (that
+    floor against the plain mean) rise above this track's usual level, in dB. Voices and music have valleys in their
+    spectrum and noise fills them, so the floor rises far more than the level does."""
+    hop, n_fft = 256, 512
+    power = np.abs(librosa.stft(np.asarray(y, dtype=np.float32), n_fft=n_fft, hop_length=hop)) ** 2
+    band = power[int(NOISE_BAND_HZ * n_fft / sr):]
+    floor = 10 * np.mean(np.log10(band + 1e-10), axis=0)
+    level = 10 * np.log10(np.mean(band, axis=0) + 1e-10)
+    flat = floor - level
+    per_sec, half = sr / hop, int(NOISE_WINDOW_SEC * sr / hop / 2)
+    steps = int(len(y) / sr / step_sec) + 1
+    medians = np.full((3, steps), -100.0)
+    for i in range(steps):
+        center = int(i * step_sec * per_sec)
+        lo, hi = max(0, center - half), min(len(floor), center + half + 1)
+        if hi > lo:
+            medians[:, i] = np.median(floor[lo:hi]), np.median(level[lo:hi]), np.median(flat[lo:hi])
+    floors, levels, flats = medians
+    active = levels > np.percentile(levels, 95) - NOISE_ACTIVE_DB
+    return floors - np.percentile(floors[active], NOISE_USUAL_PCT), flats - np.percentile(flats[active], NOISE_USUAL_PCT)
+
+
+def noise_envelope(y_orig: np.ndarray, y_dub: np.ndarray, sr: int = SAMPLE_RATE, step_sec: float = 0.25) -> dict:
+    """How far the dub fills with noise at each moment: its rise above its usual level, minus the original's rise at the
+    same moment (a noisy scene in both tracks cancels out). Grading is in intervals.noise_bursts."""
+    n = min(len(y_orig), len(y_dub))
+    if n < sr:
+        return {"step_sec": step_sec, "floor_rise": [], "flatness_rise": []}
+    dub_floor, dub_flat = _noise_series(y_dub[:n], sr, step_sec)
+    orig_floor, orig_flat = _noise_series(y_orig[:n], sr, step_sec)
+    return {"step_sec": step_sec,
+            "floor_rise": [round(float(v), 1) for v in dub_floor - np.maximum(orig_floor, 0.0)],
+            "flatness_rise": [round(float(v), 1) for v in dub_flat - np.maximum(orig_flat, 0.0)]}
+
+
 def speech_rate(text: str, speaking_sec: float, lang: str) -> Optional[dict]:
     """Characters/s for CER languages, words/s otherwise, over non-silent time."""
     norm = normalize_text(text)
@@ -877,12 +961,15 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
     step("Comparing when each track speaks...", 0.65)
     orig_speech = speech_intervals(orig_stt["segments"])
     dub_speech = speech_intervals(dub_stt["segments"])
-    alignment = timing_alignment(orig_speech, dub_speech, max(orig_ac["duration_sec"], dub_ac["duration_sec"]))
+    fine_orig = cached(f"v{CACHE_VERSION}|vadfine|{orig_id}", lambda: asr.voice_activity(y_orig, fine=True))
+    fine_dub = cached(f"v{CACHE_VERSION}|vadfine|{dub_id}", lambda: asr.voice_activity(y_dub, fine=True))
+    alignment = timing_alignment(orig_speech, dub_speech, max(orig_ac["duration_sec"], dub_ac["duration_sec"]),
+                                 voiced_original=fine_orig, voiced_dub=fine_dub)
     segments = match_segments(orig_stt["segments"], dub_stt["segments"])
     clarity = speech_clarity(dub_stt["segments"])
     step("Rating the voice quality of both tracks...", 0.66)
     speech_id = _spans_id(orig_speech + [None] + dub_speech)    # what the speech-time steps below were given
-    vq = cached(f"v{CACHE_VERSION}|vq|{orig_id}|{dub_id}|{speech_id}",
+    vq = cached(f"v{CACHE_VERSION}|vq2|{orig_id}|{dub_id}|{speech_id}",        # vq2: the dub is scored at the original's volume
                 lambda: _voice_quality(y_orig, y_dub, orig_speech, dub_speech))
     step("Checking the dub's language part by part...", 0.67)
     step("Comparing the dub voice with the original speakers...", 0.665)
@@ -950,7 +1037,8 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
                 "step_sec": 0.25,
                 "original_db": loudness_envelope(y_orig),
                 "dubbed_db": loudness_envelope(y_dub)
-            }
+            },
+            "noise_envelope": noise_envelope(y_orig, y_dub)
         },
         "speech_recognition": {
             **scores,
@@ -969,7 +1057,8 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
         "timing_alignment": {
             **alignment,
             "original_speech": orig_speech,
-            "dubbed_speech": dub_speech
+            "dubbed_speech": dub_speech,
+            "voice_gaps": voice_gaps(fine_orig, fine_dub, max(orig_ac["duration_sec"], dub_ac["duration_sec"]))
         },
         "segment_alignment": segments,
         "video_integrity": integrity,

@@ -1,8 +1,9 @@
 # DubEval desktop
 
 A window around the web interface, so nobody needs a terminal: Electron starts DubEval's Python server
-(`python -m dubeval web --port 0 --no-browser`) on a free port, reads the launch link it prints, and opens it.
-Closing the window stops the server.
+(`python -m dubeval web --no-browser`), reads the launch link it prints, and opens it. Closing the window stops the
+server. The server takes the same port at every launch unless it's busy, because what the page keeps in the browser
+(language, sidebar width, history period) belongs to its address.
 
 ## Run it (development)
 Needs [Node.js](https://nodejs.org) 20 or newer, and DubEval installed in the project's `.venv` (see the main README).
@@ -61,18 +62,26 @@ render them all again.
 - **Log:** the server's output goes to `server.log` in the app's data folder (`%APPDATA%\DubEval\logs` on
   Windows); update checks write `update.log` next to it.
 - **Updates** (`updater.js`, electron-updater): a packaged app checks the GitHub Releases in `build.publish` 10 s after
-  starting and every 4 hours, downloads a newer version in the background and installs it on **Restart to update** or
-  when the app quits. The page learns about it only through `preload.js` (`window.dubevalShell`: get, check, restart,
-  on-change), and only DubEval's own page may ask. `DUBEVAL_UPDATE_URL` points the app at another feed (a folder with
-  `latest.yml` and the installer served over HTTP) to try a release before publishing it.
+  starting and every 4 hours and downloads a newer version in the background. The **Version update** window opens once
+  to say so, and the sidebar's card takes a red dot and, once the file is on disk, reads **Update X is ready**. It installs
+  only on **Restart to update**: closing the app leaves it as it is, and the update waits for the next time. The window
+  lists the new version's own lines in the app's language, read from `dubeval/release_notes.json` at the release's tag (5 s
+  at most, then the release's description, in English). A download that breaks says so and **Check for updates** tries
+  again. The restart shows the installer's own progress window, because an update replaces about 9,000 files and takes
+  minutes: a silent install left the person with no window at all. Back from an update, the page says "Updated to X" once:
+  the app compares its version with `last-version.txt` in its data folder. The page learns about all this only through
+  `preload.js` (`window.dubevalShell`: get, check, restart, on-change), and only DubEval's own page may ask.
+  `DUBEVAL_UPDATE_URL` points the app at another feed (a folder with `latest.yml`, the installer and
+  `release_notes.json` served over HTTP) to try a release before publishing it.
 
 ## Publish a new version
 1. Raise the version in `dubeval/version.py` **and** `desktop/package.json` (a test checks they match) and add the
-   version's lines to `dubeval/release_notes.py` in all four languages.
+   version's lines to `dubeval/release_notes.json` in all four languages.
 2. Build: `python tools/build_desktop.py`, then `cd desktop && npm run dist`.
 3. Write the release's description as the version's What's new lines (the English ones from
-   `dubeval/release_notes.py`, one bullet each): installed apps show it in their **Version update** window when
-   they find the update (the window falls back to a link to the release page when it is empty).
+   `dubeval/release_notes.json`, one bullet each): installed apps show it in their **Version update** window when they
+   can't read that file at the tag, or don't read it yet (0.1.3 and earlier). With neither, the window links to the
+   release page.
 4. Publish a GitHub release tagged `v<version>` in the repository from `build.publish` with **all three** files from
    `desktop/dist`: `DubEval-Setup.exe`, its `.blockmap` and `latest.yml` (or `npm run release` with a
    `GH_TOKEN` that may write releases). Installed apps find it within 4 hours, or at once from Settings → About.

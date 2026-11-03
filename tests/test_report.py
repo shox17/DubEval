@@ -2,7 +2,8 @@
 import numpy as np
 import pytest
 
-from dubeval.evaluate import fill_gaps, keep_voiced, speech_clarity, speech_intervals, timing_alignment, unheard_speech
+from dubeval.evaluate import (fill_gaps, keep_voiced, speech_clarity, speech_intervals, timing_alignment,
+                              unheard_speech, voice_gaps)
 from dubeval.report import build_report, render_html, render_text
 from sample_results import JUDGE_OFF, JUDGED, make_results
 
@@ -33,7 +34,9 @@ def test_one_poor_metric_makes_the_verdict_poor():
     assert rep["overall"]["level"] == "poor" and "1 serious problem" in rep["overall"]["headline"]
 
 
-@pytest.mark.parametrize("ratio, level", [(1.0, "good"), (0.75, "check"), (0.5, "poor"), (1.3, "check")])
+# Good within 3 dB, Check within 6, Poor beyond (a dub 5.1 dB off was graded Good by a person).
+@pytest.mark.parametrize("ratio, level", [(1.0, "good"), (0.75, "good"), (0.6, "check"), (0.4, "poor"),
+                                          (1.3, "good"), (1.6, "check"), (2.5, "poor")])
 def test_loudness_bands(ratio, level):
     assert metric(build_report(make_results(acoustic_metrics={"rms_ratio": ratio})), "loudness_match")["level"] == level
 
@@ -189,6 +192,42 @@ def test_timing_alignment_overlap_and_mismatches():
     kinds = {m["kind"] for m in shifted["mismatches"]}
     assert kinds == {"dub_only", "original_only"} and shifted["start_offset_sec"] == 1
     assert timing_alignment([], [[0, 1]], 10)["overlap_pct"] is None
+
+
+def test_voice_gaps_are_silences_in_the_dub_while_the_original_speaks():
+    def gap(found, start, end, seconds):
+        assert (found["start"], found["end"], found["original_sec"]) == (pytest.approx(start, abs=0.06),
+                                                                         pytest.approx(end, abs=0.06),
+                                                                         pytest.approx(seconds, abs=0.11))
+    gap(voice_gaps([[0, 10]], [[0, 3], [6, 10]], 10)[0], 3, 6, 3)
+    # The original's own pauses don't split a silence: 0.3-0.45 s between phrases hid planted silences that way.
+    found = voice_gaps([[2, 3], [3.4, 4], [4.5, 5]], [], 6)
+    assert len(found) == 1
+    gap(found[0], 2, 5, 2.1)
+    # A blip of the dub's voice doesn't end a silence; a line does.
+    assert len(voice_gaps([[0, 6]], [[3, 3.2]], 6)) == 1 and len(voice_gaps([[0, 6]], [[3, 4]], 6)) == 2
+    assert voice_gaps([[2, 2.4]], [], 6) == []                                  # the original barely speaks there
+    assert voice_gaps([[0, 5]], [[0, 5]], 5) == [] and voice_gaps([], [[0, 5]], 5) == []
+    assert voice_gaps(None, [[0, 5]], 5) is None and voice_gaps([[0, 5]], None, 5) is None     # no detector
+
+
+def test_a_timing_mismatch_needs_the_voice_detector_to_agree():
+    # Words recognized in the original at 4-6 s only: a mismatch while the detector agrees (the dub silent there)...
+    o, d = [[0, 2], [4, 6]], [[0, 2]]
+    voiced = [[0, 2], [4, 6]]
+    found = timing_alignment(o, d, 8, voiced_original=voiced, voiced_dub=[[0, 2], [5.2, 6]])       # voiced 40%: silent
+    assert [(m["start"], m["end"], m["kind"]) for m in found["mismatches"]] == [(4.0, 6.0, "original_only")]
+    # ...not when the dub speaks there after all: the recognizer missed its words, and its timings move with any
+    # change anywhere in the file.
+    assert timing_alignment(o, d, 8, voiced_original=voiced, voiced_dub=[[0, 2], [4.5, 6]])["mismatches"] == []
+    # Nor when the "speaking" track has no voice there: the recognizer read words into music.
+    assert timing_alignment(o, d, 8, voiced_original=[[0, 2], [4, 4.4]], voiced_dub=[[0, 2]])["mismatches"] == []
+    # The other side alike, and the overlap score stays on the words.
+    assert timing_alignment(d, o, 8, voiced_original=[[0, 2], [4.5, 6]], voiced_dub=voiced)["mismatches"] == []
+    assert timing_alignment(o, d, 8, voiced_original=voiced, voiced_dub=voiced)["overlap_pct"] == 50.0
+    # Without a detector nothing changes.
+    assert [m["kind"] for m in timing_alignment(o, d, 8)["mismatches"]] == ["original_only"]
+    assert [m["kind"] for m in timing_alignment(o, d, 8, voiced_original=None, voiced_dub=None)["mismatches"]] == ["original_only"]
 
 
 def test_speech_clarity_share_of_confident_time():
@@ -375,7 +414,7 @@ def _verdict(r, lang="en"):
 
 
 def test_a_poor_result_on_mostly_music_is_needs_review_with_the_reason():
-    loud = {"rms_ratio": 2.0}                                            # 6 dB louder: Poor on its own
+    loud = {"rms_ratio": 2.5}                                            # 8 dB louder: Poor on its own
     assert _verdict(make_results(acoustic_metrics=loud))[0] == "poor"
     music = make_results(acoustic_metrics=loud, timing_alignment={"original_speech": [[0.0, 6.0], [10.0, 14.0]]})
     level, unsure, headline = _verdict(music)                            # 10 s of speech in 28.7 s: 35% is the line
@@ -385,9 +424,9 @@ def test_a_poor_result_on_mostly_music_is_needs_review_with_the_reason():
 
 
 def test_too_little_or_unclear_speech_is_not_sure_either():
-    short = make_results(acoustic_metrics={"rms_ratio": 2.0}, timing_alignment={"original_speech": [[0.0, 6.7]]})
+    short = make_results(acoustic_metrics={"rms_ratio": 2.5}, timing_alignment={"original_speech": [[0.0, 6.7]]})
     assert _verdict(short)[:2] == ("check", ["short_speech"])
-    unclear = make_results(acoustic_metrics={"rms_ratio": 2.0},
+    unclear = make_results(acoustic_metrics={"rms_ratio": 2.5},
                            speech_recognition={"clarity": {"confident_pct": 81.5, "unclear_segments": []}})
     assert _verdict(unclear)[:2] == ("check", ["unclear_speech"])
 
@@ -435,3 +474,42 @@ def test_a_stretch_heard_in_part_is_not_added_twice(monkeypatch):
     monkeypatch.setattr(evaluate, "transcribe", fake_transcribe)
     out = fill_gaps(stt, np.zeros(16000 * 20, dtype=np.float32), voiced, None, "en")
     assert [(s["start"], s["text"]) for s in out["segments"]] == [(4.0, "hello"), (7.3, "world")]
+
+
+def off_line():
+    """One line far shorter than the original's, running into the next one."""
+    return {"groups": [], "unmatched_original": [], "unmatched_dub": [], "lines": [
+        {"n": 1, "start": 0.0, "end": 4.0, "original_sec": 4.0, "dub_sec": 2.0, "diff_sec": -2.0, "diff_pct": -50.0,
+         "start_shift_sec": 0.0, "overrun_sec": 0.7, "short": False, "original": [0], "dub": [0]}]}
+
+
+def line_rows(rep):
+    return {m["id"]: m for s in rep["sections"] for m in s["metrics"] if m["id"] in ("line_length", "line_overrun")}
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_line_length_isnt_graded_on_a_mostly_music_video(lang):
+    # Word timings over music move with any change in the sound: 7 of 12 line-length false alarms were on the one such dub.
+    music = make_results(segment_alignment=off_line(), timing_alignment={"original_speech": [[0.0, 6.0], [10.0, 14.0]]})
+    rep = build_report(music, lang)
+    assert [m["level"] for m in line_rows(rep).values()] == ["not_measured"] * 2
+    assert all("35" in m["message"] and "{" not in m["message"] for m in line_rows(rep).values())
+    assert not [i for i in rep["problem_intervals"] if i["category"] in ("line_length", "line_overrun")]
+    assert "little_speech" in rep["overall"]["unsure"]
+
+
+def test_the_same_line_is_graded_on_a_video_with_speech():
+    rep = build_report(make_results(segment_alignment=off_line()), "en")
+    assert line_rows(rep)["line_length"]["level"] == "check" and line_rows(rep)["line_overrun"]["level"] == "check"
+    assert {i["category"] for i in rep["problem_intervals"]} >= {"line_length", "line_overrun"}
+
+
+@pytest.mark.parametrize("off, level", [(0, "good"), (1, "good"), (2, "check"), (4, "check"), (5, "check"), (6, "poor")])
+def test_line_length_is_poor_only_when_most_lines_are_off(off, level):
+    # 4 of 10 lines off used to be Poor; the one graded dub it made Poor, a person graded Needs review.
+    fit = {"short": False, "diff_pct": 0.0, "diff_sec": 0.0, "overrun_sec": 0.0}
+    far = {"short": False, "diff_pct": -30.0, "diff_sec": -2.0, "overrun_sec": 0.0}
+    lines = [{"n": i + 1, "start": 3.0 * i, "end": 3.0 * i + 2, "original_sec": 2.0, "dub_sec": 2.0, "start_shift_sec": 0.0,
+              "original": [i], "dub": [i], **(far if i < off else fit)} for i in range(10)]
+    sa = {"groups": [], "unmatched_original": [], "unmatched_dub": [], "lines": lines}
+    assert line_rows(build_report(make_results(segment_alignment=sa), "en"))["line_length"]["level"] == level

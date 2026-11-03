@@ -66,4 +66,4 @@ Issues = "https://github.com/shox17/DubEval/issues"
 packages = ["dubeval"]
 
 [tool.setuptools.package-data]
-dubeval = ["models/*.onnx", "models/*.task", "models/README.md", "web/*", "web/fonts/*"]
+dubeval = ["models/*.onnx", "models/*.task", "models/README.md", "release_notes.json", "web/*", "web/fonts/*"]

@@ -8,8 +8,8 @@ problem time ranges to jump there.
 
 - **Any language pair works, without a promise.** The checks run for every language Whisper knows, and a check that
   can't work for a language says "not measured" with the reason instead of guessing. The grades have been compared
-  with a person's on **19 dubs** (2026-10-29): DubEval agreed on **14**, 11 of 13 English → Korean, 2 of 2 English →
-  Spanish and 1 of 4 English → Uzbek. With problems put into dubs on purpose it catches 79 of 109, and 18 of 24 on dubs
+  with one person's on **20 dubs**: DubEval agreed on **12 to 15**, mostly depending on which AI model reviewed the
+  translation (9 to 12 of 14 English → Korean, 2 of 2 English → Spanish, 1 of 4 English → Uzbek). With problems put into dubs on purpose it catches 102 of 112, and 18 of 24 on dubs
   it was never tuned on. English → Korean has the most evidence; treat other languages as a first look.
 - **It says when it isn't sure.** When the video is mostly music, has very little speech, or the dub's language
   couldn't be recognized, the verdict is "Needs review" with the reason instead of a confident Good or Poor.
@@ -32,7 +32,7 @@ problem time ranges to jump there.
   lip-movement measure is shown.
 
 ## Known limits
-- **Thresholds are calibrated on only 19 real dubs** (see [How accurate is it?](faq.md#how-accurate-is-it)). Treat borderline results with care, and use labelled batches to tune them.
+- **Thresholds are calibrated on only 20 real dubs** (see [How accurate is it?](faq.md#how-accurate-is-it)). Treat borderline results with care, and use labelled batches to tune them.
 - **Background music makes voice checks harder:** on music-heavy videos voice similarity is not measured (by design), and speech timing and clarity are noisier.
 - **Voice quality doesn't detect a muffled voice.**
 - **Lip sync is information only.** The lip-sync check (download) was tested on one real dub; without it, lip

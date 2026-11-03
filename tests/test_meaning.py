@@ -19,7 +19,7 @@ def answer_line(n, semantic=9, reason="", error_type="no_error"):
 
 # Line 2 ("I teach English." → "영화를 가르칩니다.") is a serious meaning error; the others are fine.
 GOOD_ANSWER = {"lines": [answer_line(1), answer_line(2, semantic=3, reason="English became movies.",
-                                                     error_type="distortion"), answer_line(3)]}
+                                                     error_type="distortion"), answer_line(3), answer_line(4)]}
 
 
 def judged(answer, model, provider, lines):
@@ -177,10 +177,23 @@ def test_with_a_judge_its_issues_sit_on_their_line_and_the_screen_adds_none():
 
 
 def test_screen_rows_are_good_when_every_line_is_close():
-    r = results_with_lines()
+    r = results_with_lines(translation_judge=JUDGE_OFF)
     r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=lambda texts: [[1.0, 0.0] for _ in texts])
     row = next(m for s in build_report(r, "en")["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")
     assert row["level"] == "good"
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_with_a_judge_a_low_screen_line_is_information_only(lang):
+    # The judge reads every line more precisely; a low screen line must not make the dub Needs review on its own.
+    r = results_with_lines()
+    r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
+    r["translation_judge"] = judged({"lines": [answer_line(n) for n in (1, 2, 3, 4)]}, "claude-opus-5-5", "Claude",
+                                    pipeline.judge_lines(r))
+    rep = build_report(r, lang)
+    row = next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")
+    assert row["level"] == "info" and "{" not in row["message"] + row["thresholds"]
+    assert not [i for i in rep["problem_intervals"] if i["category"] == "meaning_drift"]
 
 
 # ---------------- dub types ----------------
@@ -213,7 +226,7 @@ def test_auto_moves_on_when_a_judge_has_no_credit(monkeypatch):
     monkeypatch.setenv("DUBEVAL_JUDGE", "auto")
     monkeypatch.setattr(tj, "claude_available", lambda: True)
     monkeypatch.setattr(tj, "gemini_key", lambda: "k")
-    monkeypatch.setattr(tj, "_run_judge", lambda p, *a: calls.append(p) or answers[p])
+    monkeypatch.setattr(tj, "_run_judge", lambda p, *a, **k: calls.append(p) or answers[p])
     r = tj.judge_translation([{"start": 0, "end": 1, "text": "Hi"}], [{"start": 0, "end": 1, "text": "안녕"}], "en", "ko")
     assert calls == ["claude", "gemini"] and r["measured"] and r["model"] == "gemini-3.5-flash"
 
@@ -223,7 +236,7 @@ def test_a_chosen_judge_never_hands_over(monkeypatch):
     monkeypatch.setenv("DUBEVAL_JUDGE", "claude")
     monkeypatch.setattr(tj, "claude_available", lambda: True)
     monkeypatch.setattr(tj, "gemini_key", lambda: "k")
-    monkeypatch.setattr(tj, "_run_judge", lambda p, *a: calls.append(p) or tj.not_measured("r.judge.no_credit", model="Claude"))
+    monkeypatch.setattr(tj, "_run_judge", lambda p, *a, **k: calls.append(p) or tj.not_measured("r.judge.no_credit", model="Claude"))
     r = tj.judge_translation([{"start": 0, "end": 1, "text": "Hi"}], [{"start": 0, "end": 1, "text": "안녕"}], "en", "ko")
     assert calls == ["claude"] and r["reason_key"] == "r.judge.no_credit"
 
@@ -266,3 +279,29 @@ def test_the_screen_can_be_switched_off_even_with_the_pack(real_backend, monkeyp
     monkeypatch.setenv("DUBEVAL_MEANING_SCREEN", "off")
     assert meaning.backend() is None
     assert meaning.screen(pipeline.judge_lines(results_with_lines()))["reason_key"] == "r.screen.off"
+
+
+MOSTLY_MUSIC = {"original_speech": [[0.0, 6.0], [10.0, 14.0]]}      # 10 s of speech in 28.7 s
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_the_screen_isnt_graded_on_a_mostly_music_video(lang):
+    # Recognized words over music move with any change in the sound: 5 of 19 false alarms were on the one such dub.
+    r = results_with_lines(timing_alignment=MOSTLY_MUSIC, translation_judge=JUDGE_OFF)
+    r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
+    rep = build_report(r, lang)
+    row = next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")
+    assert row["level"] == "not_measured" and "35" in row["message"] and "{" not in row["message"]
+    assert not [i for i in rep["problem_intervals"] if i["category"] == "meaning_drift"]
+
+
+def test_the_screen_stays_on_a_video_with_speech_and_as_information_when_a_judge_ran():
+    r = results_with_lines(translation_judge=JUDGE_OFF)
+    r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
+    rep = build_report(r, "en")
+    assert next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")["level"] == "check"
+    assert [i for i in rep["problem_intervals"] if i["category"] == "meaning_drift"]
+    r = results_with_lines(timing_alignment=MOSTLY_MUSIC)
+    r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
+    r["translation_judge"] = judged(GOOD_ANSWER, "claude-opus-5-5", "Claude", pipeline.judge_lines(r))
+    assert next(m for s in build_report(r, "en")["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")["level"] == "info"

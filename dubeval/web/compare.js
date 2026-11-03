@@ -12,7 +12,9 @@ function recommendation(comp, jobId) {
   const r = comp.recommendation, why = comp.reasoning, lb = comp.labels;
   return h("section", { class: `verdict card ${r.verdict}` },
     h("div", { class: "row" }, h("h1", {}, lb.title), h("span", { class: "grow" }),
-      h("div", { class: "head-actions" }, badge(comp, r.verdict, r.verdict_label),
+      h("div", { class: "head-actions" },
+        r.ready ? null : h("span", { class: "badge check" }, r.status_label),      // first place, not a recommendation
+        badge(comp, r.verdict, r.verdict_label),
         h("a", { class: "button", href: "#/new" }, t("w.review.new")), exportButton(jobId))),
     h("p", { class: "headline big" }, r.headline),
     r.caution ? h("p", { class: "caution", role: "note" }, r.caution) : null,
@@ -33,7 +35,7 @@ function ranking(comp, open) {
       h("thead", {}, h("tr", {}, h("th", {}, "#"), h("th", {}, t("w.cmp.dub")), h("th", {}, lb.verdict),
         h("th", { class: "num" }, comp.badges.poor), h("th", { class: "num" }, comp.badges.check),
         h("th", {}, t("w.cmp.problems")))),
-      h("tbody", {}, comp.ranking.map(r => h("tr", { class: r.dub === comp.recommendation.dub ? "winner" : "" },
+      h("tbody", {}, comp.ranking.map(r => h("tr", { class: comp.recommendation.ready && r.dub === comp.recommendation.dub ? "winner" : "" },
         h("td", {}, String(r.rank)),
         h("td", {}, h("button", { type: "button", class: "link", onclick: () => open(r.dub) }, lb[`dub_${r.dub}`])),
         h("td", {}, badge(comp, r.verdict, r.verdict_label)),
@@ -80,7 +82,8 @@ export function renderCompare(root, jobId, firstDub) {
       const r = verdictOf[d];
       tabs.append(h("button", { type: "button", role: "tab", "data-dub": d, onclick: () => open(d) },
         comp.labels[`dub_${d}`], " ", badge(comp, r.verdict, r.verdict_label),
-        d === comp.recommendation.dub ? h("span", { class: "star", title: t("w.cmp.recommended") }, "★") : null));
+        d === comp.recommendation.dub ? h("span", { class: "star", title: comp.recommendation.status_label },
+          comp.recommendation.ready ? "★" : "☆") : null));
     }
     fill(root, recommendation(comp, jobId), ranking(comp, open), sideBySide(comp),
       h("h2", { class: "tabs-title" }, t("w.cmp.review_each")), tabs, panel);

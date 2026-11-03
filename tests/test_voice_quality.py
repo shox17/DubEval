@@ -31,6 +31,7 @@ def metric(rep: dict, mid: str) -> dict:
 def test_only_windows_where_both_tracks_speak_are_compared():
     session = FakeSession()
     orig, dub = np.full(SR * 30, 0.05, dtype=np.float32), np.full(SR * 30, 0.02, dtype=np.float32)
+    dub[::2] = 0.0                                  # at the same volume, the gaps score lower with FakeSession
     result = vq.voice_quality(orig, dub, [[0.0, 12.0]], [[0.0, 30.0]], session=session)
     assert result["measured"] and all(w["start"] <= 9.0 for w in result["windows"])   # ≥ 3 s of original speech
     assert result["difference"] < 0 and result["dub"] < result["original"]
@@ -73,8 +74,10 @@ def vq_result(*windows) -> dict:
     (2.7, 2.3, "good"),            # 0.5 below on the voice, 0 overall: still inside normal variation
     (2.5, 2.3, "check"),           # voice 0.7 below: a slightly robotic stretch
     (3.2, 1.7, "check"),           # whole sound 0.6 below: distortion the model books under background
-    (2.1, 2.2, "poor"),            # voice 1.1 below
-    (3.2, 1.3, "poor"),            # whole sound 1.0 below
+    (2.1, 2.2, "check"),           # voice 1.1 below: Poor until 2026-11-01; graded real dubs reached 2.2 and were fine
+    (3.2, 1.3, "check"),           # whole sound 1.0 below
+    (0.6, 2.2, "poor"),            # voice 2.6 below: past anything a person accepted
+    (3.2, 0.7, "poor"),            # whole sound 1.6 below
 ])
 def test_each_stretch_is_graded_on_voice_or_whole_sound_drop(dub_sig, dub, level):
     r = make_results(voice_quality=vq_result(window(0.0, 3.2, 3.2, 2.3, 2.3), window(10.0, dub_sig, 3.2, dub, 2.3)))
@@ -98,8 +101,42 @@ def test_voice_quality_is_not_measured_with_a_reason():
 def test_stretches_with_a_worse_voice_become_intervals():
     r = make_results(timing_alignment={"mismatches": []}, acoustic_metrics={"dubbed_duration_sec": 40.0},
                      voice_quality=vq_result(window(0.0, 3.3, 3.2, 2.4, 2.3), window(12.0, 2.5, 3.2, 2.3, 2.3),
-                                             window(24.0, 3.2, 3.2, 1.3, 2.3)))
+                                             window(24.0, 3.2, 3.2, 0.7, 2.3)))
     out = build_intervals(r, lambda key, **p: t(key, "en", **p), "en")["intervals"]
     assert [(i["start"], i["category"], i["severity"]) for i in out] == [
         (12.0, "voice_quality", "check"), (24.0, "voice_quality", "poor")]
     assert "robotic" in out[0]["description"] and out[0]["check_label"] == "Voice quality"
+
+
+def test_volume_alone_doesnt_change_the_score():
+    # The model's scores move with volume, and volume has its own checks: a copy only 3 dB quieter got "a worse voice".
+    y = 0.2 * np.random.default_rng(1).standard_normal(20 * SR).astype(np.float32)
+    speech = [[0.0, 20.0]]
+    same = vq.voice_quality(y, y, speech, speech, FakeSession())["windows"]
+    for gain in (0.7, 1.5):
+        other = vq.voice_quality(y, y * gain, speech, speech, FakeSession())["windows"]
+        assert [w["dub_sig"] for w in other] == pytest.approx([w["dub_sig"] for w in same], abs=0.02)
+        assert [w["original"] for w in other] == [w["original"] for w in same]      # the original is never touched
+
+
+def test_matching_the_volume_never_clips_or_divides_by_silence():
+    quiet = 0.01 * np.random.default_rng(2).standard_normal(SR)
+    quiet = np.clip(quiet, -0.05, 0.05)
+    quiet[100] = 0.9
+    louder = vq._at_volume_of(quiet, np.full(SR, 0.5))
+    assert np.max(np.abs(louder)) == pytest.approx(1.0)         # stopped at full scale, short of the original's volume
+    silent = np.zeros(SR)
+    assert np.array_equal(vq._at_volume_of(silent, quiet), silent)
+    assert np.array_equal(vq._at_volume_of(quiet, silent), quiet)
+
+
+def test_a_stretch_too_noisy_to_compare_isnt_held_against_the_dub():
+    # Scores this low jump with any small change (a real one: 1.86 to 1.36 for 2.3 dB). A clean stretch still counts.
+    r = make_results(timing_alignment={"mismatches": []}, acoustic_metrics={"dubbed_duration_sec": 40.0},
+                     voice_quality=vq_result(window(0.0, 1.4, 2.1, 1.1, 1.4), window(12.0, 2.5, 3.2, 2.3, 2.3)))
+    rep = build_report(r)
+    assert [(i["start"], i["category"]) for i in rep["problem_intervals"] if i["category"] == "voice_quality"] == [
+        (12.0, "voice_quality")]
+    assert metric(rep, "voice_quality")["level"] == "check"
+    too_noisy = make_results(voice_quality=vq_result(window(0.0, 1.4, 2.1, 1.1, 1.4)))
+    assert metric(build_report(too_noisy), "voice_quality")["level"] == "not_measured"

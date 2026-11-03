@@ -28,6 +28,11 @@ before a change are recomputed.
 - **Chosen:** DNSMOS P.835 (a 1.1 MB ONNX model; about 4 s per minute of audio on a CPU). The dub is scored
   **against the original at the same moments**, never in absolute terms: background music lowers both tracks'
   scores alike.
+- **At the same volume.** The model's scores move with volume alone, so a copy only 3 dB quieter could be flagged as a
+  worse voice. The dub's window is brought to the original window's volume before it's scored; volume has its own checks.
+- **Not where the original is too noisy.** Scores below 1.6 jump with any small change, so a stretch where the original
+  scores that low isn't held against the dub. **Rejected:** applying this to the whole video. It also dropped simulated
+  robotic voices in clean stretches of noisy videos (flagged on 7 of 17 dubs, against 9 of 17).
 - **Rejected: UTMOS.** It rated clean synthetic speech well (3.9) but scored every real recording 1.2–1.5, even
   the originals and even after separating the voice from the music, so it could not tell a good dub from a bad one.
   Lesson: test any speech model on real dubs before relying on it.
@@ -64,6 +69,37 @@ A heuristic (mouth opening against loudness, compared with the original). On an 
 scored −0.20, so the number is not reliable. It is shown for information and never changes the verdict. A
 SyncNet-style audio-visual model would replace it; it is the last item on the roadmap because video analysis is
 expensive.
+
+## Timing moments: confirmed by a voice detector
+Timing moments come from recognized word timings, and a small change anywhere in a file can shift those all over it,
+so moments appeared far from anything that changed. A voice detector only looks at the moment itself, so it now has to
+agree that one track speaks and the other doesn't.
+- **Fine settings, on purpose.** The detector's defaults ignore silences under 2 s and pad speech by 0.4 s. The first
+  version used them: the known-problem test looked excellent, because its planted silences are 3 s or longer, but it
+  removed short gaps a person had voted real. Keep gaps of 0.1 s, and check any change here against the reviewer votes
+  as well as the test.
+- **The overlap score stays on the words.** It grades the dub as a whole, so this changes the listed moments, not the
+  verdict.
+- **Silences without words.** Where a dub's words can't be read, the detector alone finds silences. It counts the
+  original's speech inside the dub's silence: looking for stretches of "original voiced, dub not" missed planted
+  silences, because the original's own pauses between phrases (0.3-0.45 s) cut them into pieces too short to flag.
+
+## Line length: confirmed by nothing, skipped over music
+The voice detector that fixed timing moments doesn't help here. It mostly agrees with the words on real dubs, so those
+lines really are that different, and the settings that removed false alarms also removed a line a person voted real. Most
+line-length false alarms came from one mostly-music dub, where word timings aren't reliable, so line length simply isn't
+graded there. DubEval already says it isn't sure of such a dub.
+
+## Meaning similarity: the cutoff stays
+Lowering the 0.60 cutoff looks like the way to cut its false alarms, and it would be a mistake: at 0.50 it removes 13 of 19
+false alarms but also 5 of the 6 flags Gemini agrees with. Most of those false alarms come from recognition hearing a line
+differently from run to run, not from a bad cutoff. Only the mostly-music case had a clean fix.
+
+## Noise: a floor that fills, not a voice score
+DNSMOS rates 9 s windows and normal dubs dip as much as a 4 s burst, so a lower threshold only brought back false alarms
+(it caught 1 of 15 planted bursts). Measuring the spectrum's floor against the dub's own usual level separates them
+cleanly and needs no model. A second signal could have caught about half of the hum cases, but those were invented for the
+test, so it isn't worth the extra code until a real dub shows the need.
 
 ## Known limits
 - Speech-timing and pace bands were calibrated on one real EN→KO dub (81–82% overlap, 5.8 characters per second).

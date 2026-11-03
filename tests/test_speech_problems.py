@@ -32,6 +32,35 @@ def test_an_unsure_third_language_is_a_recognition_failure_not_a_poor_dub(lang):
     assert not [i for i in rep["problem_intervals"] if i["category"] in ("timing_mismatch", "long_silence")]
 
 
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_silences_are_still_found_where_the_words_cant_be_read(lang):
+    # Planted silences in Uzbek dubs: the words found 0 of 8, the voice detector alone 8 of 8.
+    r = uzbek_heard_as_kazakh()
+    r["timing_alignment"]["voice_gaps"] = [{"start": 5.0, "end": 8.0, "original_sec": 2.8},
+                                           {"start": 12.0, "end": 17.0, "original_sec": 4.5},
+                                           {"start": 20.0, "end": 23.0, "original_sec": 1.0}]   # barely speaks: no moment
+    rep = build_report(r, lang)
+    moments = [i for i in rep["problem_intervals"] if i["category"] == "long_silence"]
+    assert [(i["start"], i["end"], i["severity"]) for i in moments] == [(5.0, 8.0, "check"), (12.0, 17.0, "poor")]
+    assert "2.8" in moments[0]["description"] and "{" not in moments[0]["description"]
+    timing = rows(rep)["speech_overlap"]
+    assert timing["level"] == "not_measured" and "{" not in timing["message"]
+    assert timing["message"] != rows(rep)["clarity"]["message"]                 # the timing row says silences are checked
+    # A moment to listen to, like any other long silence: the verdict comes from the rows.
+    assert rep["overall"]["level"] == build_report(uzbek_heard_as_kazakh(), lang)["overall"]["level"]
+
+
+def test_without_a_voice_detector_the_timing_row_promises_nothing():
+    rep = build_report(uzbek_heard_as_kazakh(), "en")
+    assert rows(rep)["speech_overlap"]["message"] == rows(rep)["clarity"]["message"]
+    assert not [i for i in rep["problem_intervals"] if i["category"] == "long_silence"]
+
+
+def test_voice_gaps_are_not_used_where_the_words_can_be_read():
+    r = make_results(timing_alignment={"voice_gaps": [{"start": 5.0, "end": 8.0, "original_sec": 3.0}]})
+    assert not [i for i in build_report(r, "en")["problem_intervals"] if i["category"] == "long_silence"]
+
+
 def test_a_confident_wrong_language_is_still_poor():
     r = make_results(speech_recognition={"dubbed_language_detected": "ja", "dubbed_language_probability": 0.9})
     assert speech_problem(r) is None and rows(build_report(r, "en"))["language"]["level"] == "poor"

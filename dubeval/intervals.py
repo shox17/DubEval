@@ -21,6 +21,10 @@ LONG_SILENCE_SEC = (2.0, 4.0)        # original speaks, dub silent: Check from 2
 TIMING_MIN_SEC = 0.8                 # shorter timing mismatches aren't listed: word timings move about this much when
                                      # the sound changes slightly (validation: 0.5-0.8 s ones came and went)
 SLIVER_SEC = 0.5                     # unclear speech or a missing part shorter than this isn't listed
+NOISE_FLOOR_RISE_DB = 12.0           # the dub's spectrum floor above its usual level, beyond the original's rise there...
+NOISE_FLATNESS_RISE_DB = 2.0         # ...and flatter than usual too (a louder passage rises without getting flatter)...
+NOISE_MIN_SEC = 1.5                  # ...for this long: noise. Planted bursts rose 15-39 dB, clean dubs at most 12.3 dB, never
+                                     # with the flatness for this long (known-problem test, 17 dubs; docs/validation.md)
 LOUDNESS_JUMP_DB = (10.0, 16.0)      # dub vs original level, after removing the overall offset
 LOUDNESS_ACTIVE_DB = -45.0           # both tracks must be louder than this for the loudness comparison
 LOUDNESS_MIN_SEC = 1.0               # a level difference must last this long to count
@@ -29,8 +33,11 @@ LANG_OTHER = (0.8, 0.95)             # any other language: stricter, because Whi
 LANG_EXPECTED_MAX = 0.2              # ...another language only while the expected one stays below this...
 LANG_SOURCE_LEAD = 0.3               # ...the original's while it leads the expected one by this much: an 8 s part left
                                      # in a 10 s window keeps the dub's language near 0.3 (validation, EN>ES)
-VOICE_SIG_DROP = (0.6, 1.0)          # dub speech score below the original's in the same window: Check / Poor...
-VOICE_OVRL_DROP = (0.5, 0.9)         # ...or its overall score (clean real dubs: at most 0.25 below)
+VOICE_FLOOR = 1.6                    # an original scoring below this (1-5) is too noisy to compare the dub with
+VOICE_SIG_DROP = (0.6, 2.5)          # dub speech score below the original's in the same window: Check / Poor...
+VOICE_OVRL_DROP = (0.5, 1.5)         # ...or its overall score (clean real dubs: at most 0.25 below). Poor was 1.0 /
+                                     # 0.9: on 19 graded dubs only two reached it, both graded Good or Check by the
+                                     # person (drops up to 2.23 / 1.24), and both Poor votes on it were false alarms
 VOICE_CHANGE_DROP = 0.2              # a line this far below the dub's typical voice similarity...
 VOICE_CHANGE_MAX = 0.65              # ...and below this (similar voices of two people reach ~0.55)...
 VOICE_CHANGE_MEDIAN = 0.45           # ...in a dub that otherwise clones its speakers: another voice on that line
@@ -50,6 +57,7 @@ CATEGORIES = {
     "names_numbers": "r.cat.name_or_number",
     "unclear_speech": "r.cat.clarity",
     "voice_quality": "r.cat.voice_quality",
+    "noise": "r.cat.noise",
     "voice_change": "r.cat.voice_change",
     "missing_in_dub": "r.cat.missing_in_dub",
     "sound_sync": "r.cat.sound_sync",
@@ -77,15 +85,25 @@ def _item(tr: Tr, start: float, end: float, category: str, severity: str, check:
             "check_label": tr(f"r.m.{check}"), "description": description}
 
 
+def _long_silence(tr: Tr, start: float, end: float, seconds: float) -> dict:
+    """The original speaks for this many seconds and the dub is silent."""
+    return _item(tr, start, end, "long_silence", "poor" if seconds >= LONG_SILENCE_SEC[1] else "check",
+                 "speech_overlap", tr("r.int.long_silence", sec=f"{seconds:.1f}"))
+
+
+def _voice_gaps(tr: Tr, ta: dict) -> list[dict]:
+    """Long silences found by the voice detector alone (evaluate.voice_gaps), for a dub whose words can't be read."""
+    return [_long_silence(tr, g["start"], g["end"], g["original_sec"]) for g in ta.get("voice_gaps") or []
+            if g["original_sec"] >= LONG_SILENCE_SEC[0]]
+
+
 def _timing(tr: Tr, ta: dict) -> list[dict]:
     """Stretches where only one track speaks: long silences in the dub, or timing mismatches."""
     out = []
     for m in ta.get("mismatches") or []:
         length = m["end"] - m["start"]
         if m["kind"] == "original_only" and length >= LONG_SILENCE_SEC[0]:
-            sev = "poor" if length >= LONG_SILENCE_SEC[1] else "check"
-            out.append(_item(tr, m["start"], m["end"], "long_silence", sev, "speech_overlap",
-                             tr("r.int.long_silence", sec=f"{length:.1f}")))
+            out.append(_long_silence(tr, m["start"], m["end"], length))
         elif length >= TIMING_MIN_SEC:
             out.append(_item(tr, m["start"], m["end"], "timing_mismatch", "check", "speech_overlap",
                              tr(f"r.todo.{m['kind']}")))
@@ -112,8 +130,18 @@ def _line_items(tr: Tr, sa: Optional[dict]) -> list[dict]:
     return out
 
 
+def _numbers(tr: Tr, nc: Optional[dict]) -> list[dict]:
+    """Lines whose dub says a number its original doesn't (dubeval/numbers.py): moments to listen to."""
+    if not (nc or {}).get("measured"):
+        return []
+    return [_item(tr, ln["start"], ln["end"], "names_numbers", "check", "numbers",
+                  tr("r.int.number", n=ln["n"], orig=", ".join(ln["original"]), dub=", ".join(ln["dub"])))
+            for ln in nc["lines"]]
+
+
 def _screen_items(tr: Tr, ms: Optional[dict], judged: bool) -> list[dict]:
-    """Lines the offline meaning screen found low, when no judge ran (the judge's own issues are more precise)."""
+    """Lines the offline meaning screen found low, when no judge ran (the judge's own issues are more precise) and the
+    video isn't mostly music (judged is then true too: recognized words aren't reliable enough there)."""
     from dubeval.report import screen_low_lines
     if judged:
         return []
@@ -172,6 +200,30 @@ def loudness_jumps(env: dict) -> list[tuple[float, float, float]]:
     return out
 
 
+def noise_bursts(env: dict) -> list[tuple[float, float]]:
+    """(start, end) where the dub fills with noise the original doesn't have (evaluate.noise_envelope)."""
+    floor, flat, step = env.get("floor_rise") or [], env.get("flatness_rise") or [], env.get("step_sec") or 0.25
+    n = min(len(floor), len(flat))
+    if not n:
+        return []
+    noisy = (np.array(floor[:n]) >= NOISE_FLOOR_RISE_DB) & (np.array(flat[:n]) >= NOISE_FLATNESS_RISE_DB)
+    edges = np.diff(np.concatenate([[0], noisy.astype(np.int8), [0]]))
+    return [(float(a * step), float(b * step)) for a, b in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1))
+            if (b - a) * step >= NOISE_MIN_SEC]
+
+
+def noise_moments(ac: dict) -> list[tuple[float, float]]:
+    """The noise bursts to report: clipped sound also fills the spectrum, and it's already reported as distortion."""
+    clipped = ac.get("dubbed_clipping_intervals") or []
+    return [(s, e) for s, e in noise_bursts(ac.get("noise_envelope") or {})
+            if not any(s < b and e > a for a, b in clipped)]
+
+
+def _noise(tr: Tr, ac: dict) -> list[dict]:
+    """Stretches where the dub fills with noise the original doesn't have."""
+    return [_item(tr, s, e, "noise", "check", "noise", tr("r.int.noise", sec=f"{e - s:.1f}")) for s, e in noise_moments(ac)]
+
+
 def _loudness(tr: Tr, ac: dict) -> list[dict]:
     """Volume jumps in the dub compared with the original."""
     out = []
@@ -209,7 +261,10 @@ def _language_name(code: str) -> str:
 
 
 def voice_window_level(w: dict) -> str:
-    """good / check / poor for one voice-quality window: how far the dub falls below the original there."""
+    """good / check / poor for one voice-quality window: how far the dub falls below the original there. A stretch where
+    the original itself is too noisy to compare with isn't held against the dub."""
+    if w["original"] < VOICE_FLOOR:
+        return "good"
     sig, ovr = w["original_sig"] - w["dub_sig"], w["original"] - w["dub"]
     if sig >= VOICE_SIG_DROP[1] or ovr >= VOICE_OVRL_DROP[1]:
         return "poor"
@@ -364,11 +419,12 @@ def build_intervals(r: dict, tr: Tr, lang: str, clipping_poor: bool = False, dub
     names = {base_lang(k): v for k, v in names.items() if k and v}
     tj = r.get("translation_judge") or {}
     spans = {ln["n"]: (ln["start"], ln["end"]) for ln in (r.get("segment_alignment") or {}).get("lines") or []}
-    from dubeval.report import speech_problem
+    from dubeval.report import speech_problem, sure_of
     problem = speech_problem(r)
+    music = any(u["kind"] == "little_speech" for u in sure_of(r, problem))   # recognized words can't time lines over music
     trusted = not problem or problem["kind"] != "unrecognized"     # otherwise speech-based ranges are noise
     counted, asr = _translation(tr, tj, sr, lang, spans) if trusted else ([], [])
-    counted += _distortion(tr, ac, clipping_poor) + _loudness(tr, ac) + _voice(tr, r.get("voice_quality")) \
+    counted += _distortion(tr, ac, clipping_poor) + _loudness(tr, ac) + _noise(tr, ac) + _voice(tr, r.get("voice_quality")) \
         + _voice_change(tr, r.get("voice_similarity")) + _missing_parts(tr, r.get("pairing")) \
         + _sound_sync(tr, r.get("pairing"), video_length(r))
     if trusted:
@@ -378,13 +434,15 @@ def build_intervals(r: dict, tr: Tr, lang: str, clipping_poor: bool = False, dub
             # The subtitles confirm the dub's language: other languages heard in a window are recognition noise; the
             # original's language heard there is still worth reporting (the original voice left in).
             languages = [i for i in languages if source and names.get(source) and names[source] in i["description"]]
-        counted += _screen_items(tr, r.get("meaning_screen"), bool(tj.get("measured"))) \
-            + _timing(tr, r.get("timing_alignment") or {}) + languages \
-            + _clarity(tr, sr) + _line_items(tr, r.get("segment_alignment"))
+        counted += _screen_items(tr, r.get("meaning_screen"), bool(tj.get("measured")) or music) \
+            + _numbers(tr, r.get("numbers")) + _timing(tr, r.get("timing_alignment") or {}) + languages \
+            + _clarity(tr, sr) + ([] if music else _line_items(tr, r.get("segment_alignment")))
     else:
         # The original's language left in the dub is still worth reporting; other languages are recognition noise.
+        # Silences need no words: the voice detector finds them.
         counted += [i for i in _language(tr, sr, expected, source, names)
-                    if source and names.get(source) and names[source] in i["description"]]
+                    if source and names.get(source) and names[source] in i["description"]] \
+            + _voice_gaps(tr, r.get("timing_alignment") or {})
     length = video_length(r)
     intervals = merge_intervals(counted, length)
     asr = sorted(({**a, **dict(zip(("start", "end"), _clip(a["start"], a["end"], length)))} for a in asr),

@@ -27,7 +27,7 @@
 
 <p align="center">
   <img src="docs/images/review-screen.png" width="100%"
-       alt="Reviewing a dub: the original and the dubbed video side by side, a timeline with both waveforms, and the dub's verdict above them." />
+       alt="Reviewing a dub: the original and the dubbed video side by side, a timeline with both waveforms, the lines and the flagged problems, and the dub's verdict above them." />
 </p>
 
 <p align="center">Drop in the original and its dub. DubEval checks timing, speech, voice and meaning, puts every problem on a timeline,<br>and tells you which of several dubs to deliver, and why. Open-source, on your own computer, for dubs from any service.</p>
@@ -49,7 +49,7 @@ Two files, two links or a Perso share link. Dubs from any service or from voice 
 </td>
 <td width="50%" valign="top">
 
-<img src="docs/images/compare-screen.png" alt="A comparison of two dubs: Deliver Dub A, the reasoning, and both dubs ranked by verdict and problems" />
+<img src="docs/images/compare-screen.png" alt="A comparison of two dubs: Deliver Dub A, the reasoning, both dubs ranked by verdict and problems, and every check side by side" />
 
 ### Compare dubs
 
@@ -78,6 +78,8 @@ Speech, voice and picture checks run here. Add a larger speech model or an offli
 </td>
 </tr>
 </table>
+
+<p align="center"><sub>Screens show a one-minute excerpt of <a href="https://mango.blender.org">Tears of Steel</a> (© Blender Foundation, <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>) with two Spanish dubs.</sub></p>
 
 ## Get started
 
@@ -145,9 +147,9 @@ Finish the setup, not just a plan. Tell me any step you could not do.
 
 DubEval measures; it doesn't replace watching the dub. Use the verdict to decide where to look first.
 
-- **Tested two ways.** With problems put into dubs on purpose, DubEval catches 79 of 109 (18 of 24 on dubs it was never
-  tuned on). Against a person's grades on 19 real dubs it agrees on 14: 11 of 13 English → Korean, 2 of 2 English →
-  Spanish, 1 of 4 English → Uzbek.
+- **Tested two ways.** With problems put into dubs on purpose, DubEval catches 102 of 112 (18 of 24 on dubs it was never
+  tuned on). Against one person's grades on 20 real dubs it agrees on 12 to 15, mostly depending on which AI model
+  reviewed the translation: 9 to 12 of 14 English → Korean, 2 of 2 English → Spanish, 1 of 4 English → Uzbek.
 - **It says when it isn't sure.** Mostly music, very little speech, or a language it couldn't make out: the verdict
   is "Needs review" with the reason, never a confident Good or Poor.
 - **Speech recognition makes mistakes, and they spread.** Timing, clarity and the translation check read what
@@ -166,7 +168,7 @@ How each check works, how it was tested and what it can't do yet: [How DubEval m
 |---|---|
 | **Requirements** | 64-bit Windows 10 or 11 · 2 GB free disk · an NVIDIA GPU is optional (faster, and a more accurate speech model). [Install](INSTALL.md) |
 | **Languages** | Any pair Whisper knows. Speaking pace is graded for Korean, English, Spanish, Japanese and Chinese; a check that can't work for a language says "not measured" with the reason. |
-| **Translation check** | Claude, Gemini or ChatGPT with your own key, or a local model. Five scores per line: meaning, naturalness, context, terms, localization. [How it works](docs/metrics.md) |
+| **Translation check** | Claude, Gemini or ChatGPT with your own key, or a local model. Five scores per line: meaning, naturalness, context, terms, localization. A changed number is caught offline too, without an AI. [How it works](docs/metrics.md) |
 | **Privacy** | Videos and audio never leave this computer; the translation check sends text only, and only if you turn it on. [What is sent](docs/privacy.md) |
 | **Beyond the app** | Command line, batch checks of many links, a REST API and Docker. [Usage](docs/usage.md) |
 | **How it works** | Motion and picture fingerprints, Whisper, DNSMOS, WeSpeaker, BGE-M3, an LLM judge. [Architecture](docs/architecture.md) · [Every check and its bands](docs/metrics.md) · [Roadmap](docs/roadmap.md) |

@@ -44,6 +44,9 @@ def _common(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--no-lipsync", action="store_true", help="Skip lip movement even for a lip-synced dub (faster). By default it is measured "
                          "automatically when the dub is lip-synced")
     ap.add_argument("--no-translation-check", action="store_true", help="Skip the translation check (by default it runs automatically when GEMINI_API_KEY or ANTHROPIC_API_KEY is set)")
+    ap.add_argument("--lock-model", action="store_true", help="Use only the translation checker's first AI model, never "
+                    "a backup: differences between dubs then can't come from the model. If it's busy, the translation "
+                    "isn't checked")
     ap.add_argument("--no-cache", action="store_true", help="Download the videos and run speech recognition again instead of reusing earlier results")
     ap.add_argument("--json", action="store_true", help="Print the report as JSON instead of text")
     ap.add_argument("--verbose", action="store_true", help="Show library logs (MediaPipe, TensorFlow) while running")
@@ -89,6 +92,8 @@ def parse_evaluate_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--judge", choices=["auto", "claude", "gemini", "openai", "ollama", "off"], help="Who checks the "
                     "translation: auto (default: Claude, then Gemini, then ChatGPT, then a local model through "
                     "Ollama), one of them, or off")
+    ap.add_argument("--lock-model", action="store_true", help="Use only the translation checker's first AI model, never "
+                    "a backup. If it's busy, the translation isn't checked")
     script = ap.add_mutually_exclusive_group()
     script.add_argument("--script", help="What the dub should say, to also score script accuracy")
     script.add_argument("--script-file", help="File with what the dub should say (UTF-8)")
@@ -270,7 +275,8 @@ def _web(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(prog="dubeval web", description="Open DubEval in the browser: choose an original and "
                                  "its dub, follow the evaluation, then review it on a timeline. Only this computer "
                                  "can open it, with the link printed at launch.")
-    ap.add_argument("--port", type=int, default=0, help="Port on 127.0.0.1 (default: a free one)")
+    ap.add_argument("--port", type=int, default=None, help="Port on 127.0.0.1 (default: the same one at every launch, "
+                    "so the page's settings last, or another if it's busy; 0: any free one)")
     ap.add_argument("--no-browser", action="store_true", help="Don't open the browser")
     ap.add_argument("--host", default="127.0.0.1", help="Address to listen on (default 127.0.0.1; 0.0.0.0 only "
                     "inside a container: the page still opens only as http://localhost with the printed link)")
@@ -361,6 +367,8 @@ def _run(args: argparse.Namespace, err) -> int:
         except OSError as e:
             print(f"Can't read the script file: {e}", file=err)
             return 2
+    if args.lock_model:
+        os.environ["DUBEVAL_JUDGE_PIN"] = "1"
     if args.mode == "evaluate":
         return _run_evaluate(args, script, err)
     options = dict(report=_progress(err), whisper_model_name=args.whisper_model,

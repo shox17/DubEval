@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld("dubevalShell", {
   getUpdate: () => ipcRenderer.invoke("update:get"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
   restartToUpdate: () => ipcRenderer.invoke("update:restart"),
+  justUpdated: () => ipcRenderer.invoke("update:just-updated"),
   onUpdate: callback => { ipcRenderer.on("update:state", (_event, state) => callback(state)); },
 });

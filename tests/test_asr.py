@@ -126,3 +126,16 @@ def test_a_voice_detector_that_cant_load_is_skipped_not_fatal(monkeypatch):
         raise RuntimeError("NO_SUCHFILE : Load model from ...silero_vad_v6.onnx failed")
     monkeypatch.setattr(vad, "get_speech_timestamps", no_model)
     assert asr.voice_activity(np.zeros(16000, dtype=np.float32)) is None     # the evaluation goes on without it
+
+
+def test_the_fine_voice_detector_keeps_short_gaps(monkeypatch):
+    vad = pytest.importorskip("faster_whisper.vad")
+    seen = []
+
+    def spans(y, options, sampling_rate):
+        seen.append((options.min_silence_duration_ms, options.speech_pad_ms))
+        return [{"start": 16000, "end": 32000}]
+    monkeypatch.setattr(vad, "get_speech_timestamps", spans)
+    y = np.zeros(48000, dtype=np.float32)
+    assert asr.voice_activity(y) == asr.voice_activity(y, fine=True) == [[1.0, 2.0]]
+    assert seen == [(2000, 400), (100, 30)]         # its defaults join anything closer than 2 s: blind to a short gap

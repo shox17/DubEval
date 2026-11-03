@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import shutil
+import socket
 import sys
 import tempfile
 import threading
@@ -87,6 +88,7 @@ class EvaluationBody(BaseModel):
     translation_check: bool = True
     # Which translation checker (start page): auto = the first one set up, or one by name; off = none.
     judge: Literal["auto", "claude", "gemini", "openai", "ollama", "off"] = "auto"
+    lock_model: bool = False              # only the checker's first AI model, never a backup
     lipsync: bool = False
     allow_different: bool = False
     # auto: the large model on a GPU when it is downloaded, else the standard one; or either one by name
@@ -968,9 +970,12 @@ def _speech_model(body: EvaluationBody) -> dict:
 
 
 def _judge_choice(body: EvaluationBody):
-    """use_translation_judge for the pipeline: False (off), True (auto) or the chosen checker's name."""
+    """use_translation_judge for the pipeline: False (off), True (auto) or the chosen checker's name, or both with the
+    model locked."""
     if not body.translation_check or body.judge == "off":
         return False
+    if body.lock_model:
+        return {"judge": None if body.judge == "auto" else body.judge, "lock": True}
     return True if body.judge == "auto" else body.judge
 
 
@@ -1115,15 +1120,31 @@ def exit_with_parent(parent_pid: Optional[int] = None, exit_now=os._exit, wait=_
     return thread
 
 
-def serve(port: int = 0, open_browser: bool = True, host: str = "127.0.0.1") -> None:
-    """Runs the web interface on 127.0.0.1 (a free port unless given) with a new token, and opens it.
+# Where the page lives unless a port is asked for: the first of these that's free. What the page keeps in the browser
+# (language, sidebar width, history period) belongs to its address, so a new port at each launch lost all of it. They
+# are far apart because Windows can reserve whole blocks of ports.
+USUAL_PORTS = (38170, 39170, 40170, 41170, 42170)
+
+
+def _bind_usual(host: str) -> socket.socket:
+    """A socket on the first free usual port, or on any free port when they're all taken."""
+    for port in USUAL_PORTS:
+        try:
+            return bind(host, port)
+        except OSError:
+            continue
+    return bind(host, 0)
+
+
+def serve(port: Optional[int] = None, open_browser: bool = True, host: str = "127.0.0.1") -> None:
+    """Runs the web interface on 127.0.0.1 (a usual port unless given; 0 is any free one) with a new token, and opens it.
 
     host 0.0.0.0 is for a container, whose port is published to the machine running it: the page still opens only
     with this launch's link and only as http://127.0.0.1 or http://localhost (the Host check), so other computers
     can't use it.
     """
     import webbrowser
-    sock = bind(host, port)                        # bound before the link is printed
+    sock = _bind_usual(host) if port is None else bind(host, port)     # bound before the link is printed
     port = sock.getsockname()[1]
     token = secrets.token_urlsafe(24)
     url = f"http://127.0.0.1:{port}/?token_given={token}"

@@ -43,7 +43,7 @@ DEFECTS = {
     "original_voice_8s": {"seconds": 8.0, "expect": {"wrong_language"}},
     "loudness_jump_3s": {"seconds": 3.0, "expect": {"loudness_jump", "distortion"}},
     "distortion_3s": {"seconds": 3.0, "expect": {"distortion"}},
-    "noise_4s": {"seconds": 4.0, "expect": {"voice_quality", "unclear_speech"}},
+    "noise_4s": {"seconds": 4.0, "expect": {"noise", "voice_quality", "unclear_speech"}},
     "cut_4s": {"seconds": 4.0, "expect": {"missing_in_dub"}},                # picture and sound both cut
     "sound_late_1s": {"seconds": None, "expect": {"timing_mismatch", "sound_sync"}, "shift": 1.0},   # sound behind the picture
 }

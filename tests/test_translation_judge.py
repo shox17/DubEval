@@ -203,13 +203,56 @@ def test_gemini_structured_request_and_result(gemini_key):
     assert "Hi, I'm John from Uzbekistan. ->" in call["json"]["contents"][0]["parts"][0]["text"]
 
 
+def asked(session):
+    """The Gemini models a fake session was asked, in order."""
+    return [c["url"].split("/models/")[1].split(":")[0] for c in session.calls]
+
+
 def test_gemini_retries_overload_then_falls_back_to_next_model(gemini_key):
     busy = (503, {"error": {"message": "high demand"}})
-    s = FakeGemini(busy, busy, gemini_ok(GOOD, "gemini-flash-latest"))
+    s = FakeGemini(busy, busy, gemini_ok(GOOD, "gemini-3.8-flash"))
     r = judge_translation(ORIG, DUB, "en", "ko", session=s, sleep=lambda x: None)
-    assert r["measured"] and r["model"] == "gemini-flash-latest"
-    assert [c["url"].split("/models/")[1].split(":")[0] for c in s.calls] == \
-        ["gemini-3.5-flash"] * 2 + ["gemini-flash-latest"]
+    assert r["measured"] and r["model"] == "gemini-3.8-flash" and r["fallback"]
+    assert asked(s) == ["gemini-3.5-flash"] * 2 + ["gemini-3.8-flash"]
+
+
+def test_the_gemini_chain_names_fixed_versions_only():
+    # An alias such as gemini-flash-latest changes model under the same name, so scores would drift between runs.
+    assert not [m for m in translation_judge.GEMINI_MODELS if "latest" in m]
+
+
+def long_video(n=25):
+    """n one-second lines on both sides, line by line: more than one request (CHUNK_LINES lines each)."""
+    orig = [{"start": float(2 * i), "end": 2.0 * i + 1, "text": f"Line {i}."} for i in range(n)]
+    dub = [{"start": float(2 * i), "end": 2.0 * i + 1, "text": f"대사 {i}."} for i in range(n)]
+    lines = [{"n": i + 1, "start": o["start"], "end": o["end"], "original": o["text"], "dub": d["text"]}
+             for i, (o, d) in enumerate(zip(orig, dub))]
+    return orig, dub, lines
+
+
+def test_one_dub_is_judged_by_one_model(gemini_key):
+    # The first lines fell back to a backup model: the rest of the dub asks that model first, not the main one.
+    busy = (503, {"error": {"message": "high demand"}})
+    payload = {"lines": [judged(n) for n in range(1, 26)]}
+    s = FakeGemini(busy, busy, gemini_ok(payload, "gemini-3.8-flash"), gemini_ok(payload, "gemini-3.8-flash"))
+    orig, dub, lines = long_video()
+    r = judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines)
+    assert r["measured"] and asked(s) == ["gemini-3.5-flash"] * 2 + ["gemini-3.8-flash"] * 2
+
+
+def test_a_pinned_judge_never_falls_back(gemini_key, monkeypatch):
+    monkeypatch.setenv("DUBEVAL_JUDGE_PIN", "1")
+    busy = (503, {"error": {"message": "high demand"}})
+    s = FakeGemini(busy, busy, gemini_ok(GOOD, "gemini-3.8-flash"))
+    r = judge_translation(ORIG, DUB, "en", "ko", session=s, sleep=lambda x: None)
+    assert not r["measured"] and r["reason_key"] == "r.judge.busy"
+    assert asked(s) == ["gemini-3.5-flash"] * 2                                  # the backup was never asked
+
+
+def test_pinning_changes_the_fingerprint(monkeypatch):
+    before = translation_judge.judge_fingerprint("gemini")
+    monkeypatch.setenv("DUBEVAL_JUDGE_PIN", "1")
+    assert translation_judge.judge_fingerprint("gemini") != before          # a cached backup review isn't reused
 
 
 def test_gemini_overloaded_everywhere_is_not_measured(gemini_key):
@@ -303,9 +346,9 @@ def test_a_slow_gemini_model_hands_over_to_the_next_at_once(gemini_key):
                 self.calls.append({"url": url, "timeout": timeout})
                 raise requests.ReadTimeout("no answer")
             return super().post(url, headers, json, timeout)
-    s = SlowFirst(gemini_ok(GOOD, "gemini-flash-latest"))
+    s = SlowFirst(gemini_ok(GOOD, "gemini-3.8-flash"))
     r = judge_translation(ORIG, DUB, "en", "ko", session=s, sleep=lambda x: None)
-    assert r["measured"] and r["model"] == "gemini-flash-latest"
+    assert r["measured"] and r["model"] == "gemini-3.8-flash"
     assert sum("gemini-3.5-flash" in c["url"] for c in s.calls) == 1             # not retried
     assert s.calls[0]["timeout"] == translation_judge.GEMINI_TIMEOUT_SEC
 
@@ -317,3 +360,149 @@ def test_a_key_out_of_daily_requests_says_so(gemini_key):
     r = judge_translation(ORIG, DUB, "en", "ko", session=s, sleep=lambda x: None)
     assert not r["measured"] and r["reason_key"] == "r.judge.daily_quota" and "midnight" in r["reason"]
     assert len(s.calls) == len(dict.fromkeys(translation_judge.GEMINI_MODELS))    # each model asked once
+
+
+# ---------------- every requested line must be evaluated ----------------
+def test_lines_left_out_are_asked_about_again(gemini_key):
+    orig, dub, lines = long_video(3)
+    s = FakeGemini(gemini_ok({"lines": [judged(1)]}), gemini_ok({"lines": [judged(2), judged(3)]}))
+    r = judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines)
+    assert r["measured"] and r["coverage"] == {"evaluated": 3, "total": 3}
+    assert [ln["line"] for ln in r["lines"]] == [1, 2, 3]
+    assert "<evaluate>2, 3</evaluate>" in json.dumps(s.calls[1]["json"])      # only the lines it left out
+
+
+def partial_review():
+    # 3 lines asked, 1 answered, twice: it used to be measured, 10/10, with the whole verdict Good.
+    orig, dub, lines = long_video(3)
+    only_one = gemini_ok({"lines": [judged(1, semantic=10, naturalness=10, context=10, terms=10, local=10)]})
+    s = FakeGemini(only_one, only_one)
+    return judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines), s
+
+
+def test_a_partial_review_is_not_graded(gemini_key):
+    r, s = partial_review()
+    assert not r["measured"] and r["reason_key"] == "r.judge.incomplete" and r["meaning_score"] is None
+    assert "1 of 3 lines" in r["reason"] and len(s.calls) == 2                # asked again once, no more
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_a_partial_review_withholds_the_meaning_grade_and_says_how_much_was_evaluated(gemini_key, lang):
+    from dubeval.report import build_report
+    from sample_results import make_results
+    r, _ = partial_review()
+    rep = build_report(make_results(translation_judge=r), lang)
+    rows = {m["id"]: m for s in rep["sections"] for m in s["metrics"]}
+    assert "meaning" not in rows and rows["translation_check"]["level"] == "not_measured"
+    message = rows["translation_check"]["message"]
+    assert "1" in message and "3" in message and "{" not in message
+    assert rep["overall"]["level"] != "good" and "translation_unchecked" in rep["overall"]["unsure"]
+
+
+def test_only_the_lines_a_request_asked_about_count(gemini_key):
+    # An answer about a line nobody asked about doesn't fill the gap.
+    orig, dub, lines = long_video(2)
+    stray = gemini_ok({"lines": [judged(1), judged(7)]})
+    r = judge_translation(orig, dub, "en", "ko", session=FakeGemini(stray, gemini_ok({"lines": [judged(7)]})),
+                          sleep=lambda x: None, lines=lines)
+    assert r["reason_key"] == "r.judge.incomplete" and r["reason_params"] == {"model": "gemini-3.5-flash", "done": "1", "total": "2"}
+    # Nor does a line of another request: request 1 (lines 1-20) answering line 21 doesn't excuse request 2.
+    orig, dub, lines = long_video(25)
+    s = FakeGemini(gemini_ok({"lines": [judged(n) for n in range(1, 22)]}), gemini_ok({"lines": [judged(n) for n in range(22, 26)]}),
+                   gemini_ok({"lines": [judged(21)]}))
+    r = judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines)
+    assert r["measured"] and len(s.calls) == 3 and "<evaluate>21</evaluate>" in json.dumps(s.calls[2]["json"])
+
+
+def test_a_failed_request_for_the_missing_lines_makes_the_check_not_measured(gemini_key):
+    orig, dub, lines = long_video(2)
+    s = FakeGemini(gemini_ok({"lines": [judged(1)]}))                         # then busy, for every retry
+    r = judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines)
+    assert not r["measured"] and r["reason_key"] == "r.judge.busy"
+
+
+# ---------------- which model judged what, and the lock ----------------
+def test_every_chunk_keeps_the_model_that_judged_it(gemini_key):
+    from dubeval.report import build_report
+    from sample_results import make_results
+    orig, dub, lines = long_video()
+    payload = {"lines": [judged(n) for n in range(1, 26)]}
+    s = FakeGemini(gemini_ok(payload, "model-a"), gemini_ok(payload, "model-b"))
+    r = judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines)
+    assert r["models"] == ["model-a", "model-b"] and r["model"] == "model-a + model-b"
+    assert [(c["model"], len(c["lines"]), c["requested"]) for c in r["chunks"]] == [
+        ("model-a", 20, "gemini-3.5-flash"), ("model-b", 5, "gemini-3.5-flash")]
+    rows = {m["id"]: m for sec in build_report(make_results(translation_judge=r), "en")["sections"] for m in sec["metrics"]}
+    assert "model-a + model-b" in rows["meaning"]["thresholds"]               # the report names both
+    # One model: named once.
+    s = FakeGemini(gemini_ok(payload, "model-a"), gemini_ok(payload, "model-a"))
+    r = judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines)
+    assert r["model"] == "model-a" and r["models"] == ["model-a"] and not r["fallback"]
+
+
+def test_a_backup_chunk_is_marked_as_one(gemini_key):
+    busy = (503, {"error": {"message": "high demand"}})
+    s = FakeGemini(busy, busy, gemini_ok(GOOD, "gemini-3.8-flash"))
+    r = judge_translation(ORIG, DUB, "en", "ko", session=s, sleep=lambda x: None)
+    assert r["fallback"] and r["chunks"][0]["fallback"] and r["chunks"][0]["requested"] == "gemini-3.8-flash"
+
+
+def test_a_locked_run_uses_only_the_first_model(gemini_key):
+    busy = (503, {"error": {"message": "high demand"}})
+    s = FakeGemini(busy, busy, gemini_ok(GOOD, "gemini-3.8-flash"))
+    r = judge_translation(ORIG, DUB, "en", "ko", session=s, sleep=lambda x: None, lock=True)
+    assert not r["measured"] and r["reason_key"] == "r.judge.busy" and asked(s) == ["gemini-3.5-flash"] * 2
+
+
+def test_the_lock_changes_the_fingerprint():
+    assert translation_judge.judge_fingerprint("gemini", True) != translation_judge.judge_fingerprint("gemini")
+
+
+def test_a_locked_claude_has_no_server_side_fallback():
+    client = FakeClient(GOOD)
+    assert judge_translation(ORIG, DUB, "en", "ko", client=client, lock=True)["measured"]
+    assert "fallbacks" not in client.request and "betas" not in client.request
+
+
+def test_a_claude_answer_from_its_fallback_model_is_marked():
+    class ServedByFallback(FakeClient):
+        def create(self, **kw):
+            response = super().create(**kw)
+            response.model = "claude-opus-4-8"
+            response.usage = SimpleNamespace(iterations=[SimpleNamespace(type="message"), SimpleNamespace(type="fallback_message")])
+            return response
+    r = judge_translation(ORIG, DUB, "en", "ko", client=ServedByFallback(GOOD))
+    assert r["fallback"] and r["model"] == "claude-opus-4-8" and r["chunks"][0]["requested"] == "claude-opus-5-5"
+    assert not judge_translation(ORIG, DUB, "en", "ko", client=FakeClient(GOOD))["fallback"]
+
+
+def test_the_lock_reaches_the_judge_and_its_cache_key(monkeypatch):
+    from dubeval import pipeline
+    from sample_results import make_results
+    seen = []
+    monkeypatch.setattr(pipeline, "judge_translation", lambda *a, **k: seen.append(k) or {"measured": False})
+    pipeline.check_translation(make_results(), {"judge": "gemini", "lock": True}, lambda *a, **k: None)
+    pipeline.check_translation(make_results(), {"judge": None, "lock": True}, lambda *a, **k: None)
+    pipeline.check_translation(make_results(), "gemini", lambda *a, **k: None)
+    pipeline.check_translation(make_results(), True, lambda *a, **k: None)
+    assert [(k["provider"], k["lock"]) for k in seen] == [("gemini", True), (None, True), ("gemini", False), (None, False)]
+
+
+def test_the_lock_can_be_chosen_on_the_start_page_the_api_and_the_command_line(monkeypatch):
+    from dubeval import api, cli, webapp
+    body = lambda **k: webapp.EvaluationBody(dub="dub.mp4", **k)
+    assert webapp._judge_choice(body(judge="gemini", lock_model=True)) == {"judge": "gemini", "lock": True}
+    assert webapp._judge_choice(body(lock_model=True)) == {"judge": None, "lock": True}
+    assert webapp._judge_choice(body(judge="gemini")) == "gemini" and webapp._judge_choice(body()) is True
+    assert webapp._judge_choice(body(judge="off", lock_model=True)) is False
+    request = api.ComparisonRequest(links=["a", "b"], lock_model=True)
+    assert api._judge_choice(request) == {"judge": None, "lock": True}
+    assert api._judge_choice(api.ComparisonRequest(links=["a", "b"])) is True
+    assert api._judge_choice(api.ComparisonRequest(links=["a", "b"], lock_model=True, translation_check=False)) is False
+    args = cli.parse_compare_args(["a", "b", "--lock-model"])
+    assert args.lock_model and not cli.parse_compare_args(["a", "b"]).lock_model
+    assert cli.parse_batch_args(["links.txt", "--lock-model"]).lock_model and cli.parse_args(["link", "--lock-model"]).lock_model
+    evaluate = cli.parse_evaluate_args(["--original", "o.mp4", "--dub", "d.mp4", "--lock-model"])
+    monkeypatch.delenv("DUBEVAL_JUDGE_PIN", raising=False)
+    monkeypatch.setattr(cli, "_run_evaluate", lambda *a: 0)
+    assert cli._run(evaluate, None) == 0 and translation_judge.judge_pinned()

@@ -15,13 +15,14 @@ from typing import Callable, Optional
 
 from dubeval.evaluate import base_lang, whisper_language
 from dubeval.i18n import DEFAULT_UI_LANGUAGE, t as i18n_t
-from dubeval.intervals import VOICE_OVRL_DROP, VOICE_SIG_DROP, build_intervals, local_text as _local, voice_window_level
+from dubeval.intervals import VOICE_FLOOR, VOICE_OVRL_DROP, VOICE_SIG_DROP, build_intervals, local_text as _local,     voice_window_level
 
 # Thresholds, in one place so the report can print exactly what it applied.
 SAME_VIDEO_PCT = (60, 25)                # matching frames at the best shift (bands in dubeval/pairing.py)
 COVERAGE_PCT = (98.0, 90.0)              # share of the original found in the dub
 LENGTH_PCT = (5.0, 15.0)                 # |dub - original| / original
-LOUDNESS_DB = (2.0, 4.0)                 # |20 log10(rms ratio)|
+LOUDNESS_DB = (3.0, 6.0)                 # |20 log10(rms ratio)|: a person graded a dub 5.1 dB off Good, and none of
+                                         # the graded Poor dubs was off by more than 1.7 dB (2026-11-01; was 2 / 4)
 SILENCE_PTS = (5.0, 15.0)                # extra silence in the dub, percentage points
 CLIPPING_PCT = (0.01, 0.1)               # share of samples at full scale
 # Speaking pace per dub language: chars/s for ko/ja/zh, words/s for en/es. A language without a rule is not graded.
@@ -38,7 +39,9 @@ SOUND_SYNC_SEC = (0.3, 0.6)              # the dub's sound behind/ahead of its p
 LINE_BAND_PCT = 15.0                     # a dub line within ±this % of the original line's length fits...
 LINE_MIN_DIFF_SEC = 0.6                  # ...or within this many seconds: word timings move by about that much when
                                          # the sound changes slightly (validation: 0.3 s let short lines flip)
-LINE_FIT_SHARE = (90.0, 70.0)            # share of lines that fit: Good from the first, Check from the second
+LINE_FIT_SHARE = (90.0, 50.0)            # share of lines that fit: Good from the first, Check from the second, so Poor
+                                         # needs most lines off, as meaning does (the second was 70 until 2026-11-02: the one
+                                         # graded dub it made Poor, 4 of 10 lines off, a person graded Needs review)
 LINE_OVERRUN_SHARE = 10.0                # lines running into the next one: Check up to this share, Poor above
 LINE_POOR_MIN = 3                        # Poor needs at least this many lines off (one line of two isn't Poor)
 OVERLAP_PCT = (75.0, 55.0)               # speech-timing overlap; a real Perso EN→KO dub scores ~81%
@@ -55,7 +58,6 @@ RUBRIC_POOR_LINES = 3                    # meaning is Poor with this many seriou
 SCREEN_LOW = 0.6                         # meaning screen: a line below this similarity may not mean the same
                                          # (real correct lines: median 0.81, 95% above 0.59; wrong pairs: median 0.49)
 VOICE_SIMILAR = 0.5                      # voice similarity to the original speaker: Good from this, else Check
-VOICE_FLOOR = 1.6                        # voice quality: an original scoring below this (1-5) is too noisy to compare
 LIP_OFFSET_MS = 120                      # lip sync: lips that follow the sound this far off are reported as late/early
 # Voice-quality window bands (how far the dub may fall below the original) are in dubeval/intervals.py.
 
@@ -225,6 +227,12 @@ def _timing_audio(tr: Tr, ac: dict, sr: dict, lang: str, lang_name: str) -> list
         rows.append(_metric(tr, "clipping", level, msg, clip, f"{clip:.3f}%",
                             tr("r.g.clipping", good=f"{CLIPPING_PCT[0]:g}", check=f"{CLIPPING_PCT[1]:g}")))
 
+    if ac.get("noise_envelope") is not None:
+        from dubeval.intervals import NOISE_FLOOR_RISE_DB, NOISE_MIN_SEC, noise_moments
+        found = len(noise_moments(ac))
+        rows.append(_metric(tr, "noise", "check" if found else "good", _pl(tr, "r.noise.check", found) if found else tr("r.noise.ok"),
+                            found, tr("r.noise.display", n=found), tr("r.g.noise", rise=f"{NOISE_FLOOR_RISE_DB:g}", sec=f"{NOISE_MIN_SEC:g}")))
+
     rows.append(_pace(tr, sr.get("dubbed_speech_rate"), lang, lang_name))
     return rows
 
@@ -260,7 +268,7 @@ def _voice(tr: Tr, vq: Optional[dict]) -> dict:
         _pl(tr, f"r.vq.{level}", flagged, total=len(levels))
     return _metric(tr, "voice_quality", level, msg, diff, shown,
                    tr("r.g.vq", sig=f"{VOICE_SIG_DROP[0]:g}", ovr=f"{VOICE_OVRL_DROP[0]:g}",
-                      sig_poor=f"{VOICE_SIG_DROP[1]:g}", ovr_poor=f"{VOICE_OVRL_DROP[1]:g}"))
+                      sig_poor=f"{VOICE_SIG_DROP[1]:g}", ovr_poor=f"{VOICE_OVRL_DROP[1]:g}", floor=f"{VOICE_FLOOR:g}"))
 
 
 def _similarity(tr: Tr, vs: Optional[dict]) -> dict:
@@ -330,7 +338,7 @@ def _speech(tr: Tr, sr: dict, lang: str, lang_name: str, vq: Optional[dict] = No
 # Measures that read the dub's recognized speech: not graded when that speech can't be trusted.
 SPEECH_DEPENDENT = ("clarity", "speech_overlap", "speech_offsets", "line_length", "line_overrun", "speech_rate",
                     "meaning_screen", "meaning", "completeness", "names_numbers", "mistranslations",
-                    "translation_check")
+                    "translation_check", "numbers")
 
 
 def subtitles_confirm_language(r: dict) -> Optional[float]:
@@ -366,18 +374,21 @@ def speech_problem(r: dict) -> Optional[dict]:
     return None
 
 
-def _apply_speech_problem(tr: Tr, sections: list[dict], problem: Optional[dict], lang_name: str) -> None:
-    """Rewrites the speech rows the problem makes untrustworthy, and adds what a person should do."""
+def _apply_speech_problem(tr: Tr, sections: list[dict], problem: Optional[dict], lang_name: str,
+                          silences_checked: bool = False) -> None:
+    """Rewrites the speech rows the problem makes untrustworthy, and adds what a person should do. silences_checked:
+    the voice detector looked for long silences anyway (evaluate.voice_gaps); the timing row says so."""
     if not problem:
         return
     if problem["kind"] == "unrecognized":
         from dubeval.intervals import _language_name
         detected = _language_name(problem["detected"])
         reason = tr("r.speech.unreliable", lang=lang_name, detected=detected)
+        timing = tr("r.speech.unreliable_timing", lang=lang_name, detected=detected) if silences_checked else reason
         for s in sections:
             for i, m in enumerate(s["metrics"]):
                 if m["id"] in SPEECH_DEPENDENT:
-                    s["metrics"][i] = _na(tr, m["id"], reason)
+                    s["metrics"][i] = _na(tr, m["id"], timing if m["id"] == "speech_overlap" else reason)
                 elif m["id"] == "language":
                     # A known gap in recognizing less common languages, not a fault of the dub: not graded.
                     s["metrics"][i] = {**_na(tr, "language", tr("r.lang.unrecognized", lang=lang_name,
@@ -464,19 +475,38 @@ def screen_low_lines(ms: Optional[dict]) -> list[dict]:
     return [ln for ln in (ms or {}).get("lines") or [] if ln["similarity"] < SCREEN_LOW] if (ms or {}).get("measured") else []
 
 
-def _meaning_screen(tr: Tr, ms: Optional[dict]) -> list[dict]:
-    """The offline line-by-line meaning comparison: Good or Check, never Poor (the judge decides)."""
+def _meaning_screen(tr: Tr, ms: Optional[dict], judged: bool = False) -> list[dict]:
+    """The offline line-by-line meaning comparison: Good or Check, never Poor. judged: the translation check ran,
+    so the screen is information only (the judge reads each line and is more precise; most of the planted-copy false
+    alarms came from the screen, docs/validation.md)."""
     if ms is None:
         return []                                         # results from before the screen existed
-    graded = tr("r.g.meaning_screen", min=f"{SCREEN_LOW:g}")
+    graded = tr("r.g.meaning_screen_judged" if judged else "r.g.meaning_screen", min=f"{SCREEN_LOW:g}")
     if not ms.get("measured"):
         return [_metric(tr, "meaning_screen", "not_measured", tr(ms.get("reason_key") or "r.screen.error"), None, "",
                         graded)]
     n, low = len(ms["lines"]), len(screen_low_lines(ms))
     median = f"{ms['median']:.2f}"
-    msg = tr("r.screen.good", median=median) if not low else tr("r.screen.low", low=low, n=n, min=f"{SCREEN_LOW:g}")
-    return [_metric(tr, "meaning_screen", "check" if low else "good", msg, ms["median"],
+    msg = tr("r.screen.good", median=median) if not low else tr("r.screen.low_judged" if judged else "r.screen.low",
+                                                                 low=low, n=n, min=f"{SCREEN_LOW:g}")
+    level = "info" if judged else "check" if low else "good"
+    return [_metric(tr, "meaning_screen", level, msg, ms["median"],
                     tr("r.screen.display", low=low, n=n, median=median), graded)]
+
+
+def _numbers(tr: Tr, nc: Optional[dict]) -> list[dict]:
+    """The numbers each dub line says against its original line (dubeval/numbers.py): Good or Check, never Poor
+    (speech recognition can mishear a number). No row when neither side says a number."""
+    if not nc or (not nc.get("measured") and not nc.get("with_numbers")
+                  and nc.get("reason_key") != "r.num.unrecognized"):
+        return []                                         # results from before the check, or no numbers at all
+    graded = tr("r.g.numbers")
+    if not nc.get("measured"):
+        return [_metric(tr, "numbers", "not_measured", tr(nc.get("reason_key") or "r.num.words"), None, "", graded)]
+    changed, n = len(nc["lines"]), nc["compared"]
+    msg = _pl(tr, "r.num.good", n) if not changed else _pl(tr, "r.num.check", changed, total=n)
+    return [_metric(tr, "numbers", "check" if changed else "good", msg, changed,
+                    tr("r.num.display", changed=changed, n=n), graded)]
 
 
 # The rubric's criteria (translation_judge.CRITERIA) and the report rows that show them; meaning alone can be Poor.
@@ -524,7 +554,7 @@ def _translation(tr: Tr, tj: Optional[dict], lang: str, ms: Optional[dict] = Non
     if not tj or not tj.get("measured"):
         return [_na(tr, "translation_check", judge_reason(tr, tj))] + _meaning_screen(tr, ms)
     if tj.get("rubric"):
-        return _rubric(tr, tj, lang) + _meaning_screen(tr, ms)
+        return _rubric(tr, tj, lang) + _meaning_screen(tr, ms, judged=True)
     score = tj["meaning_score"]
     level = _band_min(score, MEANING_SCORE)
     rows = [_metric(tr, "meaning", level, _local(tj["summary"], lang) + " " + tr(f"r.meaning.{level}"),
@@ -549,7 +579,7 @@ def _translation(tr: Tr, tj: Optional[dict], lang: str, ms: Optional[dict] = Non
                 " " + _pl(tr, "r.issues.plus_maybe", maybe) if maybe else "")
         shown = _pl(tr, "r.issues.count", len(real)) + (" · " + _pl(tr, "r.issues.maybe_count", maybe) if maybe else "")
         rows.append(_metric(tr, mid, level, msg, len(real), shown, tr("r.g.issues")))
-    return rows + _meaning_screen(tr, ms)
+    return rows + _meaning_screen(tr, ms, judged=True)
 
 
 def _integrity(tr: Tr, vi: Optional[dict]) -> list[dict]:
@@ -681,6 +711,21 @@ def sure_of(r: dict, problem: Optional[dict] = None) -> list[dict]:
     return out
 
 
+def _apply_little_speech(tr: Tr, sections: list[dict], unsure: list[dict], judged: bool = False) -> None:
+    """Rewrites the rows that read recognized words line by line on a mostly-music video, where those words move with any
+    change in the sound. Known-problem test: 7 of 12 line-length and 5 of 19 meaning-similarity false alarms were on the
+    one such dub. judged: the translation check ran, so meaning similarity is information only and stays."""
+    music = next((u for u in unsure if u["kind"] == "little_speech"), None)
+    if not music:
+        return
+    keys = {"line_length": "r.line.music", "line_overrun": "r.line.music"}
+    if not judged:
+        keys["meaning_screen"] = "r.screen.music"
+    for s in sections:
+        s["metrics"] = [{**_na(tr, m["id"], tr(keys[m["id"]], pct=music["pct"])), "not_graded": True}
+                        if m["id"] in keys and m["level"] != "not_measured" else m for m in s["metrics"]]
+
+
 def _apply_sure(tr: Tr, metrics: list[dict], unsure: list[dict]) -> str:
     """The verdict once what DubEval is unsure of is taken into account (it rewrites the rows it caps)."""
     kinds = {u["kind"] for u in unsure}
@@ -737,7 +782,8 @@ def build_report(r: dict, lang: str = DEFAULT_UI_LANGUAGE, dub: Optional[str] = 
                                             subtitles_confirm_language(r))},
         {"id": "alignment", "metrics": _alignment(tr, r.get("timing_alignment") or {})
          + _line_fit(tr, r.get("segment_alignment"))},
-        {"id": "translation", "metrics": _translation(tr, tj, lang, r.get("meaning_screen")), "note": tr("r.note.translation")},
+        {"id": "translation", "metrics": _translation(tr, tj, lang, r.get("meaning_screen"))
+         + _numbers(tr, r.get("numbers")), "note": tr("r.note.translation")},
         {"id": "integrity", "metrics": _integrity(tr, r.get("video_integrity"))},
         {"id": "lipsync", "metrics": _lipsync(tr, r.get("lipsync_metrics") or {}, project["is_lipsync"]),
          "note": tr("r.note.lipsync")},
@@ -747,9 +793,11 @@ def build_report(r: dict, lang: str = DEFAULT_UI_LANGUAGE, dub: Optional[str] = 
         if s["id"] == "lipsync" and s["metrics"][0]["id"] == "lip_sync":      # the real check, not the estimate
             s["title"], s["note"] = tr("rsec.lip_sync"), tr("r.note.lip_sync")
     problem = speech_problem(r)
-    _apply_speech_problem(tr, sections, problem, lang_name)
-    metrics = [m for s in sections for m in s["metrics"]]
+    _apply_speech_problem(tr, sections, problem, lang_name,
+                          (r.get("timing_alignment") or {}).get("voice_gaps") is not None)
     unsure = sure_of(r, problem)
+    _apply_little_speech(tr, sections, unsure, bool((tj or {}).get("measured")))
+    metrics = [m for s in sections for m in s["metrics"]]
     level = _apply_sure(tr, metrics, unsure)
     counts = {lv: sum(1 for m in metrics if m["level"] == lv) for lv in (*LEVELS, "not_measured")}
     clipping_poor = any(m["id"] == "clipping" and m["level"] == "poor" for m in metrics)
