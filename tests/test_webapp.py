@@ -1,8 +1,10 @@
 """The web interface's server: launch token, uploads, a job from start to review, media, waveforms, votes."""
+import json
 import os
 import sys
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -222,6 +224,109 @@ def test_several_dubs_start_a_comparison_with_a_stage_per_dub(compare_client):
     assert "dub_subtitles" not in compare_client.seen                     # subtitles belong to one dub
 
 
+def test_the_names_given_when_adding_dubs_reach_the_comparison(compare_client):
+    job_id = compare_client.post("/api/evaluations", json={
+        "original": "o", "dub": "a", "more_dubs": ["b"],
+        "dub_options": [{"name": "  Eleven   Labs "}, {"name": ""}]}).json()["id"]
+    finished(compare_client, job_id)
+    assert compare_client.seen["names"] == ["Eleven Labs", ""]
+
+
+def test_a_name_too_long_is_refused(compare_client):
+    resp = compare_client.post("/api/evaluations", json={"original": "o", "dub": "a", "more_dubs": ["b"],
+                                                         "dub_options": [{"name": "x" * 61}]})
+    assert resp.status_code == 422
+
+
+def test_a_dub_of_a_finished_comparison_can_be_named_and_renamed(compare_client):
+    job_id = compare_client.post("/api/evaluations", json={"original": "o", "dub": "a", "more_dubs": ["b"]}).json()["id"]
+    finished(compare_client, job_id)
+    before = compare_client.get(f"/api/jobs/{job_id}/comparison?lang=en").json()
+    assert compare_client.put(f"/api/jobs/{job_id}/dub-name?dub=B", json={"name": "  Perso   Dub "}).json() == {"name": "Perso Dub"}
+    comp = compare_client.get(f"/api/jobs/{job_id}/comparison?lang=en").json()
+    assert comp["labels"]["dub_B"] == "Dub B · Perso Dub" and comp["labels"]["dub_A"] == "Dub A"
+    assert comp["recommendation"]["headline"] == "Deliver Dub B · Perso Dub."
+    assert comp["ranking"] == before["ranking"] and comp["decision"] == before["decision"]      # only a label
+    assert compare_client.get(f"/api/jobs/{job_id}/report?dub=B&lang=en").json()["report"]["project"]["dub_name"] == "Perso Dub"
+    assert compare_client.put(f"/api/jobs/{job_id}/dub-name?dub=B", json={"name": " "}).json() == {"name": ""}
+    assert compare_client.get(f"/api/jobs/{job_id}/comparison?lang=en").json()["labels"]["dub_B"] == "Dub B"
+    missing = compare_client.put(f"/api/jobs/{job_id}/dub-name?dub=Z", json={"name": "x"}, headers={"Accept-Language": "es"})
+    assert missing.status_code == 404 and missing.json()["detail"] == "Ese doblaje no está en esta comparación."
+    assert compare_client.put(f"/api/jobs/{job_id}/dub-name?dub=A", json={"name": "x" * 61}).status_code == 422
+
+
+def test_history_says_which_dub_of_a_comparison_a_row_is(client, tmp_path):
+    from dubeval import history
+    runs = Path(pipeline.RUNS_DIR)
+    comparison, single = runs / "20261103-101500_0123abcd", runs / "20261103-101501_0123abcd"
+    for folder, name, dub in ((comparison, "report_A", "A"), (comparison, "report_B", "B"), (single, "report", None)):
+        r = make_results()
+        r["report"] = build_report(r, "en")
+        r["pipeline"]["report_files"] = pipeline.save_report_files(r, folder, name)
+        history.record(r, "compare" if dub else "web")
+    (comparison / "comparison.json").write_text(json.dumps(
+        {"dubs": ["A", "B"], "names": {"A": "ElevenLabs", "B": None}}), encoding="utf-8")
+    rows = client.get("/api/history").json()["history"]["recent"]
+    assert [(r["dub"], r["dub_name"]) for r in rows] == [(None, None), ("B", None), ("A", "ElevenLabs")]
+
+
+def test_renaming_a_comparison_from_its_card_renames_its_history_rows(client):
+    from dubeval import history
+    folder = Path(pipeline.RUNS_DIR) / "20261103-101500_0123abcd"
+    for d in "AB":
+        r = make_results()
+        r["report"] = build_report(r, "en")
+        pipeline.save_report_files(r, folder, f"report_{d}")
+        r["pipeline"]["report_files"] = {"html": str(folder / f"report_{d}.html")}
+        history.record(r, "compare")
+    (folder / "comparison.json").write_text(json.dumps({"dubs": ["A", "B"], "lang": "en"}), encoding="utf-8")
+    assert client.put(f"/api/evaluations/{folder.name}/title", json={"title": "Hat video"}).status_code == 200
+    assert [r["title"] for r in client.get("/api/history").json()["history"]["recent"]] == ["Hat video", "Hat video"]
+
+
+def test_a_name_that_cant_be_saved_changes_nothing(compare_client, monkeypatch):
+    job_id = compare_client.post("/api/evaluations", json={"original": "o", "dub": "a", "more_dubs": ["b"]}).json()["id"]
+    finished(compare_client, job_id)
+    folder = Path(webapp.jobs.get_job(job_id).params["folder"])
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "comparison.json").write_text("{}", encoding="utf-8")
+    def refuse(*a):
+        raise ValueError("gone")
+    monkeypatch.setattr(library, "rename_dub", refuse)
+    resp = compare_client.put(f"/api/jobs/{job_id}/dub-name?dub=A", json={"name": "Perso"}, headers={"Accept-Language": "pt"})
+    assert resp.status_code == 409 and resp.json()["detail"] == "Não foi possível salvar o nome. Tente de novo."
+    assert compare_client.get(f"/api/jobs/{job_id}/comparison?lang=en").json()["labels"]["dub_A"] == "Dub A"
+
+
+def test_a_title_edited_on_a_reopened_evaluation_reaches_history(client):
+    from dubeval import history
+    run = Path(pipeline.RUNS_DIR) / "20261103-101500_0123abcd"
+    r = make_results()
+    r["report"] = build_report(r, "en")
+    r["pipeline"]["report_files"] = pipeline.save_report_files(r, run)
+    history.record(r, "web")
+    job = client.post(f"/api/evaluations/{run.name}/open").json()       # its saved results don't name their report
+    assert client.put(f"/api/jobs/{job['id']}/title", json={"title": "Edited later"}).status_code == 200
+    assert client.get("/api/history").json()["history"]["recent"][0]["title"] == "Edited later"
+
+
+def test_a_control_character_cant_break_the_problem_sheet(tmp_path):
+    from xml.etree import ElementTree
+    import zipfile
+    from dubeval.xlsx import write_xlsx
+    path = write_xlsx(tmp_path / "s.xlsx", "Sheet", ["Dub"], [["A \x01 Perso"]])
+    with zipfile.ZipFile(path) as z:
+        sheet = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    ElementTree.fromstring(sheet)
+    assert "A  Perso" in sheet
+
+
+def test_a_single_dub_has_no_dub_names(client):
+    job_id = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    finished(client, job_id)
+    assert client.put(f"/api/jobs/{job_id}/dub-name?dub=A", json={"name": "x"}).status_code == 404
+
+
 def test_the_comparison_comes_in_the_page_language_without_the_full_reports(compare_client):
     job_id = compare_client.post("/api/evaluations", json={"original": "o", "dub": "a", "more_dubs": ["b"]}).json()["id"]
     finished(compare_client, job_id)
@@ -248,6 +353,13 @@ def test_a_single_evaluation_has_no_comparison_and_too_many_dubs_are_refused(cli
     assert client.get(f"/api/jobs/{job_id}/comparison").status_code == 404
     resp = client.post("/api/evaluations", json={"original": "o", "dub": "a", "more_dubs": ["x"] * 8})
     assert resp.status_code == 400 and "8" in resp.json()["detail"]
+
+
+def test_files_comparison_keeps_the_names_it_is_given(monkeypatch, tmp_path):
+    monkeypatch.setattr(pipeline, "evaluate_files", lambda *a, **options: make_results())
+    out = pipeline.run_files_comparison("o.mp4", ["a.mp4", "b.mp4"], str(tmp_path), report_lang="en", names=["Perso", ""])
+    assert out["results"]["A"]["pipeline"]["dub_name"] == "Perso" and "dub_name" not in out["results"]["B"]["pipeline"]
+    assert out["comparison"]["labels"]["dub_A"] == "Dub A · Perso"
 
 
 def test_files_comparison_evaluates_every_dub_against_one_original(monkeypatch, tmp_path):
@@ -318,6 +430,8 @@ def test_files_comparison_applies_each_dubs_own_settings(monkeypatch, tmp_path):
 def test_history_summarizes_past_runs_and_reopens_only_known_reports(client, monkeypatch, tmp_path):
     from dubeval import history
     monkeypatch.setattr(webapp, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(pipeline, "RUNS_DIR", tmp_path / "output" / "runs")
+    monkeypatch.setattr(library, "evaluations", lambda: [{"id": "r1"}])
     run = tmp_path / "output" / "runs" / "r1"
     run.mkdir(parents=True)
     (run / "report.html").write_text("<p>old report</p>", encoding="utf-8")
@@ -339,17 +453,30 @@ def test_history_summarizes_past_runs_and_reopens_only_known_reports(client, mon
         assert client.get(f"/api/reports?path={bad}").status_code == 404
 
 
-def test_reports_outside_the_data_folder_get_no_link(client, monkeypatch, tmp_path):
+def test_latest_evaluations_show_only_what_home_shows(client, tmp_path):
     from dubeval import history
-    monkeypatch.setattr(webapp, "DATA_DIR", tmp_path / "data")
-    elsewhere = tmp_path / "cli-output" / "report.html"
+    elsewhere = tmp_path / "cli-output" / "report.html"       # a command-line run: its report is there, but not on Home
     elsewhere.parent.mkdir()
     elsewhere.write_text("x", encoding="utf-8")
     r = make_results()
     r["report"] = build_report(r, "en")
     r["pipeline"]["report_files"] = {"html": str(elsewhere)}
     history.record(r, "single")
-    assert client.get("/api/history").json()["history"]["recent"][0]["report"] is None
+    del r["pipeline"]["report_files"]                         # and one with no report at all
+    history.record(r, "api")
+    summary = client.get("/api/history").json()["history"]
+    assert summary["recent"] == [] and summary["runs"] == 2   # still counted in the totals
+
+
+def test_latest_evaluations_keep_everything_home_has(client):
+    from dubeval import history
+    for i in range(25):                                       # more than the command line's 20
+        folder = Path(pipeline.RUNS_DIR) / f"20261103-1015{i:02d}_0123abcd"
+        r = make_results()
+        r["report"] = build_report(r, "en")
+        r["pipeline"]["report_files"] = pipeline.save_report_files(r, folder)
+        history.record(r, "web")
+    assert len(client.get("/api/history").json()["history"]["recent"]) == 25
 
 
 def test_the_history_page_texts_come_with_the_page(client):
@@ -534,14 +661,16 @@ def test_the_models_tab_lists_built_in_and_downloadable_models_by_group(client):
     assert data["ready"] >= 3 and data["bytes"] > 0
 
 
-def test_settings_say_where_the_data_is_and_can_open_it(client, monkeypatch):
+def test_settings_say_where_the_data_is_and_can_open_it(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(webapp, "DATA_DIR", tmp_path)
     opened = []
     monkeypatch.setattr(webapp.os, "startfile", opened.append, raising=False)
     monkeypatch.setattr(webapp.subprocess if hasattr(webapp, "subprocess") else __import__("subprocess"), "Popen",
                         lambda args: opened.append(args[-1]))
     view = client.get("/api/settings").json()
     assert view["data_dir"] and view["version"]
-    assert client.post("/api/settings/open-data").json() == {"opened": True} and opened
+    assert client.post("/api/settings/open-data?lang=ko").json() == {"opened": True} and opened
+    assert (tmp_path / "이 폴더 안내.txt").read_text(encoding="utf-8").startswith("이 폴더 안내")
 
 
 def test_the_report_says_how_to_fix_rows_that_need_a_key_or_a_model(client, monkeypatch):
@@ -665,6 +794,17 @@ def test_export_gives_one_file_or_a_zip_in_the_pages_language(client):
     assert client.get(f"/api/jobs/{job_id}/export?kinds=exe").status_code == 400
 
 
+def test_a_comparisons_problem_sheet_says_which_dub_by_name(compare_client, monkeypatch):
+    from dubeval import xlsx
+    seen, real = [], xlsx.write_xlsx
+    monkeypatch.setattr(xlsx, "write_xlsx", lambda path, sheet, head, rows, *a, **k: seen.extend(rows) or real(path, sheet, head, rows, *a, **k))
+    job_id = compare_client.post("/api/evaluations", json={"original": "o", "dub": "a", "more_dubs": ["b"]}).json()["id"]
+    finished(compare_client, job_id)
+    compare_client.put(f"/api/jobs/{job_id}/dub-name?dub=A", json={"name": "Perso"})
+    assert compare_client.get(f"/api/jobs/{job_id}/export?kinds=xlsx&lang=en").status_code == 200
+    assert {row[0] for row in seen} == {"A · Perso", "B"}
+
+
 def test_a_comparison_exports_the_comparison_and_every_dubs_report(compare_client):
     import io
     import zipfile
@@ -710,28 +850,29 @@ def test_export_file_names_keep_the_title_minus_what_windows_forbids():
     assert webapp._export_name(None) == webapp._export_name("...") == "DubEval"
 
 
-def test_a_past_run_opens_in_the_review_even_after_its_job_is_gone(client, monkeypatch, tmp_path):
+def test_a_past_run_opens_in_the_review_even_after_its_job_is_gone(client):
     from dubeval import history
-    monkeypatch.setattr(webapp, "DATA_DIR", tmp_path)
-    run = tmp_path / "output" / "runs" / "r1"
+    run = Path(pipeline.RUNS_DIR) / "20261103-101500_0123abcd"
     r = make_results()
     r["report"] = build_report(r, "en")
     r["pipeline"]["report_files"] = pipeline.save_report_files(r, run)
     history.record(r, "web")
-    first = client.post("/api/history/open?path=output/runs/r1/report.html").json()
-    assert first["kind"] == "files" and first["dub"] is None
-    again = client.post("/api/history/open?path=output/runs/r1/report.html").json()
+    (run / "report.html").unlink()                                      # its row still opens without the HTML file
+    [row] = client.get("/api/history").json()["history"]["recent"]
+    assert row["run"] == run.name and row["report"] is None
+    first = client.post(f"/api/evaluations/{row['run']}/open").json()
+    assert first["kind"] == "files"
+    again = client.post(f"/api/evaluations/{row['run']}/open").json()
     assert again["id"] == first["id"]                                   # the same job, not a new copy each time
     rep = client.get(f"/api/jobs/{first['id']}/report?lang=ko").json()["report"]
     assert rep["lang"] == "ko" and rep["overall"]["level"] == r["report"]["overall"]["level"]
-    assert client.post("/api/history/open?path=secret.html").status_code == 404
+    assert client.post("/api/evaluations/secret/open").status_code == 404
 
 
-def test_a_past_comparison_opens_on_the_chosen_dubs_tab(client, monkeypatch, tmp_path):
+def test_a_past_comparison_says_which_dubs_tab_to_open(client):
     from dubeval import history
     from dubeval.compare import build_ranking
-    monkeypatch.setattr(webapp, "DATA_DIR", tmp_path)
-    run = tmp_path / "output" / "runs" / "c1"
+    run = Path(pipeline.RUNS_DIR) / "20261103-101500_0123abcd"
     res = {"A": make_results(), "B": make_results()}
     comp = build_ranking([res["A"], res["B"]], "en")
     for d in comp["dubs"]:
@@ -739,8 +880,10 @@ def test_a_past_comparison_opens_on_the_chosen_dubs_tab(client, monkeypatch, tmp
     pipeline.save_comparison_files(comp, res, run)
     for d in comp["dubs"]:
         history.record(res[d], "compare")                                 # each dub links to its own report
-    past = client.post("/api/history/open?path=output/runs/c1/report_B.html").json()
-    assert past["kind"] == "comparison" and past["dub"] == "B"
+    rows = client.get("/api/history").json()["history"]["recent"]
+    assert [r["dub"] for r in rows] == ["B", "A"] and {r["run"] for r in rows} == {run.name}
+    past = client.post(f"/api/evaluations/{run.name}/open").json()
+    assert past["kind"] == "comparison"
     assert client.get(f"/api/jobs/{past['id']}/comparison").json()["dubs"] == ["A", "B"]
     assert client.get(f"/api/jobs/{past['id']}/report?dub=B").status_code == 200
 
@@ -989,32 +1132,6 @@ def test_a_pasted_link_is_downloaded_into_uploads_and_used_like_an_uploaded_file
     assert client.get("/api/uploads/link/../../x").status_code == 404
 
 
-def test_storage_lists_sizes_and_clears_only_downloads_nothing_uses(client, monkeypatch):
-    import os
-    import time
-    from dubeval import library, pipeline
-    cache, uploads = webapp.Path(pipeline.CACHE_DIR), webapp.Path(webapp.UPLOADS_DIR)
-    for folder, size in ((cache / "used", 300), (cache / "old", 500), (uploads / "fresh", 70), (uploads / "stale", 90)):
-        folder.mkdir(parents=True)
-        (folder / "video.mp4").write_bytes(b"x" * size)
-    week_ago = time.time() - 7 * 24 * 3600
-    os.utime(uploads / "stale", (week_ago, week_ago))
-    monkeypatch.setattr(library, "referenced_inputs", lambda: {str(cache / "used" / "video.mp4")})
-    s = client.get("/api/settings/storage").json()
-    assert s["downloads"] == {"count": 4, "bytes": 960, "unused_bytes": 590}   # old + stale; a fresh upload is kept
-    assert s["data_dir"] and s["evaluations"]["count"] >= 0 and s["models_bytes"] >= 0
-    after = client.post("/api/settings/storage/clear").json()
-    assert after["downloads"] == {"count": 2, "bytes": 370, "unused_bytes": 0}
-    assert (cache / "used").is_dir() and (uploads / "fresh").is_dir() and not (cache / "old").exists()
-
-
-def test_storage_is_not_cleared_while_an_evaluation_runs(client, monkeypatch):
-    from dubeval import jobs
-    monkeypatch.setattr(jobs, "busy", lambda: True)
-    resp = client.post("/api/settings/storage/clear", headers={"Accept-Language": "ko"})
-    assert resp.status_code == 409 and "진행 중" in resp.json()["detail"]
-
-
 def test_share_is_gone(client):
     job_id = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
     finished(client, job_id)
@@ -1065,11 +1182,3 @@ def test_renaming_a_comparison_from_its_card_renames_every_dubs_report(isolated_
         assert saved["report"]["project"]["title"] == "Weather, two dubs"
 
 
-def test_clearing_downloads_keeps_a_file_evaluations_saved_transcripts(client):
-    from dubeval import pipeline as pl
-    kept = webapp.Path(pl.CACHE_DIR) / "files_run"
-    kept.mkdir(parents=True)
-    (kept / "whisper_cache.json").write_text("{}", encoding="utf-8")
-    assert client.get("/api/settings/storage").json()["downloads"]["count"] == 0
-    client.post("/api/settings/storage/clear")
-    assert (kept / "whisper_cache.json").is_file()

@@ -1,4 +1,38 @@
 {
+  "0.1.5": {
+    "en": [
+      "Name each dub in a comparison, such as ElevenLabs or Perso, when you add it or later. Names show in the tabs, the ranking, reports, exports and Evaluation history, and never change the ranking.",
+      "Fixed: a dub whose picture is slowed down or sped up in places was graded too harshly, with lines missing and a timeline line that got stuck. DubEval now follows the drift.",
+      "The latest evaluations in Evaluation history now match Home, and each row says which dub it is.",
+      "A smoother start: one steady screen with the current icon, in your language.",
+      "Settings → Storage is simpler: one button opens the data folder, which now shows your videos, reports and a short note. As new videos arrive, the oldest ones no evaluation uses are removed.",
+      "Runs on Electron 45, with its latest security fixes."
+    ],
+    "ko": [
+      "비교할 더빙마다 ElevenLabs나 Perso처럼 이름을 붙일 수 있습니다. 추가할 때나 나중에 붙일 수 있습니다. 이름은 탭, 순위, 보고서, 내보내기, 평가 기록에 표시되며 순위에는 영향을 주지 않습니다.",
+      "수정: 영상이 군데군데 느려지거나 빨라지는 더빙이 지나치게 낮게 평가되고, 대사가 빠지고, 타임라인 선이 멈추던 문제를 고쳤습니다. 이제 DubEval이 어긋남을 따라갑니다.",
+      "평가 기록의 최근 평가가 이제 홈과 일치하며, 각 줄에 어떤 더빙인지 표시됩니다.",
+      "더 매끄러운 시작: 현재 아이콘과 사용 중인 언어로 된 하나의 안정된 화면이 표시됩니다.",
+      "설정 → 저장 공간이 간단해졌습니다: 버튼 하나로 데이터 폴더를 열며, 폴더에는 영상, 보고서, 짧은 안내만 보입니다. 새 영상이 쌓이면 어떤 평가에도 쓰이지 않는 가장 오래된 영상부터 삭제됩니다.",
+      "Electron 45에서 실행되며 최신 보안 수정이 포함되어 있습니다."
+    ],
+    "pt": [
+      "Dê um nome a cada dublagem de uma comparação, como ElevenLabs ou Perso, ao adicioná-la ou depois. Os nomes aparecem nas abas, na classificação, nos relatórios, nas exportações e no Histórico de avaliações, e nunca mudam a classificação.",
+      "Corrigido: uma dublagem com a imagem mais lenta ou mais rápida em alguns trechos recebia uma nota dura demais, com falas faltando e uma linha da linha do tempo que travava. Agora o DubEval acompanha essa diferença.",
+      "As avaliações recentes do Histórico de avaliações agora correspondem às do Início, e cada linha diz qual é a dublagem.",
+      "Uma inicialização mais suave: uma única tela estável, com o ícone atual, no seu idioma.",
+      "Configurações → Armazenamento ficou mais simples: um botão abre a pasta de dados, que agora mostra seus vídeos, relatórios e uma nota curta. À medida que chegam vídeos novos, os mais antigos que nenhuma avaliação usa são removidos.",
+      "Funciona com o Electron 45, com as correções de segurança mais recentes."
+    ],
+    "es": [
+      "Pon un nombre a cada doblaje de una comparación, como ElevenLabs o Perso, al añadirlo o más tarde. Los nombres aparecen en las pestañas, la clasificación, los informes, las exportaciones y el Historial de evaluaciones, y nunca cambian la clasificación.",
+      "Corregido: un doblaje con la imagen más lenta o más rápida en algunos tramos recibía una nota demasiado dura, con frases que faltaban y una línea de la línea de tiempo que se quedaba parada. Ahora DubEval sigue esa diferencia.",
+      "Las evaluaciones recientes del Historial de evaluaciones ahora coinciden con las de Inicio, y cada fila indica qué doblaje es.",
+      "Un inicio más suave: una sola pantalla estable, con el icono actual, en tu idioma.",
+      "Ajustes → Almacenamiento es más sencillo: un botón abre la carpeta de datos, que ahora muestra tus videos, informes y una nota breve. A medida que llegan videos nuevos, se eliminan los más antiguos que ninguna evaluación usa.",
+      "Funciona con Electron 45, con sus correcciones de seguridad más recientes."
+    ]
+  },
   "0.1.4": {
     "en": [
       "Updates work like a normal app now: the card says Update X is ready, and only Restart to update installs it. Closing DubEval doesn't.",

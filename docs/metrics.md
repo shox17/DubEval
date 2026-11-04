@@ -19,6 +19,14 @@ most 6000 frames).
   shift, the share of matching frames decides "same video", and runs of non-matching frames of at least 1 s are
   parts of the original missing from the dub (cut or replaced). Without usable motion, the hashes alone give the
   shift (and up to 5 parts for a differently cut dub).
+- *A picture that drifts*: some dubs have their picture slowed down or sped up in places, so the shift keeps changing
+  and no fixed shift fits. When the matching above finds under 90% of the original, DubEval looks for the path through the
+  shifts (from 0 to the files' length difference, 2 s further) with the most matching frames. It's used if it finds at
+  least 90% of the original and 10 points more. The dub's sound is then laid onto the original in parts with one shift
+  each, split at the dub's quietest moments, so lines stay whole. A really cut dub has frames no path can find, so it's
+  still reported as cut. In a still shot frames also match at the wrong time, so a path whose shift falls 2 s within 5 s is
+  treated as a cut, not a drift. Following a drift skips bits of the dub's sound, so a drifting dub's speaking pace is
+  measured on its own untouched sound; a recut dub's stays on the sound its words were heard in.
 - *Sound*: the onset envelope of each audio track every 10 ms. When it correlates at least 0.15, it refines the
   picture's shift within ±0.3 s; with a file that has no picture, it decides alone (and never refuses).
 
@@ -51,7 +59,8 @@ such as files differing in length by a frame, are never listed: `intervals.SLIVE
 **Verified** on synthetic clips (aligned, shifted 2 s, 5 s cut out, unrelated) and on real PersoDub dubs: a dub
 with 2.5 s added at the start measured +2.50 s (speech timing back to the untouched 90%); a dub with 40–45 s cut out
 reported 95% coverage and the missing part at 40.1–45.1 s; an unrelated pair was refused; 7 untouched real pairs
-were all "same video", no shift, 100% coverage. **Limits:** a dub that is cropped, letterboxed or reframed (for
+were all "same video", no shift, 100% coverage. A real English → Korean dub whose picture drifted between 0 and 5.1 s went
+from 77% to 100% coverage. **Limits:** a dub that is cropped, letterboxed or reframed (for
 example 16:9 → 9:16) changes the hashes and may read as "unsure"; parts that are missing from a perfectly static
 shot can only be found through the sound or speech timing.
 

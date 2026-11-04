@@ -366,20 +366,26 @@ function withSettings(d, dubTypes, onChange) {
   explain();
   const lang = languageSelect();
   const subtitles = subtitleField(onChange);
-  d.card.append(h("div", { class: "dub-settings" },
+  const name = h("input", { type: "text", class: "dub-name-input", maxlength: "60", placeholder: t("w.start.dub_name_hint") });
+  name.addEventListener("input", onChange);
+  const nameRow = h("label", { hidden: true }, t("w.start.dub_name"), name);
+  d.card.append(h("div", { class: "dub-settings" }, nameRow,
     h("label", {}, h("span", { class: "row" }, t("w.start.dub_type"), typeHelp(dubTypes)), type),
     h("label", {}, t("w.start.target_lang"), lang), meaning), subtitles.el);
   d.settings = async () => ({ dub_type: type.value || null, target_lang: lang.value || null,
-    subtitles: await subtitles.value() });
+    subtitles: await subtitles.value(), name: name.value.trim() || null });
+  d.showName = on => { nameRow.hidden = !on; };          // a name tells dubs apart: one dub alone doesn't need it
   d.setLanguage = code => pick(lang, code);
   const sourceState = d.state, sourceRestore = d.restore;
-  d.state = () => ({ ...sourceState(), dub_type: type.value, target_lang: lang.value, subtitles: subtitles.state() });
+  d.state = () => ({ ...sourceState(), dub_type: type.value, target_lang: lang.value, subtitles: subtitles.state(),
+    name: name.value });
   d.restore = async saved => {
     if (!saved) return;
     pick(type, saved.dub_type || "");
     explain();
     pick(lang, saved.target_lang || "");
     subtitles.restore(saved.subtitles);
+    name.value = saved.name || "";
     await sourceRestore(saved);
   };
   return d;
@@ -482,7 +488,10 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   // One dub: "Dubbed video"; several: "Dub A", "Dub B", ... and the comparison button.
   function relabel() {
     const many = dubs.length > 1;
-    dubs.forEach((d, i) => d.setTitle(many ? t("w.start.dub_n", { d: LETTERS[i] }) : t("w.start.dub")));
+    dubs.forEach((d, i) => {
+      d.setTitle(many ? t("w.start.dub_n", { d: LETTERS[i] }) : t("w.start.dub"));
+      d.showName(many);
+    });
     addBtn.hidden = dubs.length >= LETTERS.length;
     startBtn.textContent = many ? t("w.start.go_compare", { n: dubs.length }) : t("w.start.go");
   }

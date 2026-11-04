@@ -442,6 +442,10 @@ MESSAGES = {
     # The web interface's own errors (dubeval/webapp.py).
     "This evaluation can't continue. Start it again from its draft.": {"ko": "이 평가는 이어서 할 수 없습니다. 초안에서 다시 시작하세요.", "pt": "Esta avaliação não pode continuar. Comece de novo pelo rascunho.", "es": "Esta evaluación no puede continuar. Empiézala de nuevo desde su borrador."},
     "That evaluation is gone. It may have been deleted.": {"ko": "그 평가가 없습니다. 삭제되었을 수 있습니다.", "pt": "Essa avaliação não existe mais. Talvez tenha sido apagada.", "es": "Esa evaluación ya no está. Puede que se haya borrado."},
+    "That dub isn't in this comparison.": {"ko": "이 비교에는 그 더빙이 없습니다.", "pt": "Essa dublagem não está nesta comparação.",
+                                           "es": "Ese doblaje no está en esta comparación."},
+    "Couldn't save the name. Try again.": {"ko": "이름을 저장하지 못했습니다. 다시 시도하세요.", "pt": "Não foi possível salvar o nome. Tente de novo.",
+                                           "es": "No se pudo guardar el nombre. Inténtalo de nuevo."},
     "That draft is gone. It may have been deleted or started.": {"ko": "그 초안이 없습니다. 삭제되었거나 이미 시작되었을 수 있습니다.", "pt": "Esse rascunho não existe mais. Talvez tenha sido apagado ou iniciado.", "es": "Ese borrador ya no está. Puede que se haya borrado o iniciado."},
     "This draft is too big to keep.": {"ko": "이 초안은 너무 커서 저장할 수 없습니다.", "pt": "Este rascunho é grande demais para ser guardado.", "es": "Este borrador es demasiado grande para guardarlo."},
     "Couldn't delete this evaluation. Close anything that uses its files, then try again.": {"ko": "이 평가를 삭제하지 못했습니다. 이 평가의 파일을 사용하는 프로그램을 닫고 다시 시도하세요.", "pt": "Não foi possível apagar esta avaliação. Feche o que estiver usando os arquivos dela e tente de novo.", "es": "No se pudo borrar esta evaluación. Cierra lo que esté usando sus archivos e inténtalo de nuevo."},
@@ -537,10 +541,6 @@ MESSAGES = {
     "Analyzing lip movement in the dubbed video...": {"ko": "더빙 영상의 입 움직임 분석 중...",
                                                       "pt": "Analisando o movimento dos lábios no vídeo dublado...",
                                                       "es": "Analizando el movimiento de los labios en el video doblado..."},
-    "An evaluation or a download is running. Clear the downloads when it has finished.": {
-        "ko": "평가나 다운로드가 진행 중입니다. 끝난 뒤에 비우세요.",
-        "pt": "Uma avaliação ou um download está em andamento. Limpe os downloads quando terminar.",
-        "es": "Hay una evaluación o una descarga en curso. Vacía las descargas cuando termine."},
     "Checking lip sync in both videos...": {"ko": "두 영상의 립싱크 확인 중...",
                                             "pt": "Verificando a sincronia labial nos dois vídeos...",
                                             "es": "Comprobando la sincronía labial en los dos videos..."},

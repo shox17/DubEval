@@ -137,6 +137,7 @@ export function confirmAlert({ title, text = "", keep, confirm, onConfirm = null
 export async function setLanguage(code) {
   state.lang = code;
   try { localStorage.setItem(LANG_KEY, code); } catch { /* not kept */ }
+  window.dubevalShell?.rememberLanguage(code);      // the desktop app's starting page opens before this page can say
   await loadInfo();
   route(true);
 }
@@ -262,20 +263,6 @@ function pickLanguage(languages) {
   return [saved, browser].find(l => l && l in languages) || "en";
 }
 
-// The boot screen's words, before the server's texts arrive (the same as the desktop shell's starting page).
-const BOOT_TEXT = {
-  en: ["Starting DubEval…", "Loading the speech and video tools. The first start can take up to a minute."],
-  ko: ["DubEval 시작 중…", "음성·영상 도구를 불러오고 있습니다. 처음 시작할 때는 1분 정도 걸릴 수 있습니다."],
-  pt: ["Iniciando o DubEval…", "Carregando as ferramentas de fala e vídeo. A primeira vez pode levar até um minuto."],
-  es: ["Iniciando DubEval…", "Cargando las herramientas de habla y video. La primera vez puede tardar hasta un minuto."],
-};
-
-function showBoot(lang) {
-  const [title, text] = BOOT_TEXT[lang] || BOOT_TEXT.en;
-  document.getElementById("boot-title").textContent = title;
-  document.getElementById("boot-text").textContent = text;
-}
-
 // The app appears only once its texts and first screen are in place: never a frame without its labels.
 function hideBoot() {
   document.body.classList.remove("booting");
@@ -285,7 +272,7 @@ function hideBoot() {
 async function main() {
   try {
     state.lang = pickLanguage({ en: 1, ko: 1, pt: 1, es: 1 });
-    showBoot(state.lang);
+    window.dubevalShell?.rememberLanguage(state.lang);
     await loadInfo();
   } catch (e) {
     document.getElementById("boot-text").textContent = e.message;

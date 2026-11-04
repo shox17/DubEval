@@ -6,11 +6,11 @@ server. The server takes the same port at every launch unless it's busy, because
 (language, sidebar width, history period) belongs to its address.
 
 ## Run it (development)
-Needs [Node.js](https://nodejs.org) 20 or newer, and DubEval installed in the project's `.venv` (see the main README).
+Needs [Node.js](https://nodejs.org) 22.12 or newer (Electron 45's own requirement), and DubEval installed in the project's `.venv` (see the main README).
 ```bash
 cd desktop
-npm install          # once: downloads Electron (~100 MB); package.json allows only Electron's own install script
-npm start
+npm install
+npm start            # the first start downloads Electron (~100 MB)
 ```
 `DUBEVAL_PYTHON=/path/to/python` picks another Python with DubEval installed (for example the built bundle,
 `resources/python/python.exe`, to try it before making the installer).
@@ -39,7 +39,8 @@ uninstalling keeps them.
 name and version) and used for the installer and uninstaller; `build/icon.png` is the window icon when running from
 source. Both are rendered from `build/icon.svg` (48 px and up) and `build/icon-small.svg` (16-32 px), as are
 `docs/images/icon.png` (README) and `dubeval/web/icon.png` (the app's loading screen); after changing a source SVG,
-render them all again.
+render them all again. `status.html` and the page's `index.html` carry a copy of `dubeval/web/icon.png` inside them (a
+test checks they match).
 
 ## How it works
 - **Starting:** a "Starting DubEval" page shows until the server prints `DubEval: http://127.0.0.1:<port>/?token_given=…`

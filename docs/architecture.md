@@ -109,10 +109,9 @@ each card's "..." menu, search, and polling while a started draft runs), new (`#
 cards), draft (`#/draft/<id>`: the start page filled in again from `GET /api/drafts/<id>`; the page saves its fields
 with `POST`/`PUT /api/drafts` 0.7 s after each change once a video is given, adds chosen files with
 `POST /api/uploads` at once so the draft holds them, and passes `draft_id` when it starts the run), plus settings (`#/settings/<keys|models|storage|privacy|about>`, PersoDub's dialog with Cancel and Save: Save keeps
-typed API keys and a new language, everything else acts at once; Storage = `GET /api/settings/storage` (evaluations,
-downloaded videos and the part no evaluation or draft uses, models, the data folder) and
-`POST /api/settings/storage/clear` (deletes those unused downloads, never while a job or a link download runs, never
-an upload under a day old); Models = `packs.catalog()` grouped with sizes and download/stop/resume/remove; API keys for Claude, Gemini and ChatGPT as password fields, never shown back, plus the checker in use; Privacy with the data folder and `POST /api/settings/open-data`; About with version, language, license and acknowledgements; `#/downloads` redirects to Models), history (`#/history`: totals, week-by-week bars, language pairs, the most frequent problems, reviewer votes per check, the latest runs with their reports), progress (`#/job/<id>`, polled every second), comparison (`#/compare/<id>/<dub>`: the recommendation and its reasoning, the ranking, every check side by side, then one tab per dub holding that dub's review) and review (`#/report/<id>`): two players kept in sync on the original's clock (the dub follows through the applied shift or parts and is re-synced past 0.25 s of drift), a canvas timeline (ruler, both waveforms, lines, problem intervals; scroll, Ctrl+scroll zoom, click to seek or select), a detail panel (both texts, lengths, problems with votes), things to check and every section's measures. It shows the server's levels and texts only; nothing is graded in the browser.
+typed API keys and a new language, everything else acts at once; Storage = **Open folder** (`POST /api/settings/open-data`, which first hides what only the app reads and leaves a note,
+`library.tidy_data_folder`; old downloads are pruned
+automatically, never one a kept evaluation or draft uses); Models = `packs.catalog()` grouped with sizes and download/stop/resume/remove; API keys for Claude, Gemini and ChatGPT as password fields, never shown back, plus the checker in use; Privacy with the data folder and `POST /api/settings/open-data`; About with version, language, license and acknowledgements; `#/downloads` redirects to Models), history (`#/history`: totals, week-by-week bars, language pairs, the most frequent problems, reviewer votes per check, the latest runs with their reports), progress (`#/job/<id>`, polled every second), comparison (`#/compare/<id>/<dub>`: the recommendation and its reasoning, the ranking, every check side by side, then one tab per dub holding that dub's review) and review (`#/report/<id>`): two players kept in sync on the original's clock (the dub follows through the applied shift or parts and is re-synced past 0.25 s of drift), a canvas timeline (ruler, both waveforms, lines, problem intervals; scroll, Ctrl+scroll zoom, click to seek or select), a detail panel (both texts, lengths, problems with votes), things to check and every section's measures. It shows the server's levels and texts only; nothing is graded in the browser.
 
 ### `dubeval/library.py`
 The home screen's Evaluations list. A finished run folder (`data/output/runs/<YYYYMMDD-HHMMSS_hex8>/`) is one card:
@@ -121,7 +120,9 @@ The home screen's Evaluations list. A finished run folder (`data/output/runs/<YY
 it plays, dubs first). `thumbnail` keeps `thumb.jpg`: the draft's picture when it was started from one, else one ffmpeg
 frame of its dub (else original) made on first request. `rename` writes the new title into the saved report (one dub,
 rebuilt in its language) or `comparison.json`'s `custom_title`; the web route then forgets the kept job
-(`jobs.forget_folder`) so opening it rebuilds from the files, and renames the History records. `delete` removes the
+(`jobs.forget_folder`) so opening it rebuilds from the files, and renames the History records. `rename_dub` sets one dub's
+`pipeline.dub_name` and rewrites the comparison's files (`compare.shown_names`: that name, else the file's name; only a
+label, nothing is ranked by it). History rows read those names from `comparison.json` when shown. `delete` removes the
 folder and returns the inputs nothing else uses; the route deletes those that are uploads.
 Drafts are `data/drafts/<hex12>.json` (`{id, created, updated, name, thumbnail (data:image URI), form, job}`, at most
 512 KB; a picture that makes it bigger is dropped). `start_draft` records the job and copies the picture into the run

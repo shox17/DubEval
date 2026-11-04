@@ -3,7 +3,7 @@
 //
 // Proof of concept: Python comes from the repository's .venv (or DUBEVAL_PYTHON). A packaged build will ship its
 // own Python next to the app (resources/python), found the same way.
-const { app, BrowserWindow, shell, Menu } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -43,7 +43,16 @@ function bundleOf(python) {
   return root && fs.existsSync(path.join(root, "build.json")) ? root : null;
 }
 
+const SHOW_WITHIN_MS = 3000;  // the window appears by then even if its first page never draws (a crashed page, say)
+const languageFile = () => path.join(app.getPath("userData"), "language.txt");
+
+// The language of the starting page, which opens before the web page and can't read its settings: the one the page
+// last told us, else the computer's. A different one here changed the words on screen in the middle of starting.
 function language() {
+  try {
+    const saved = fs.readFileSync(languageFile(), "utf8").trim();
+    if (LANGUAGES.includes(saved)) return saved;
+  } catch { /* not told yet */ }
   const code = (app.getLocale() || "en").split("-")[0];
   return LANGUAGES.includes(code) ? code : "en";
 }
@@ -130,6 +139,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: "DubEval",
+    show: false,                                       // until its first page is drawn: no empty window first
     autoHideMenuBar: true,
     backgroundColor: "#0e131b",
     // No white Windows title bar (as in PersoDub): the page's dark top strip is the title bar and the window buttons
@@ -157,6 +167,9 @@ function createWindow() {
     openOutside(url);
     return { action: "deny" };
   });
+  const show = () => { if (win && !win.isVisible()) win.show(); };
+  win.once("ready-to-show", show);
+  setTimeout(show, SHOW_WITHIN_MS);
   win.on("closed", () => { win = null; });
   showStatus("starting");
 }
@@ -182,10 +195,15 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
+    if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
   });
   app.whenReady().then(() => {
     if (app.isPackaged) Menu.setApplicationMenu(null);
+    ipcMain.on("language", (event, code) => {
+      const from = event.senderFrame && event.senderFrame.url;
+      if (!origin || !from || new URL(from).origin !== origin || !LANGUAGES.includes(code)) return;
+      try { fs.writeFileSync(languageFile(), code); } catch { /* the next start uses the computer's */ }
+    });
     updater.init({
       getWindow: () => win,
       isOwnPage: url => !!(origin && url && new URL(url).origin === origin),

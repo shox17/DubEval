@@ -123,9 +123,9 @@ dubeval/webapp.py            Web interface server (dubeval web): uploads, evalua
                              (on the report rebuilt with the current rules, `_current_report`, the list the review numbers);
                              a pasted link downloaded at once into uploads (`/api/uploads/link`, any kind: `inputs.direct_link`
                              turns Dropbox/Drive/OneDrive shares into file links); Settings → Storage
-                             (`/api/settings/storage`, `/clear`: only downloads no evaluation or draft uses);
+                             (opens the data folder, `/api/settings/open-data`);
                              127.0.0.1 only, per-launch token kept in a same-site cookie, Host header checked
-dubeval/web/                 The page: plain JavaScript modules, no build step (app, home = the Evaluations screen,
+dubeval/web/                 The page: plain JavaScript modules, no build step (boot = the start screen's words, app, home = the Evaluations screen,
                              start (+ drafts), progress, review, compare, history, settings, export = the Export dialog,
                              shell = the sidebar's Help / Send feedback / What's new and the update state + CSS)
 dubeval/library.py           The Evaluations list: cards of finished run folders (card.json, thumb.jpg), rename,
@@ -205,6 +205,7 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   thresholds in `dubeval/intervals.py`, and the compare decision rule only in `dubeval/compare.py` (`RULES`). The UI and
   CLI render reports and comparisons; they never re-derive levels or decisions. Every Good/Check/Poor row states
   how it's graded.
+- **A dub's name is only a label** (`pipeline.dub_name`, `compare.shown_names`): it's never part of `facts` or the ranking.
 - **The decision rule is deterministic and printed:** rule order, "skip a rule when any dub lacks its value", ties
   keep input order, the reasoning compares #1 with #2, rule 1 (a dub with fewer of the key checks `KEY_CHECKS` measured never
   wins), the caution when the winner still lacks key checks, the held recommendation when DubEval isn't sure of the
@@ -403,11 +404,14 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
 5. Commit only when the user asks.
 
 ## Known limits
+- A dub whose picture drifts (slowed down or sped up in places) is followed only when the usual matching finds under 90% of
+  the original (`pairing._followed`), so other dubs are matched as before. It rests on one real dub, and the guard against a
+  cut in a still shot (`DRIFT_MAX_FALL`) on one real cut (`docs/validation.md`).
 - A dub subtitle file confirms the dub's language when the transcript matches it at `report.SUBTITLE_MATCH` (0.45,
   1 − character error rate): set from one EN→UZ Perso dub (0.61 against its Uzbek subtitles, unrelated text
   0.17-0.25). Check it on more pairs before relying on it.
-- Runtimes (upgraded 2026-10-23 after the security review): Electron 44.9.3 (supported: the newest three majors get
-  Chromium fixes, so move on before 44 drops out) and Python 3.14.9 (bug-fix releases with Windows builds until
+- Runtimes: Electron 45.2.2 (upgraded 2026-11-04; the newest three majors get Chromium fixes, and 45's end about
+  2027-04-27, so move on before then; since 45 it downloads on first use, not at `npm install`) and Python 3.14.9 (bug-fix releases with Windows builds until
   2027-10). Before changing either, check every pin has a wheel for it:
   `pip install --dry-run --ignore-installed --only-binary=:all: --platform win_amd64 --python-version 3.14
   --implementation cp --target <tmp> -r requirements.txt` (openai-whisper is source-only, which is fine).

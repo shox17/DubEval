@@ -72,11 +72,11 @@ function reviewers(fb) {
 }
 
 // Opens a past evaluation in the app's own review (or its comparison, on that dub's tab), not as a file.
-async function openPast(report, link) {
+async function openPast(row, link) {
   link.setAttribute("aria-busy", "true");
   try {
-    const past = await api(`/api/history/open?path=${encodeURIComponent(report)}`, { method: "POST" });
-    go(past.kind === "comparison" ? `#/compare/${past.id}/${past.dub || "A"}` : `#/report/${past.id}`);
+    const past = await api(`/api/evaluations/${row.run}/open`, { method: "POST" });
+    go(past.kind === "comparison" ? `#/compare/${past.id}/${row.dub || "A"}` : `#/report/${past.id}`);
   } catch (e) {
     link.removeAttribute("aria-busy");
     alert(e.message);
@@ -87,8 +87,9 @@ function recent(s) {
   return h("section", { class: "card" }, h("h2", {}, t("h.recent")),
     table([t("h.when"), t("w.hist.verdict"), t("w.hist.title"), t("h.pair")],
       s.recent.map(r => [h("span", { class: "mono" }, r.time.slice(0, 16)), badge(r.verdict),
-        r.report ? h("a", { href: "#", onclick: e => { e.preventDefault(); openPast(r.report, e.currentTarget); } },
-          r.title || "–") : (r.title || "–"),
+        [h("a", { href: "#", onclick: e => { e.preventDefault(); openPast(r, e.currentTarget); } }, r.title || "–"),
+        r.dub ? h("span", { class: "hist-dub small" },
+          t("w.start.dub_n", { d: r.dub }) + (r.dub_name ? ` · ${r.dub_name}` : "")) : null],
         r.languages])));
 }
 

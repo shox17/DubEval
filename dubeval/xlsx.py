@@ -2,10 +2,13 @@
 
 Enough for the problem list Export makes; Excel, LibreOffice, Numbers and Google Sheets open it.
 """
+import re
 import zipfile
 from pathlib import Path
 from typing import Optional, Sequence
 from xml.sax.saxutils import escape
+
+CONTROL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")     # not allowed in XML: Excel would refuse the file
 
 _CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -62,7 +65,7 @@ def _cell(ref: str, value, style: int) -> str:
         return ""
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return f'<c r="{ref}" s="{style}"><v>{value}</v></c>'
-    text = escape(str(value)).replace("\n", "&#10;")
+    text = escape(CONTROL.sub("", str(value))).replace("\n", "&#10;")
     return f'<c r="{ref}" s="{style}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
 
 

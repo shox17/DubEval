@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 from dubeval.batch import agreement, render_batch_text, summary_row, to_csv
 from dubeval import history
 from dubeval.paths import DATA_DIR
-from dubeval.compare import LABELS, build_ranking, render_comparison_html, render_comparison_text
+from dubeval.compare import GENERIC_NAMES, LABELS, build_ranking, render_comparison_html, render_comparison_text
 from dubeval import asr, inputs, meaning, numbers, pairing, schema, speaker
 from dubeval.version import TOOL_VERSION
 from dubeval.evaluate import (run_full_evaluation, DEFAULT_WHISPER_MODEL, CACHE_VERSION, base_lang, load_both,
@@ -290,6 +290,7 @@ def evaluate_share(
         cache=cache,
         dub_offset_sec=applied_offset(pair),
         dub_parts=applied_parts(pair),
+        dub_drifts=bool(pair.get("drift")),
         audio=audio,
         check=check_cancel,
     )
@@ -344,6 +345,17 @@ def _cues(cues: Optional[list[dict]], start: float, end: float, shift: float = 0
     return " ".join(picked).strip()
 
 
+def _dub_cues(cues: list[dict], start: float, end: float, pair: dict) -> str:
+    """The dub's subtitle text for [start, end] on the original's timeline: moved by each part's own shift when the dub is
+    laid by parts (drifting or recut), where one overall shift would pick another line's text."""
+    parts = applied_parts(pair)
+    if not parts:
+        return _cues(cues, start, end, pair.get("applied_offset_sec") or 0.0)
+    spans = [(max(start, p["start"]) + p["offset_sec"], min(end, p["end"]) + p["offset_sec"]) for p in parts
+             if p["start"] < end and p["end"] > start]
+    return " ".join(c["text"] for c in cues if any(c["start"] < hi and c["end"] > lo for lo, hi in spans)).strip()
+
+
 def judge_lines(results: dict) -> list[dict]:
     """The speech of both sides line by line, for the meaning check and the screen: each matched line
     (segment_alignment) with what each side said, then speech heard on one side only. Subtitle files, when given,
@@ -351,7 +363,7 @@ def judge_lines(results: dict) -> list[dict]:
     sr, sa = results.get("speech_recognition") or {}, results.get("segment_alignment") or {}
     orig, dub = sr.get("original_segments") or [], sr.get("dubbed_segments") or []
     subs = results.get("subtitles") or {}
-    shift = (results.get("pairing") or {}).get("applied_offset_sec") or 0.0
+    pair = results.get("pairing") or {}
     lines = []
     for ln in sa.get("lines") or []:
         lines.append({"n": ln["n"], "start": ln["start"], "end": ln["end"],
@@ -369,7 +381,7 @@ def judge_lines(results: dict) -> list[dict]:
         if subs.get("original"):
             ln["original_script"] = _cues(subs["original"], ln["start"], ln["end"])
         if subs.get("dub"):
-            ln["dub_script"] = _cues(subs["dub"], ln["start"], ln["end"], shift)
+            ln["dub_script"] = _dub_cues(subs["dub"], ln["start"], ln["end"], pair)
     return sorted(lines, key=lambda ln: ln["start"])
 
 
@@ -561,9 +573,6 @@ def _language_name(code: Optional[str]) -> Optional[str]:
     return asr.language_names().get(base_lang(code), code).title()
 
 
-GENERIC_NAMES = {"dub", "dubbed", "input", "output", "original", "source", "video", "audio", "final", "result"}
-
-
 def _title(spec: str) -> str:
     """A title for the report: the file name, or its folder's name when the file name says nothing ("dubbed.mp4")."""
     if inputs.is_link(spec):
@@ -718,6 +727,7 @@ def evaluate_files(
         cache=cache,
         dub_offset_sec=applied_offset(pair),
         dub_parts=applied_parts(pair),
+        dub_drifts=bool(pair.get("drift")),
         audio=audio,
         check=check_cancel,
     )
@@ -821,6 +831,13 @@ def save_comparison_files(comp: dict, results: dict, out_dir, absolute_videos: b
     return out
 
 
+def _name_dubs(results: dict, names: Optional[list[str]]) -> None:
+    """Keeps the names a person gave the dubs, in order."""
+    for dub, name in zip(results, names or []):
+        if name:
+            results[dub].setdefault("pipeline", {})["dub_name"] = name
+
+
 def run_comparison(
     url_a: str,
     url_b: str,
@@ -838,11 +855,12 @@ def run_comparison(
     sleep: Callable[[float], None] = time.sleep,
     original_subtitles: Optional[str] = None,
     per_dub: Optional[list[dict]] = None,
+    names: Optional[list[str]] = None,
 ) -> dict:
     """Evaluates dubs of the same video with the full pipeline, ranks them, recommends one, and saves every file.
 
     url_a and url_b are dubs A and B; more_urls adds C, D, ... (up to 8 in all). per_dub (one dict per dub, in order)
-    gives a dub its own dub_subtitles and dub_type; original_subtitles is shared. Returns {"comparison", "results":
+    gives a dub its own dub_subtitles and dub_type; original_subtitles is shared; names labels the dubs. Returns {"comparison", "results":
     {"A", "B", ...}, "files"}. The decision rule lives in dubeval/compare.py.
     """
     urls = [url_a, url_b, *more_urls]
@@ -868,6 +886,7 @@ def run_comparison(
                                       original=original, use_cache=use_cache, session=session, sleep=sleep,
                                       original_subtitles=original_subtitles,
                                       **{k: v for k, v in own.items() if k in ("dub_subtitles", "dub_type") and v})
+    _name_dubs(results, names)
     outer("compare", "Comparing the dubs...", 0.5)
     comp = build_ranking(list(results.values()), report_lang, run_seconds=time.time() - started)
     for dub in comp["dubs"]:
@@ -892,13 +911,14 @@ def run_files_comparison(
     report: Optional[Callable[[Progress], None]] = None,
     cancel_event: Optional[threading.Event] = None,
     per_dub: Optional[list[dict]] = None,
+    names: Optional[list[str]] = None,
     **options,
 ) -> dict:
     """Evaluates 2-8 dubs of one original (files or links), ranks them, recommends one, and saves every file.
 
     options are evaluate_files' keyword arguments, shared by every dub; per_dub (one dict per dub, in order) overrides
     them for that dub, e.g. [{"dub_type": "human"}, {"dub_type": "ai_clone", "target_lang": "uz"}]: a human and an
-    AI dub, or dubs in different languages, are each judged by their own rules. Returns {"comparison", "results":
+    AI dub, or dubs in different languages, are each judged by their own rules. names labels the dubs. Returns {"comparison", "results":
     {"A", "B", ...}, "files"}, like run_comparison. The decision rule lives in dubeval/compare.py.
     """
     if not 2 <= len(dubs) <= len(LABELS):
@@ -920,6 +940,7 @@ def run_files_comparison(
             outer(f"dub_{_dub.lower()}", message, lo + (hi - lo) * fraction)
         results[dub] = evaluate_files(original, path, notify, check_cancel,
                                       **{**options, **{k: v for k, v in own.items() if v is not None}})
+    _name_dubs(results, names)
     outer("compare", "Comparing the dubs...", 0.5)
     comp = build_ranking(list(results.values()), report_lang, run_seconds=time.time() - started)
     for dub in comp["dubs"]:

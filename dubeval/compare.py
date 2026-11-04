@@ -9,6 +9,7 @@ render_comparison_text / render_comparison_html. Pure: no file writes, no networ
 import html
 import time
 import unicodedata
+from pathlib import Path
 from typing import Callable, Optional
 
 from dubeval.i18n import DEFAULT_UI_LANGUAGE, t as i18n_t
@@ -19,6 +20,8 @@ Tr = Callable[..., str]
 DUBS = ("A", "B")                 # the two-dub case; N dubs are labelled from LABELS
 LABELS = "ABCDEFGH"
 MAX_DUBS = len(LABELS)
+GENERIC_NAMES = {"dub", "dubbed", "input", "output", "original", "source", "video", "audio", "final", "result"}
+NAME_LEN, NAME_START = 32, 14            # a file's name beside a dub's letter: at most this long, this much of it first
 VERDICT_RANK = {"good": 0, "check": 1, "poor": 2}
 SAME_VIDEO_PCT = 5.0              # originals differing in length by more than this may be different videos
 # The checks a dub must be measured on before its verdict can be compared: they read the dub's recognized speech, so
@@ -181,6 +184,25 @@ def build_comparison(results_a: dict, results_b: dict, lang: str = DEFAULT_UI_LA
     return build_ranking([results_a, results_b], lang, run_seconds)
 
 
+def _file_name(r: dict) -> Optional[str]:
+    """What a dub is called when nobody named it: its file's name, shortened in the middle because dubs of one video
+    often differ only at the end. A link has no file name to go by."""
+    spec = str(((r.get("pipeline") or {}).get("input") or {}).get("dub") or "")
+    name = "" if "://" in spec else Path(spec).stem
+    if not name or name.lower() in GENERIC_NAMES:
+        return None
+    return name if len(name) <= NAME_LEN else f"{name[:NAME_START]}…{name[NAME_START + 1 - NAME_LEN:]}"
+
+
+def shown_names(res: dict) -> dict:
+    """The name beside each dub's letter: the one a person gave it, else its file's name when the file names tell the dubs
+    without a name apart. Only a label: nothing is ranked or graded by it."""
+    given = {d: (r.get("pipeline") or {}).get("dub_name") for d, r in res.items()}
+    files = {d: _file_name(r) for d, r in res.items() if not given[d]}
+    apart = all(files.values()) and len(set(files.values())) == len(files)
+    return {d: given[d] or (files[d] if apart else None) for d in res}
+
+
 def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seconds: Optional[float] = None) -> dict:
     """Every dub's report, the recommendation with its reasoning and the ranking, and everything the comparison
     files show, in lang. Dubs are labelled A, B, C, ... in input order (2 to MAX_DUBS)."""
@@ -195,25 +217,28 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
     win, lose = dec["winner"], dec["runner_up"]
     all_poor = all(f[d]["verdict"] == "poor" for d in dubs)
     no_translation = [dub for dub in dubs if f[dub]["meaning_score"] is None]
+    names = shown_names(res)
+    given = {d: (res[d].get("pipeline") or {}).get("dub_name") for d in dubs}
+    who = lambda d: f"{d} · {given[d]}" if given[d] else d    # a sentence names a dub the way the person did
 
     if dec["tie"]:
-        why = tr("c.why.tie", d=win, other=lose)
+        why = tr("c.why.tie", d=who(win), other=who(lose))
     else:
-        why = tr(f"c.why.{dec['rule']}", win=win, lose=lose, win_value=_shown(tr, dec["rule"], f[win]),
+        why = tr(f"c.why.{dec['rule']}", win=who(win), lose=who(lose), win_value=_shown(tr, dec["rule"], f[win]),
                  lose_value=_shown(tr, dec["rule"], f[lose]))
     other = _problems(reps[lose])
     held = list(dict.fromkeys(HOLD_FOR[k] for k in reps[win]["overall"].get("unsure", []) if k in HOLD_FOR))
     # A held first place isn't deliverable yet: "can be delivered after a review" would contradict the headline.
-    summary = [why, tr("c.loser_problems", dub=lose, items=", ".join(other)) if other else tr("c.loser_clean", dub=lose)] \
-        + ([] if held else [tr(f"c.ready.{f[win]['verdict']}", dub=win)])
+    summary = [why, tr("c.loser_problems", dub=who(lose), items=", ".join(other)) if other
+               else tr("c.loser_clean", dub=who(lose))] + ([] if held else [tr(f"c.ready.{f[win]['verdict']}", dub=who(win))])
     values = ({dub: _shown(tr, dec["rule"], f[dub]) for dub in dubs} if dec["rule"] else
               {dub: tr(f"verdict.{f[dub]['verdict']}") for dub in dubs})
     ranking = [{"rank": i, "dub": d, "title": reps[d]["project"].get("title"), "verdict": f[d]["verdict"],
                 "verdict_label": tr(f"verdict.{f[d]['verdict']}"), "poor": f[d]["poor"], "check": f[d]["check"],
                 "problem_seconds": f[d]["problem_seconds"]} for i, d in enumerate(dec["order"], 1)]
-    not_ready = (tr("c.not_ready", d=win) if len(dubs) == 2 else tr("c.not_ready_all", d=win)) if all_poor else None
+    not_ready = (tr("c.not_ready", d=who(win)) if len(dubs) == 2 else tr("c.not_ready_all", d=who(win))) if all_poor else None
     # Every dub may lack the same key checks (rule 1 then can't separate them): the recommendation still says so.
-    cautions = [tr("c.caution.unmeasured", d=win, items=", ".join(tr(f"r.m.{k}") for k in f[win]["unmeasured_checks"]))] \
+    cautions = [tr("c.caution.unmeasured", d=who(win), items=", ".join(tr(f"r.m.{k}") for k in f[win]["unmeasured_checks"]))] \
         if f[win]["unmeasured"] else []
     # Different AI models graded the dubs: part of a gap in translation scores may be the models', not the dubs'.
     judges_differ = len({tuple(f[d]["judge_models"]) for d in dubs if f[d]["judge_models"]}) > 1
@@ -222,15 +247,17 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
     caution = " ".join(cautions) or None
     status = "not_ready" if all_poor else "provisional" if held else "recommended"
     if held:
-        headline = tr("c.held", d=win, why=" ".join(tr(f"c.held.{k}", d=win) for k in held))
+        headline = tr("c.held", d=who(win), why=" ".join(tr(f"c.held.{k}", d=who(win)) for k in held))
     elif all_poor:
-        headline = tr("c.start_from", d=win)
+        headline = tr("c.start_from", d=who(win))
     else:
-        headline = tr("c.recommend_tie", d=win, other=lose) if dec["tie"] else tr("c.recommend", d=win)
+        headline = tr("c.recommend_tie", d=who(win), other=who(lose)) if dec["tie"] else tr("c.recommend", d=who(win))
     return {
         "comparison_version": 3,
         "lang": lang,
         "dubs": dubs,
+        "names": names,
+        "given_names": given,
         "recommendation": {
             # dub is the first place; only status "recommended" (ready) says to deliver it: "provisional" is first
             # place while DubEval is unsure of it, "not_ready" the best starting point when every dub is Poor.
@@ -269,7 +296,8 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
             "rule_label", "values_label", "summary_label", "fix_first", "asr", "no_intervals", "table.check",
             "verdict", "open_report", "meta.title", "meta.languages", "meta.length", "meta.lipsync", "meta.project",
             "meta.evaluated", "meta.link", "skipped", "ranking_label")}
-                  | {f"dub_{d}": tr("c.dub", d=d) for d in dubs} | {f"count_{d}": _count(tr, reps[d]) for d in dubs}
+                  | {f"dub_{d}": tr("c.dub", d=d) + (f" · {names[d]}" if names[d] else "") for d in dubs}
+                  | {f"count_{d}": _count(tr, reps[d]) for d in dubs}
                   | {"footer": tr("c.footer", version=TOOL_VERSION,
                                   sec=f"{run_seconds:.0f}" if run_seconds is not None else "—",
                                   time=time.strftime("%Y-%m-%d %H:%M:%S"))},

@@ -2,6 +2,7 @@
 import base64
 import json
 import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -78,6 +79,80 @@ def test_renaming_a_comparison_keeps_each_dubs_report(tmp_path):
     library.rename(folder.name, "Trailer, three studios")
     assert library.evaluations()[0]["title"] == "Trailer, three studios"
     assert json.loads((folder / "comparison.json").read_text(encoding="utf-8"))["recommendation"]["title"] == "Trailer"
+
+
+def test_naming_a_dub_of_a_saved_comparison_rewrites_its_files(tmp_path):
+    folder = comparison_run(tmp_path)
+    library.rename(folder.name, "Trailer, three studios")
+    library.rename_dub(folder.name, "A", "ElevenLabs")
+    saved = json.loads((folder / "comparison.json").read_text(encoding="utf-8"))
+    assert saved["labels"]["dub_A"] == "Dub A · ElevenLabs" and saved["custom_title"] == "Trailer, three studios"
+    report = json.loads((folder / "report_A.json").read_text(encoding="utf-8"))
+    assert report["results"]["pipeline"]["dub_name"] == "ElevenLabs" and report["report"]["project"]["dub_name"] == "ElevenLabs"
+    assert "Dub A · ElevenLabs" in (folder / "comparison.html").read_text(encoding="utf-8")
+    assert "ElevenLabs" in (folder / "report_A.txt").read_text(encoding="utf-8")
+    assert "ElevenLabs" in (folder / "report_A.html").read_text(encoding="utf-8")
+    assert library.evaluations()[0]["title"] == "Trailer, three studios"
+    library.rename_dub(folder.name, "A", "")
+    assert json.loads((folder / "comparison.json").read_text(encoding="utf-8"))["given_names"]["A"] is None
+    with pytest.raises(ValueError):
+        library.rename_dub(folder.name, "C", "x")
+
+
+def test_a_damaged_report_stops_naming_before_anything_is_written(tmp_path):
+    folder = comparison_run(tmp_path)
+    (folder / "report_B.json").write_text("{not json", encoding="utf-8")
+    before = (folder / "report_A.json").read_bytes()
+    with pytest.raises(ValueError):
+        library.rename_dub(folder.name, "A", "ElevenLabs")
+    assert (folder / "report_A.json").read_bytes() == before
+
+
+def test_a_note_that_cant_be_written_still_hides_the_files(tmp_path, monkeypatch):
+    (tmp_path / "jobs").mkdir()
+    def refuse(*a, **k):
+        raise PermissionError("in use")
+    monkeypatch.setattr(Path, "write_text", refuse)
+    library.tidy_data_folder(tmp_path, "en")
+    if os.name == "nt":
+        assert _hidden(tmp_path / "jobs")
+
+
+def _hidden(path: Path) -> bool:
+    return bool(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
+
+
+def test_opening_the_data_folder_hides_what_only_the_app_reads_and_leaves_one_note(tmp_path):
+    for name in ("cache", "drafts", "jobs", "output", "uploads"):
+        (tmp_path / name).mkdir()
+    for name in (".env", "history.jsonl", "feedback.jsonl"):
+        (tmp_path / name).write_text("x", encoding="utf-8")
+    library.tidy_data_folder(tmp_path, "en")
+    library.tidy_data_folder(tmp_path, "es")            # the language changed: one note, not two
+    notes = [p.name for p in tmp_path.glob("*.txt")]
+    assert notes == ["Qué hay en esta carpeta.txt"]
+    assert "uploads" in (tmp_path / notes[0]).read_text(encoding="utf-8")
+    if os.name == "nt":
+        assert all(_hidden(tmp_path / n) for n in ("cache", "drafts", "jobs", ".env", "history.jsonl", "feedback.jsonl"))
+        assert not any(_hidden(tmp_path / n) for n in ("output", "uploads", notes[0]))
+
+
+def test_the_app_can_still_write_its_files_once_they_are_hidden(tmp_path, monkeypatch):
+    from dubeval import history, settings
+    monkeypatch.setattr(settings, "ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(history, "HISTORY_FILE", tmp_path / "history.jsonl")
+    (tmp_path / ".env").write_text("", encoding="utf-8")
+    r = make_results()
+    r["report"] = build_report(r, "en")
+    r["pipeline"]["report_files"] = {"html": str(tmp_path / "report.html")}
+    history.record(r, "web")
+    library.tidy_data_folder(tmp_path, "en")
+    history.record(r, "web")                            # appends
+    library.tidy_data_folder(tmp_path, "en")
+    history.rename(str(tmp_path / "report.html"), "New")  # replaces
+    settings.save_key("gemini", "AIza" + "x" * 35)      # replaces
+    assert [e["title"] for e in history.load(tmp_path / "history.jsonl")] == ["New", "New"]
+    assert "GEMINI_API_KEY" in (tmp_path / ".env").read_text(encoding="utf-8")
 
 
 def test_an_empty_title_or_an_unknown_run_is_refused(tmp_path):

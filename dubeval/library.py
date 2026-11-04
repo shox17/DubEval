@@ -8,6 +8,7 @@ Evaluations stay until the person deletes them, so the videos they play (uploads
 referenced_inputs() names them for the pruning of uploads and of the share-link cache.
 """
 import base64
+import ctypes
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from dubeval import pipeline
+from dubeval.i18n import TEXT, t
 from dubeval.paths import DATA_DIR
 
 log = logging.getLogger(__name__)
@@ -35,6 +37,9 @@ NO_SUCH_DRAFT = "That draft is gone. It may have been deleted or started."
 DRAFT_TOO_BIG = "This draft is too big to keep."
 EMPTY_TITLE = "Type a title for this result."
 
+
+APP_ONLY = ("cache", "drafts", "jobs", "logs", ".env", "history.jsonl", "feedback.jsonl")   # hidden in the data folder
+HIDDEN = 2                                                  # Windows' FILE_ATTRIBUTE_HIDDEN
 
 def _runs() -> Path:
     return Path(pipeline.RUNS_DIR)
@@ -190,6 +195,64 @@ def rename(run_id: str, title: str) -> dict:
     else:
         _retitle(folder, "report", title)
     return {"id": run_id, "title": title}
+
+
+def tidy_data_folder(folder: Path, lang: str) -> None:
+    """Before a person opens the data folder: hides what only the app reads and leaves a note, in their language, on what's
+    left. Hiding is safe for the app, whose writers append or replace these files (Windows refuses a plain overwrite of a
+    hidden file), and a replaced file comes back visible, so this runs each time. A failure never stops the folder opening,
+    and one part failing leaves the others done."""
+    try:
+        for name in TEXT["w.data.note_name"].values():
+            (folder / name).unlink(missing_ok=True)
+        (folder / t("w.data.note_name", lang)).write_text(t("w.data.note", lang) + "\n", encoding="utf-8")
+    except OSError as e:
+        log.warning("Could not write the data folder's note: %s", e)
+    hide = getattr(getattr(ctypes, "windll", None), "kernel32", None)
+    for name in APP_ONLY if hide else ():
+        try:
+            path = folder / name
+            if path.exists() and not hide.SetFileAttributesW(str(path), path.stat().st_file_attributes | HIDDEN):
+                raise ctypes.WinError()
+        except OSError as e:
+            log.warning("Could not hide %s in the data folder: %s", name, e)
+
+
+def dub_names(folder: Path) -> dict:
+    """The names a saved comparison shows beside its dubs' letters ({} when it has none, or isn't a comparison)."""
+    return (_read(Path(folder) / "comparison.json") or {}).get("names") or {}
+
+
+def name_dub(results: dict, dub: str, name: str, lang: str, run_seconds: Optional[float]) -> dict:
+    """Gives one dub of a comparison's results a name (empty: takes it away); returns the comparison ranked again."""
+    pipe = results[dub].setdefault("pipeline", {})
+    pipe.update(dub_name=name) if name else pipe.pop("dub_name", None)
+    return pipeline.build_ranking([results[d] for d in sorted(results)], lang, run_seconds=run_seconds)
+
+
+def rename_dub(run_id: str, dub: str, name: str) -> tuple[dict, dict]:
+    """Names one dub of a saved comparison and rewrites its files; returns the comparison and the results. ValueError, with
+    nothing written, if the dub isn't there or a saved report can't be read."""
+    folder = run_folder(run_id)
+    saved = _read(folder / "comparison.json") or {}
+    results = {}
+    for d in saved.get("dubs") or []:
+        data = _read(folder / f"report_{d}.json") or {}
+        if not (data.get("results") and data.get("report")):
+            raise ValueError(NO_SUCH_EVALUATION)
+        results[d] = {**data["results"], "report": data["report"]}
+    if dub not in results:
+        raise ValueError(NO_SUCH_EVALUATION)
+    try:
+        comp = name_dub(results, dub, name, saved.get("lang") or "en", (saved.get("meta") or {}).get("run_seconds"))
+    except (KeyError, TypeError) as e:                 # a saved report of another shape
+        raise ValueError(NO_SUCH_EVALUATION) from e
+    for d in comp["dubs"]:
+        results[d]["report"] = comp["reports"][d]
+    pipeline.save_comparison_files(comp, results, folder)
+    if saved.get("custom_title"):                      # the comparison's own title, which its card shows
+        _write(folder / "comparison.json", {**(_read(folder / "comparison.json") or {}), "custom_title": saved["custom_title"]})
+    return comp, results
 
 
 def _retitle(folder: Path, name: str, title: str) -> None:
