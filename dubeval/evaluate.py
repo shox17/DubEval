@@ -803,6 +803,19 @@ def noise_envelope(y_orig: np.ndarray, y_dub: np.ndarray, sr: int = SAMPLE_RATE,
             "flatness_rise": [round(float(v), 1) for v in dub_flat - np.maximum(orig_flat, 0.0)]}
 
 
+def _speaking_sec(acoustics: dict) -> float:
+    """The seconds of a track that aren't silent."""
+    return acoustics["duration_sec"] * (1 - acoustics["silence_ratio_pct"] / 100)
+
+
+def _dub_speaking_sec(aligned: dict, y_dub_own: np.ndarray, drifts: bool) -> float:
+    """The dub's speaking time, on the same sound its words were heard in. A drifting dub is the exception: following it
+    skips bits of its sound (6.4 s of 89 s) in pauses, so nearly all its words are still heard, and on the aligned sound a
+    real dub read as 9.5 chars/s (Poor) against its true 8.7 (Check). A recut dub's own sound can hold parts whose words
+    aren't in the transcript, which would understate its pace."""
+    return _speaking_sec(analyze_acoustics(y_dub_own) if drifts else aligned)
+
+
 def speech_rate(text: str, speaking_sec: float, lang: str) -> Optional[dict]:
     """Characters/s for CER languages, words/s otherwise, over non-silent time."""
     norm = normalize_text(text)
@@ -881,7 +894,7 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
                         on_step: Optional[Callable[[str, float], None]] = None,
                         include_lipsync: bool = True, source_lang: Optional[str] = None,
                         cache=None, dub_offset_sec: float = 0.0, dub_parts: Optional[list] = None,
-                        audio: Optional[tuple] = None, check: Optional[Callable[[], None]] = None) -> dict:
+                        dub_drifts: bool = False, audio: Optional[tuple] = None, check: Optional[Callable[[], None]] = None) -> dict:
     """Runs the acoustic, speech-recognition, timing, file and lip-sync evaluation. Returns results; writes no files.
 
     include_lipsync: the experimental lip-movement analysis is the slowest step; False skips it.
@@ -1000,8 +1013,8 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
     else:
         dub_ls = orig_ls = {**LIPSYNC_SKIPPED}
 
-    orig_speaking = orig_ac["duration_sec"] * (1 - orig_ac["silence_ratio_pct"] / 100)
-    dub_speaking = dub_ac["duration_sec"] * (1 - dub_ac["silence_ratio_pct"] / 100)
+    orig_speaking = _speaking_sec(orig_ac)
+    dub_speaking = _dub_speaking_sec(dub_ac, y_dub_own, dub_drifts)
     source_lang = orig_stt["language"] or "en"
     step("Done", 1.0)
 

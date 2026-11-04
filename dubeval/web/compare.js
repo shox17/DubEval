@@ -55,38 +55,109 @@ function sideBySide(comp) {
       : null);
 }
 
+// The open dub's name; a click turns it into a field (Enter or leaving it saves, Escape cancels, empty takes it away).
+function dubName(comp, jobId, dub, saved) {
+  const shown = comp.names[dub];
+  const text = h("span", { class: `editable dub-name-value${shown ? "" : " empty"}`, tabindex: "0", title: t("w.cmp.name_hint") },
+    shown || t("w.cmp.name_add"));
+  const edit = () => {
+    const given = comp.given_names[dub] || "";
+    const field = h("input", { type: "text", class: "dub-name-input", value: given, maxlength: "60", placeholder: shown || "",
+      "aria-label": t("w.cmp.name", { d: dub }) });
+    let done = false;
+    const finish = async save => {
+      if (done) return;
+      done = true;
+      const value = field.value.trim();
+      if (save && value !== given) {
+        let stored = false;
+        try {
+          await api(`/api/jobs/${jobId}/dub-name?dub=${dub}`, { method: "PUT", body: JSON.stringify({ name: value }) });
+          stored = true;
+          await saved();
+          return;
+        } catch (e) {
+          if (stored) text.textContent = value || t("w.cmp.name_add");   // saved; only the rest of the screen is behind
+          else alert(e.message);
+        }
+      }
+      field.replaceWith(text);
+      text.focus();
+    };
+    field.addEventListener("keydown", e => {
+      if (e.key === "Enter") finish(true);
+      if (e.key === "Escape") finish(false);
+      e.stopPropagation();                          // not the player's keys while typing
+    });
+    field.addEventListener("blur", () => finish(true));
+    text.replaceWith(field);
+    field.focus();
+    field.select();
+  };
+  text.addEventListener("click", edit);
+  text.addEventListener("keydown", e => { if (e.key === "Enter") edit(); });
+  return h("p", { class: "dub-name small" }, h("span", { class: "muted" }, t("w.cmp.name", { d: dub })), " ", text);
+}
+
 export function renderCompare(root, jobId, firstDub) {
   let alive = true, cleanupReview = null;
   root.append(h("p", { class: "muted" }, t("w.review.loading")));
+  const load = () => api(`/api/jobs/${jobId}/comparison?lang=${state.lang}`);
 
-  api(`/api/jobs/${jobId}/comparison?lang=${state.lang}`).then(comp => {
+  load().then(comp => {
     if (!alive) return;
     const tabs = h("div", { class: "tabs", role: "tablist", "aria-label": t("w.cmp.dubs") });
+    const nameRow = h("div");
     const panel = h("div", { class: "tab-panel", role: "tabpanel" });
-    const verdictOf = Object.fromEntries(comp.ranking.map(r => [r.dub, r]));
+    let current = null, cards = [];
 
-    function open(dub, scroll = true) {
-      if (cleanupReview) cleanupReview();
+    // Everything that shows the dubs' names; the open dub's review (and its players) stays as it is.
+    function paint() {
+      const fresh = [recommendation(comp, jobId), ranking(comp, open), sideBySide(comp)];
+      const wasOpen = !!cards[2]?.open;              // the side-by-side table stays open and scrolled as it was
+      const left = wasOpen ? cards[2].querySelector(".scroll").scrollLeft : 0;
+      fresh[2].open = wasOpen;
+      cards.forEach((c, i) => c.replaceWith(fresh[i]));
+      if (wasOpen) fresh[2].querySelector(".scroll").scrollLeft = left;
+      cards = fresh;
+      const verdictOf = Object.fromEntries(comp.ranking.map(r => [r.dub, r]));
+      tabs.replaceChildren(...comp.dubs.map(d => {
+        const r = verdictOf[d];
+        return h("button", { type: "button", role: "tab", "data-dub": d, onclick: () => open(d) },
+          comp.labels[`dub_${d}`], " ", badge(comp, r.verdict, r.verdict_label),
+          d === comp.recommendation.dub ? h("span", { class: "star", title: comp.recommendation.status_label },
+            comp.recommendation.ready ? "★" : "☆") : null);
+      }));
+      if (current) showTab();
+    }
+
+    function showTab() {
       tabs.querySelectorAll("button").forEach(b => {
-        const on = b.dataset.dub === dub;
+        const on = b.dataset.dub === current;
         b.classList.toggle("on", on);
         b.setAttribute("aria-selected", on ? "true" : "false");
       });
+      nameRow.replaceChildren(dubName(comp, jobId, current, async () => {
+        const next = await load();
+        if (!alive) return;
+        comp = next;
+        paint();
+      }));
+    }
+
+    function open(dub, scroll = true) {
+      if (cleanupReview) cleanupReview();
+      current = dub;
+      showTab();
       panel.replaceChildren();
       cleanupReview = renderReview(panel, jobId, dub, true);
       setAddress(`#/compare/${jobId}/${dub}`);       // the dialogs over this screen come back to this tab
       if (scroll) tabs.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
-    for (const d of comp.dubs) {
-      const r = verdictOf[d];
-      tabs.append(h("button", { type: "button", role: "tab", "data-dub": d, onclick: () => open(d) },
-        comp.labels[`dub_${d}`], " ", badge(comp, r.verdict, r.verdict_label),
-        d === comp.recommendation.dub ? h("span", { class: "star", title: comp.recommendation.status_label },
-          comp.recommendation.ready ? "★" : "☆") : null));
-    }
-    fill(root, recommendation(comp, jobId), ranking(comp, open), sideBySide(comp),
-      h("h2", { class: "tabs-title" }, t("w.cmp.review_each")), tabs, panel);
+    cards = [h("div"), h("div"), h("div")];
+    fill(root, ...cards, h("h2", { class: "tabs-title" }, t("w.cmp.review_each")), tabs, nameRow, panel);
+    paint();
     open(comp.dubs.includes(firstDub) ? firstDub : comp.recommendation.dub, false);
   }).catch(e => {
     if (alive) fill(root, h("p", { class: "error" }, e.message), h("a", { class: "button", href: "#/" }, t("w.progress.back")));

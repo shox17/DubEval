@@ -478,6 +478,35 @@ Evening out the volume before recognition would fix only p012, drop all cached r
 wasn't done. Removing punctuation before comparing doesn't help either: most low lines score lower still, and 6 of 40 lines
 cross the cutoff. The meaning check stays as it is, and it only lists moments when no translation check ran.
 
+## A dub whose picture drifts (2026-11-03)
+
+A person compared three dubs of an 84 s English → Korean video. One came back Poor with only 14 lines against 22, and the
+timeline's line stood still while it played. The dub was fine. Its picture was slowed down and sped up in places, drifting
+between 0 and 5.1 s from the original, and no fixed shift fits that. DubEval called most of the first 25 s missing and left
+those stretches silent, so speech recognition never heard those lines.
+
+DubEval now follows the drift when the usual matching finds under 90% of the original.
+
+| That dub | Before | After |
+|---|---|---|
+| Original found in the dub | 77% (Poor) | 100% |
+| Lines | 14 | 22 |
+| Speech lined up | 58% | 82% |
+| Verdict | Poor | Needs review |
+| Place among the 3 dubs | 3rd | 2nd |
+
+What else it could have changed:
+
+- **The 20 graded dubs:** matching is identical on all of them, so no verdict changes.
+- **Real cuts:** the first version hid a real 4 s cut in a still shot (p009), because frames there also match at the wrong
+  time. A shift that falls 2 s within 5 s now counts as a cut. On all 146 test copies none is now treated as a drift, and the 15 cut copies report the same missing parts as before.
+- **Speaking pace:** lining the dub up drops 6.4 s of its sound, which read as 9.5 chars/s (Poor) against a true 8.7 (Check).
+  Pace is now measured on the dub's own sound.
+
+Still open: this rests on one drifting dub. Its 5 lines flagged for length may be fair, since they do run longer than the
+original's, but a viewer may not notice when the picture was slowed to fit them. Whether to grade those differently needs
+more drifting dubs.
+
 ## Tuning and held-out pairs
 
 Thresholds are tuned on the **tune** pairs only. The **holdout** pairs are scored once per release and never used to

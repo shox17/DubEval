@@ -67,6 +67,59 @@ def as_b(r: dict) -> dict:
     return r
 
 
+def named(r: dict, name: str = None, file: str = None) -> dict:
+    """Results of a dub with a name a person gave it, or a file it came from."""
+    if name:
+        r["pipeline"]["dub_name"] = name
+    if file:
+        r["pipeline"]["input"] = {"kind": "files", "dub": file}
+    return r
+
+
+def test_a_dubs_name_shows_beside_its_letter_and_changes_no_decision():
+    plain = build_comparison(poor_dub(), as_b(make_results(translation_judge=JUDGED)), "en")
+    comp = build_comparison(named(poor_dub(), "Perso"), named(as_b(make_results(translation_judge=JUDGED)), "ElevenLabs"), "en")
+    assert comp["labels"]["dub_A"] == "Dub A · Perso" and comp["labels"]["dub_B"] == "Dub B · ElevenLabs"
+    assert comp["recommendation"]["headline"] == "Deliver Dub B · ElevenLabs."
+    assert "Dub A · Perso" in comp["reasoning"]["summary"][1]
+    assert comp["given_names"] == {"A": "Perso", "B": "ElevenLabs"}
+    assert comp["decision"] == plain["decision"] and comp["ranking"] == plain["ranking"]
+    assert "Dub B · ElevenLabs" in render_comparison_text(comp) and "Dub B · ElevenLabs" in render_comparison_html(comp)
+
+
+def test_a_dub_without_a_name_goes_by_its_file_when_the_files_tell_the_dubs_apart():
+    comp = build_comparison(named(poor_dub(), file="x/hat_ko_dubbed.mp4"), named(make_results(translation_judge=JUDGED), "Perso", "x/b.mp4"), "en")
+    assert comp["labels"]["dub_A"] == "Dub A · hat_ko_dubbed" and comp["names"] == {"A": "hat_ko_dubbed", "B": "Perso"}
+    assert comp["given_names"]["A"] is None
+    assert comp["recommendation"]["headline"] == "Deliver Dub B · Perso."          # sentences keep to the names people gave
+    assert "hat_ko_dubbed" not in " ".join(comp["reasoning"]["summary"])
+
+
+@pytest.mark.parametrize("a, b", [("x/same.mp4", "y/same.mp4"), ("x/dubbed.mp4", "x/b.mp4"),
+                                  ("https://example.com/a.mp4", "x/b.mp4"), (None, None)])
+def test_a_file_name_that_tells_nothing_apart_isnt_shown(a, b):
+    comp = build_comparison(named(poor_dub(), file=a), named(make_results(translation_judge=JUDGED), file=b), "en")
+    assert comp["labels"]["dub_A"] == "Dub A" and comp["labels"]["dub_B"] == "Dub B"
+
+
+def test_a_named_dub_doesnt_stop_the_others_going_by_their_files():
+    comp = build_comparison(named(poor_dub(), "Perso", "https://example.com/a.mp4"),
+                            named(make_results(translation_judge=JUDGED), file="x/heygen.mp4"), "en")
+    assert comp["names"] == {"A": "Perso", "B": "heygen"}
+
+
+def test_a_long_file_name_keeps_its_start_and_its_end():
+    stem = "Breaking_Bad_but_his_HAT_grows_proportionally_to_his_ego"
+    comp = build_comparison(named(poor_dub(), file=f"x/{stem}_ko_dubbed.mp4"), named(make_results(translation_judge=JUDGED), file=f"x/{stem}_TranslatedVideo.mp4"), "en")
+    a, b = comp["names"]["A"], comp["names"]["B"]
+    assert len(a) == len(b) == 32 and a != b and a.startswith("Breaking_Bad") and a.endswith("_ko_dubbed")
+
+
+def test_a_name_cant_break_the_comparison_page():
+    comp = build_comparison(named(poor_dub(), "<b>Perso</b>"), make_results(translation_judge=JUDGED), "en")
+    assert "<b>Perso</b>" not in render_comparison_html(comp) and "&lt;b&gt;Perso" in render_comparison_html(comp)
+
+
 def test_better_verdict_is_recommended_with_values_and_summary():
     comp = build_comparison(poor_dub(), as_b(make_results(translation_judge=JUDGED)), "en")
     rec, why = comp["recommendation"], comp["reasoning"]

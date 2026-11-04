@@ -4,7 +4,7 @@ import subprocess
 import numpy as np
 import pytest
 
-from dubeval import pairing, pipeline
+from dubeval import evaluate, pairing, pipeline
 from dubeval.evaluate import FFMPEG_EXE, SAMPLE_RATE, extract_audio, load_audio
 from dubeval.report import build_report
 from sample_results import make_results
@@ -25,7 +25,7 @@ def clips(tmp_path_factory):
     # The picture: a Mandelbrot zoom blended with a cellular automaton. Each alone repeats itself enough at 32x18 that
     # frames seconds apart can "match" (15% for the automaton), which let tiny decoding differences between CPUs
     # flip the cut test; together no frame 3-8 s apart matches.
-    _ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=64x64:rate=25[a];cellauto=rule=110:size=64x64:rate=25,format=rgb0[b];"
+    _ffmpeg("-f", "lavfi", "-i", "mandelbrot=size=64x64:rate=25[a];cellauto=rule=110:size=64x64:rate=25:seed=1,format=rgb0[b];"
             "[a][b]blend=all_mode=average", "-f", "lavfi",
             "-i", "anoisesrc=c=pink:seed=7:d=30,volume='if(lt(random(0),0.4),1,0.05)':eval=frame",
             "-t", "30", "-c:v", "mpeg4", "-c:a", "aac", str(d / "master.mp4"))
@@ -46,6 +46,11 @@ def clips(tmp_path_factory):
             "[v1][a1][v2][a2]concat=n=2:v=1:a=1[vc][a];[vc]fps=25[v]", "-map", "[v]", "-map", "[a]",
             "-c:v", "mpeg4", "-c:a", "aac", str(d / "cut.mp4"))
     _ffmpeg("-i", str(d / "orig.mp4"), "-vn", "-c:a", "aac", str(d / "orig_audio.m4a"))
+    # The first 7 s slowed down, the rest as it was: the picture drifts 2.1 s behind, with nothing cut.
+    _ffmpeg("-i", str(d / "master.mp4"), "-filter_complex",
+            "[0:v]trim=5:12,setpts=1.3*(PTS-STARTPTS)[v1];[0:v]trim=12:25,setpts=PTS-STARTPTS[v2];"
+            "[v1][v2]concat=n=2:v=1:a=0[vc];[vc]fps=25[v];[0:a]atrim=5:27.1,asetpts=PTS-STARTPTS[a]",
+            "-map", "[v]", "-map", "[a]", "-c:v", "mpeg4", "-c:a", "aac", str(d / "drifting.mp4"))
     return d
 
 
@@ -72,6 +77,54 @@ def test_a_cut_dub_reports_the_missing_part(clips):
     assert 70 <= r["coverage_pct"] <= 80
     (start, end), = r["missing"]
     assert abs(start - 7.0) <= 0.5 and abs(end - 12.0) <= 0.5
+
+
+def test_a_dub_whose_picture_drifts_is_followed_and_nothing_counts_as_missing(clips):
+    r = _pair(clips, "drifting.mp4")
+    assert r["same_video"] is True and r["coverage_pct"] >= 95 and r["missing"] == [] and r["steady_offset"] is False
+    # Where the path starts rising and in how many steps depends on the picture (0.0-1.3 s, 2-6 parts on 20 pictures).
+    assert r["drift"]["low_sec"] < 1.5 and 1.7 <= r["drift"]["high_sec"] <= 2.5 and len(r["parts"]) >= 2
+    assert pipeline.applied_parts(r) == r["parts"]
+
+
+def test_a_really_cut_dub_is_not_mistaken_for_a_drift(clips):
+    r = _pair(clips, "cut.mp4")
+    assert "drift" not in r and r["missing"]
+
+
+def test_a_path_sliding_over_a_cut_isnt_a_drift():
+    # A real 4 s cut in a still shot: frames match at the wrong time too, so the path slid back in 0.6 s steps.
+    slid = np.concatenate([np.zeros(46), np.repeat(np.arange(-6, -42, -6), 6), np.full(100, -40)]).astype(np.int64)
+    assert pairing._hides_a_cut(slid, 10.0)
+    real = np.concatenate([np.zeros(67), np.full(200, 14), np.full(150, 7), np.full(100, 19)]).astype(np.int64)
+    assert not pairing._hides_a_cut(real, 10.0)                # the real drift: up in steps, down by 0.7 s
+
+
+def test_a_drift_is_split_at_the_dubs_quiet_moments():
+    lags = np.array([0] * 20 + [4] * 20 + [8] * 20)
+    level = np.ones(70)
+    level[17] = level[43] = 0.0                              # quiet in the dub, just before each move
+    assert pairing._drift_parts(lags, [(0, 60)], 10.0, level) == [{"start": 0.0, "end": 1.7, "offset_sec": 0.0},
+                                                                  {"start": 1.7, "end": 3.9, "offset_sec": 0.4},
+                                                                  {"start": 3.9, "end": 6.0, "offset_sec": 0.8}]
+
+
+def test_only_a_drifting_dub_has_its_pace_measured_on_its_own_sound():
+    own = np.sin(np.arange(SAMPLE_RATE * 10, dtype=np.float32) * 0.1)          # 10 s of sound, none of it silent
+    aligned = {"duration_sec": 8.0, "silence_ratio_pct": 50.0}
+    assert evaluate._dub_speaking_sec(aligned, own, False) == 4.0        # a recut dub: where its words were heard
+    assert evaluate._dub_speaking_sec(aligned, own, True) == pytest.approx(10.0, abs=0.5)
+
+
+def test_a_drift_says_so_in_every_language():
+    pr = {"measured": True, "evidence": "picture", "same_video": True, "picture_match": 1.0, "coverage_pct": 100.0,
+          "missing": [], "steady_offset": False, "offset_sec": 4.2, "applied_offset_sec": 4.2, "applied_parts": True,
+          "drift": {"low_sec": 0.0, "high_sec": 5.1}, "parts": [{"start": 0.0, "end": 40.0, "offset_sec": 0.0},
+                                                                {"start": 40.0, "end": 84.0, "offset_sec": 5.1}]}
+    for lang in ("en", "ko", "pt", "es"):
+        rows = {m["id"]: m for m in build_report(make_results(pairing=pr), lang)["sections"][0]["metrics"]}
+        assert "+5.1" in rows["time_shift"]["message"] and "{" not in rows["time_shift"]["display"]
+        assert rows["coverage"]["level"] == "good"
 
 
 def test_an_unrelated_video_is_different(clips):
@@ -285,3 +338,18 @@ def test_the_pictures_sampling_step_is_never_called_out_of_sync():
     early = env[30:]
     assert pairing.sound_sync(env, np.concatenate([early, np.zeros(30, dtype=np.float32)]), 0.0, 40,
                               picture_step=0.2)["shift_sec"] == -0.2
+
+
+def test_a_dub_laid_by_parts_has_each_subtitle_moved_by_its_own_parts_shift():
+    parts = [{"start": 0.0, "end": 10.0, "offset_sec": 0.0}, {"start": 10.0, "end": 20.0, "offset_sec": 5.0}]
+    cues = [{"start": 1.0, "end": 3.0, "text": "first"}, {"start": 12.0, "end": 14.0, "text": "wrong"},
+            {"start": 16.0, "end": 18.0, "text": "second"}]
+    results = {"pairing": {"measured": True, "steady_offset": False, "parts": parts, "applied_offset_sec": 2.5},
+               "subtitles": {"dub": cues},
+               "speech_recognition": {"original_segments": [{"text": "a", "start": 1.0, "end": 3.0},
+                                                            {"text": "b", "start": 11.0, "end": 13.0}], "dubbed_segments": []},
+               "segment_alignment": {"lines": [{"n": 1, "start": 1.0, "end": 3.0, "original": [0], "dub": []},
+                                               {"n": 2, "start": 11.0, "end": 13.0, "original": [1], "dub": []}]}}
+    assert [ln["dub_script"] for ln in pipeline.judge_lines(results)] == ["first", "second"]
+    results["pairing"] = {"measured": True, "steady_offset": True, "parts": parts[:1], "applied_offset_sec": 5.0}
+    assert [ln["dub_script"] for ln in pipeline.judge_lines(results)] == ["", "second"]     # one shift: as before

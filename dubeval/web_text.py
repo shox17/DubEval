@@ -49,6 +49,9 @@ WEB_TEXT = {
     "w.start.add_dub": {"en": "+ Add another dub to compare", "ko": "+ 비교할 더빙 추가", "pt": "+ Adicionar outra dublagem para comparar",
                         "es": "+ Añadir otro doblaje para comparar"},
     "w.start.dub_n": {"en": "Dub {d}", "ko": "더빙 {d}", "pt": "Dublagem {d}", "es": "Doblaje {d}"},
+    "w.start.dub_name": {"en": "Name", "ko": "이름", "pt": "Nome", "es": "Nombre"},
+    "w.start.dub_name_hint": {"en": "The service that made it (optional)", "ko": "만든 서비스 이름 (선택)",
+                              "pt": "O serviço que a fez (opcional)", "es": "El servicio que lo hizo (opcional)"},
     "w.start.go_compare": {"en": "Compare {n} dubs", "ko": "더빙 {n}개 비교", "pt": "Comparar {n} dublagens",
                            "es": "Comparar {n} doblajes"},
     "w.type.unknown": {"en": "Not sure", "ko": "모름", "pt": "Não sei", "es": "No lo sé"},
@@ -107,6 +110,12 @@ WEB_TEXT = {
     "w.detail.seconds": {"en": "{n} s", "ko": "{n}초", "pt": "{n} s", "es": "{n} s"},
     "w.detail.issues": {"en": "Problems here", "ko": "이 구간의 문제", "pt": "Problemas aqui", "es": "Problemas aquí"},
     "w.cmp.dub": {"en": "Dub", "ko": "더빙", "pt": "Dublagem", "es": "Doblaje"},
+    "w.cmp.name": {"en": "Name of Dub {d}", "ko": "더빙 {d} 이름", "pt": "Nome da Dublagem {d}", "es": "Nombre del Doblaje {d}"},
+    "w.cmp.name_add": {"en": "Add a name", "ko": "이름 추가", "pt": "Adicionar um nome", "es": "Añadir un nombre"},
+    "w.cmp.name_hint": {"en": "Click to change. It's only a label: it doesn't affect the ranking.",
+                        "ko": "클릭해서 바꾸세요. 표시용 이름이라 순위에는 영향을 주지 않습니다.",
+                        "pt": "Clique para mudar. É só um rótulo: não afeta a classificação.",
+                        "es": "Haz clic para cambiarlo. Es solo una etiqueta: no afecta a la clasificación."},
     "w.cmp.dubs": {"en": "Dubs", "ko": "더빙 목록", "pt": "Dublagens", "es": "Doblajes"},
     "w.cmp.problems": {"en": "Problem time", "ko": "문제 구간 시간", "pt": "Tempo com problemas",
                        "es": "Tiempo con problemas"},
@@ -271,31 +280,28 @@ WEB_TEXT = {
     "w.set.tab.keys": {"en": "API keys", "ko": "API 키", "pt": "Chaves de API", "es": "Claves de API"},
     "w.set.tab.storage": {"en": "Storage", "ko": "저장 공간", "pt": "Armazenamento", "es": "Almacenamiento"},
     "w.set.tab.privacy": {"en": "Privacy", "ko": "개인정보", "pt": "Privacidade", "es": "Privacidad"},
-    "w.store.summary": {"en": "{size} on this computer", "ko": "이 컴퓨터에서 {size} 사용", "pt": "{size} neste computador",
-                        "es": "{size} en este equipo"},
-    "w.store.group.data": {"en": "Evaluations and videos", "ko": "평가와 영상", "pt": "Avaliações e vídeos",
-                           "es": "Evaluaciones y videos"},
-    "w.store.group.models": {"en": "Models", "ko": "모델", "pt": "Modelos", "es": "Modelos"},
+    "w.data.note_name": {"en": "What's in this folder.txt", "ko": "이 폴더 안내.txt", "pt": "O que há nesta pasta.txt",
+                         "es": "Qué hay en esta carpeta.txt"},
+    "w.data.note": {
+        "en": "What's in this folder\n\nuploads: the videos you added or pasted as links.\noutput: your reports.\n\n"
+              "The rest is hidden because only DubEval uses it: your history, videos from Perso share links, and your API "
+              "keys. Please leave it as it is, and don't share this folder, because your keys are in it.\n\n"
+              "You don't need this folder to use DubEval. Your evaluations are on Home, and Export saves a report to share.",
+        "ko": "이 폴더 안내\n\nuploads: 추가하거나 링크로 붙여 넣은 영상입니다.\noutput: 보고서입니다.\n\n"
+              "나머지는 DubEval만 사용하므로 숨겨져 있습니다. 평가 기록, Perso 공유 링크의 영상, API 키가 들어 있습니다. "
+              "그대로 두세요. API 키가 들어 있으니 이 폴더를 다른 사람과 공유하지 마세요.\n\n"
+              "DubEval을 쓸 때 이 폴더를 열 필요는 없습니다. 평가는 홈에 있고, 공유할 보고서는 내보내기로 저장할 수 있습니다.",
+        "pt": "O que há nesta pasta\n\nuploads: os vídeos que você adicionou ou colou como links.\noutput: seus relatórios.\n\n"
+              "O resto está oculto porque só o DubEval usa: seu histórico, vídeos de links de compartilhamento da Perso e suas "
+              "chaves de API. Deixe como está e não compartilhe esta pasta, porque suas chaves estão nela.\n\n"
+              "Você não precisa desta pasta para usar o DubEval. Suas avaliações estão no Início, e Exportar salva um relatório "
+              "para compartilhar.",
+        "es": "Qué hay en esta carpeta\n\nuploads: los videos que añadiste o pegaste como enlaces.\noutput: tus informes.\n\n"
+              "El resto está oculto porque solo lo usa DubEval: tu historial, los videos de enlaces compartidos de Perso y tus "
+              "claves de API. Déjalo como está y no compartas esta carpeta, porque contiene tus claves.\n\n"
+              "No necesitas esta carpeta para usar DubEval. Tus evaluaciones están en Inicio, y Exportar guarda un informe para "
+              "compartir."},
     "w.store.group.folder": {"en": "Data folder", "ko": "데이터 폴더", "pt": "Pasta de dados", "es": "Carpeta de datos"},
-    "w.store.evaluations": {"en": "Evaluations", "ko": "평가", "pt": "Avaliações", "es": "Evaluaciones"},
-    "w.store.evaluations_note": {"en": "Reports of {n} evaluations", "ko": "평가 {n}건의 보고서", "pt": "Relatórios de {n} avaliações",
-                                 "es": "Informes de {n} evaluaciones"},
-    "w.store.downloads": {"en": "Downloaded videos", "ko": "받은 영상", "pt": "Vídeos baixados", "es": "Videos descargados"},
-    "w.store.downloads_note": {"en": "{size} not used by any evaluation", "ko": "어떤 평가에도 쓰이지 않는 영상: {size}",
-                               "pt": "{size} sem uso em nenhuma avaliação", "es": "{size} sin usar en ninguna evaluación"},
-    "w.store.downloads_used": {"en": "All used by your evaluations", "ko": "모두 평가에서 쓰는 중", "pt": "Todos usados pelas suas avaliações",
-                               "es": "Todos en uso por tus evaluaciones"},
-    "w.store.clear": {"en": "Clear", "ko": "비우기", "pt": "Limpar", "es": "Vaciar"},
-    "w.store.clear_confirm": {"en": "Delete the unused videos ({size})?", "ko": "쓰이지 않는 영상을 삭제할까요? ({size})",
-                              "pt": "Apagar os vídeos sem uso ({size})?", "es": "¿Borrar los videos sin usar ({size})?"},
-    "w.store.clear_text": {"en": "Your evaluations keep their videos. A link evaluated again is downloaded again.",
-                           "ko": "평가에 쓰이는 영상은 그대로 둡니다. 링크를 다시 평가하면 다시 다운로드합니다.",
-                           "pt": "Suas avaliações mantêm os vídeos. Um link avaliado de novo é baixado de novo.",
-                           "es": "Tus evaluaciones conservan sus videos. Un enlace que vuelvas a evaluar se descarga de nuevo."},
-    "w.store.models_note": {"en": "Speech, meaning, voice and lip-sync models", "ko": "음성 인식, 의미, 음성, 립싱크 모델",
-                            "pt": "Modelos de fala, sentido, voz e sincronia labial",
-                            "es": "Modelos de habla, sentido, voz y sincronía labial"},
-    "w.store.manage": {"en": "Manage", "ko": "관리", "pt": "Gerenciar", "es": "Gestionar"},
     "w.store.see": {"en": "See Storage", "ko": "저장 공간 보기", "pt": "Ver Armazenamento", "es": "Ver Almacenamiento"},
     "w.set.tab.about": {"en": "About", "ko": "정보", "pt": "Sobre", "es": "Acerca de"},
     "w.set.judge.openai": {"en": "ChatGPT (OpenAI)", "ko": "ChatGPT (OpenAI)", "pt": "ChatGPT (OpenAI)", "es": "ChatGPT (OpenAI)"},
@@ -337,7 +343,7 @@ WEB_TEXT = {
     "w.priv.downloads": {"en": "Model downloads", "ko": "모델 다운로드", "pt": "Download de modelos", "es": "Descarga de modelos"},
     'w.priv.downloads_text': {'en': "Models download only when you ask (Settings → Models), from Hugging Face or PyPI, and each file is checked before it's used.", 'ko': '모델은 요청할 때만(설정 → 모델) Hugging Face나 PyPI에서 다운로드되며, 사용 전에 모든 파일을 검사합니다.', 'pt': 'Os modelos só são baixados quando você pede (Configurações → Modelos), do Hugging Face ou do PyPI, e cada arquivo é verificado antes do uso.', 'es': 'Los modelos solo se descargan cuando lo pides (Ajustes → Modelos), desde Hugging Face o PyPI, y cada archivo se comprueba antes de usarse.'},
     "w.priv.data": {"en": "Your data", "ko": "내 데이터", "pt": "Seus dados", "es": "Tus datos"},
-    "w.priv.data_text": {"en": "Reports, history, votes and API keys are kept here, on this computer only. Uninstalling DubEval keeps them.", "ko": "보고서, 기록, 투표, API 키는 이 컴퓨터의 이 폴더에만 보관됩니다. DubEval을 제거해도 남아 있습니다.", "pt": "Relatórios, histórico, votos e chaves de API ficam aqui, só neste computador. Desinstalar o DubEval os mantém.", "es": "Los informes, el historial, los votos y las claves de API se guardan aquí, solo en este equipo. Desinstalar DubEval los conserva."},
+    "w.priv.data_text": {"en": "Downloaded videos, reports, history, votes and API keys are kept here, on this computer only. Uninstalling DubEval keeps them.", "ko": "받은 영상, 보고서, 기록, 투표, API 키는 이 컴퓨터의 이 폴더에만 보관됩니다. DubEval을 제거해도 남아 있습니다.", "pt": "Vídeos baixados, relatórios, histórico, votos e chaves de API ficam aqui, só neste computador. Desinstalar o DubEval os mantém.", "es": "Los vídeos descargados, los informes, el historial, los votos y las claves de API se guardan aquí, solo en este equipo. Desinstalar DubEval los conserva."},
     "w.priv.open": {"en": "Open folder", "ko": "폴더 열기", "pt": "Abrir pasta", "es": "Abrir carpeta"},
     "w.about.version": {"en": "Version", "ko": "버전", "pt": "Versão", "es": "Versión"},
     "w.about.language": {"en": "Language", "ko": "언어", "pt": "Idioma", "es": "Idioma"},
@@ -433,6 +439,9 @@ WEB_TEXT = {
     "w.start.judge_needs_key": {"en": "{judge}: add a key in Settings", "ko": "{judge}: 설정에서 키 추가", "pt": "{judge}: adicione uma chave em Configurações", "es": "{judge}: añade una clave en Ajustes"},
     "w.start.judge_needs_local": {"en": "{judge}: not set up on this computer", "ko": "{judge}: 이 컴퓨터에 설정되지 않음", "pt": "{judge}: não configurado neste computador", "es": "{judge}: no configurado en este equipo"},
     "w.start.judge_add": {"en": "To use another checker, add its key in Settings", "ko": "다른 검사기를 쓰려면 설정에서 키를 추가하세요", "pt": "Para usar outro verificador, adicione a chave em Configurações", "es": "Para usar otro verificador, añade su clave en Ajustes"},
+    "w.review.video_title": {"en": "Video title, the same for every dub", "ko": "영상 제목 (모든 더빙 공통)",
+                             "pt": "Título do vídeo, igual para todas as dublagens",
+                             "es": "Título del vídeo, igual para todos los doblajes"},
     "w.review.rename": {"en": "Click to rename", "ko": "클릭하여 이름 바꾸기", "pt": "Clique para renomear", "es": "Haz clic para cambiar el nombre"},
     "w.detail.original_script": {"en": "Original subtitles", "ko": "원본 자막", "pt": "Legendas do original", "es": "Subtítulos del original"},
     "w.detail.dub_script": {"en": "Dub subtitles", "ko": "더빙 자막", "pt": "Legendas da dublagem", "es": "Subtítulos del doblaje"},

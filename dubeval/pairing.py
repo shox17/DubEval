@@ -39,11 +39,21 @@ CLOSE_COVERAGE = 6.0                  # motion and hash answers this close in co
 PLATEAU = 0.03                        # hash scores this close to the best count as equally good (static shots)
 MAX_PARTS = 5                         # without motion, a differently cut dub is matched in at most this many parts
 PART_MIN_SCORE = 0.15                 # ...each matching at least this share of frames
-VERSION = 2                           # bump when pair()'s result changes (2: sound_sync); part of its cache key
+VERSION = 3                           # bump when pair()'s result changes (3: drift); part of its cache key
 SYNC_SEARCH_SEC = 2.0                 # the dub's sound is searched this far either side of the picture's shift...
 SYNC_MIN_SEC = 15.0                   # ...on files at least this long (on a 7 s clip a stray match looked like 0.9 s)
 SYNC_CONFIDENT = 0.2                  # ...and trusted when the two soundtracks match at least this well there
 SHORT_READ = 0.9                      # a read with fewer frames than this share of the sound's length is read again
+# A dub whose picture is slowed down in places drifts against the original, so no fixed shift fits it. It's only followed
+# when the usual matching finds under DRIFT_GATE % of the original and following finds DRIFT_GAIN points more, reaching
+# DRIFT_GATE: a dub that's really cut has frames no path can find, and every other dub is matched as before.
+DRIFT_GATE, DRIFT_GAIN = 90.0, 10.0
+DRIFT_MARGIN_SEC = 2.0                # shifts searched: from 0 to the two files' length difference, this much further
+DRIFT_JUMP_COST = 3.0                 # changing the shift costs as much as this many mismatching frames
+DRIFT_STEP_SEC = 0.3                  # a new part starts once the shift has moved this far...
+DRIFT_QUIET_SEC = 2.0                 # ...at the dub's quietest moment in the last this many seconds
+DRIFT_MAX_FALL = (2.0, 5.0)           # a shift falling this many seconds within this many is a cut in a still shot (a 4 s
+                                      # cut slid by 0.6 s steps on a real dub); the real drift fell 0.7 s at most
 
 
 # ---------------- frames ----------------
@@ -311,6 +321,83 @@ def _hash_assign(ha: np.ndarray, hb: np.ndarray, fps: float, scores: dict, main:
     return lags
 
 
+def _follow(ha: np.ndarray, hb: np.ndarray, low: int, high: int) -> np.ndarray:
+    """The dub lag of every original frame for a dub that drifts: the path through the lags low..high with the fewest
+    mismatching frames, where changing lag costs DRIFT_JUMP_COST (so a stray look-alike frame doesn't move it)."""
+    lags = np.arange(low, high + 1)
+    cost = np.zeros(len(lags))
+    came_from = np.zeros((len(ha), len(lags)), dtype=np.int32)
+    for i, frame in enumerate(ha):
+        j = i + lags
+        inside = (j >= 0) & (j < len(hb))
+        mismatch = np.ones(len(lags))
+        mismatch[inside] = _distance(np.full(int(inside.sum()), frame, dtype=np.uint64), hb[j[inside]]) > FRAME_MATCH_BITS
+        best = int(np.argmin(cost))
+        jump = cost[best] + DRIFT_JUMP_COST
+        stay = cost <= jump
+        came_from[i] = np.where(stay, np.arange(len(lags)), best)
+        cost = np.where(stay, cost, jump) + mismatch
+    path = np.zeros(len(ha), dtype=np.int64)
+    at = int(np.argmin(cost))
+    for i in range(len(ha) - 1, -1, -1):
+        path[i] = lags[at]
+        at = came_from[i, at]
+    return path
+
+
+def _hides_a_cut(lags: np.ndarray, fps: float) -> bool:
+    """Whether a followed path falls too fast to be a slowed or sped-up picture: in a still shot, frames match at the
+    wrong time too, so the path can slide over a part the dub doesn't have."""
+    fall, within = DRIFT_MAX_FALL[0] * fps, int(DRIFT_MAX_FALL[1] * fps)
+    return len(lags) > within and bool(np.min(lags[within:] - lags[:-within]) <= -fall)
+
+
+def _drift_parts(lags: np.ndarray, runs: list[tuple[int, int]], fps: float, level: np.ndarray) -> list[dict]:
+    """Parts with one shift each that follow a drifting dub. Each starts at the dub's quietest moment (level: its loudness
+    per dub frame), so the bit of its sound skipped between two parts falls in a pause and its lines stay whole."""
+    step, back = max(1, round(DRIFT_STEP_SEC * fps)), max(1, round(DRIFT_QUIET_SEC * fps))
+    bounds = []
+    for s, e in runs:
+        start, shift = s, lags[s]
+        for i in range(s + 1, e):
+            if abs(lags[i] - shift) >= step:
+                frames = np.arange(max(start + 1, i - back), i + 1)
+                dub = np.clip(frames + lags[frames], 0, len(level) - 1)
+                split = int(frames[int(np.argmin(level[dub]))])
+                bounds.append((start, split))
+                start, shift = split, lags[i]
+        bounds.append((start, e))
+    parts = []
+    for s, e in bounds:
+        offset = round(float(np.median(lags[s:e])) / fps, 2)
+        if parts and parts[-1]["offset_sec"] == offset and parts[-1]["end"] == round(s / fps, 2):
+            parts[-1]["end"] = round(e / fps, 2)
+        else:
+            parts.append({"start": round(s / fps, 2), "end": round(e / fps, 2), "offset_sec": offset})
+    return parts
+
+
+def _followed(ha: np.ndarray, hb: np.ndarray, fps: float, y_dub: np.ndarray, sr: int, found: float) -> Optional[tuple]:
+    """(coverage, lags, main lag) when following the dub's drift finds much more of the original than found (the usual
+    matching's coverage), else None."""
+    delta = len(hb) - len(ha)
+    margin = int(DRIFT_MARGIN_SEC * fps)
+    lags = _follow(ha, hb, min(0, delta) - margin, max(0, delta) + margin)
+    cov = coverage(ha, hb, lags, fps)
+    if (cov["coverage_pct"] or 0) < max(DRIFT_GATE, found + DRIFT_GAIN) or _hides_a_cut(lags, fps):
+        return None
+    hop = sr / fps
+    level = np.array([np.mean(np.square(y_dub[int(j * hop):int((j + 1) * hop)])) if int(j * hop) < len(y_dub) else 0.0
+                      for j in range(len(hb))])
+    runs = [(int(round(p["start"] * fps)), int(round(p["end"] * fps))) for p in cov["parts"]]
+    parts = _drift_parts(lags, runs, fps, level)
+    if len(parts) < 2:
+        return None
+    return ({**cov, "parts": parts, "steady_offset": False,
+             "drift": {"low_sec": min(p["offset_sec"] for p in parts), "high_sec": max(p["offset_sec"] for p in parts)}},
+            lags, int(np.median(lags)))
+
+
 def read_both(original_path: str, dub_path: str, fps: float, ffmpeg: str,
               expected: tuple[int, int] = (0, 0)) -> tuple[np.ndarray, np.ndarray]:
     """Both videos' frames, decoded at the same time (two ffmpeg processes; decoding is most of the check's time)."""
@@ -383,6 +470,11 @@ def pair(original_path: str, dub_path: str, y_orig: np.ndarray, y_dub: np.ndarra
             motion_ok = []
     cov, lags, main, source = motion_ok[0] if motion_ok else max(
         pool, key=lambda c: (c[0]["picture_match"], c[0]["coverage_pct"] or 0))
+    if (cov["coverage_pct"] or 0) < DRIFT_GATE and abs(len(hb) - len(ha)) <= max_lag:
+        followed = _followed(ha, hb, fps, y_dub, sr, cov["coverage_pct"] or 0)
+        if followed:
+            cov, lags, main = followed
+            source = "drift"
     offset, corr = audio_offset(env_o, env_d, main / fps, max_shift)
     if corr >= AUDIO_CONFIDENT:
         source += "+sound"

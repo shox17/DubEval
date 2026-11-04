@@ -1,5 +1,7 @@
 """A release is consistent: the desktop app and the engine have one version, and that version has its notes."""
+import base64
 import json
+import re
 from pathlib import Path
 
 from dubeval import release_notes
@@ -48,6 +50,30 @@ def test_the_start_page_opens_in_the_packaged_app():
     assert build["electronFuses"]["grantFileProtocolExtraPrivileges"] is False
     assert "status.html" in build["asarUnpack"] and "status.html" in build["files"]
     assert "app.asar.unpacked" in (ROOT / "desktop" / "main.js").read_text(encoding="utf-8")
+
+
+def test_the_start_screens_show_the_apps_current_icon():
+    # They carry it inside them, so it can't arrive late: the shell's page kept 0.1.0's when the icon changed in 0.1.2.
+    for page in (ROOT / "desktop" / "status.html", ROOT / "dubeval" / "web" / "index.html"):
+        inside = base64.b64decode(re.search(r"data:image/png;base64,([A-Za-z0-9+/=]+)", page.read_text(encoding="utf-8")).group(1))
+        assert inside == (ROOT / "dubeval" / "web" / "icon.png").read_bytes()
+
+
+def test_the_window_appears_even_if_its_first_page_never_draws():
+    main = (ROOT / "desktop" / "main.js").read_text(encoding="utf-8")
+    assert "show: false" in main and "setTimeout(show, SHOW_WITHIN_MS)" in main
+
+
+def test_the_two_start_screens_say_the_same_in_the_same_font():
+    # One takes over from the other while the app starts: any difference shows as a glitch.
+    shell = (ROOT / "desktop" / "status.html").read_text(encoding="utf-8")
+    page = (ROOT / "dubeval" / "web" / "boot.js").read_text(encoding="utf-8")
+    words = re.search(r"starting: \{(.*?)\n  \}", shell, re.S).group(1)
+    for lang in ("en", "ko", "pt", "es"):
+        line = re.search(rf"{lang}: (\[.*?\]),", words).group(1)
+        assert line in page
+    font = re.search(r"font: (13px/1.5 [^;]+);", shell).group(1)
+    assert f"font: {font};" in (ROOT / "dubeval" / "web" / "style.css").read_text(encoding="utf-8")
 
 
 def test_a_downloaded_update_installs_only_on_restart_to_update():

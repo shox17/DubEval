@@ -94,6 +94,9 @@ app where a person chooses extras, each with its size, a progress bar and a chec
   left no Python running. A full evaluation with the bundled Python (Hugging Face offline, so the shipped model was
   used) matched the development environment on the CPU on every measure. Not signed: `signAndEditExecutable` is off
   because electron-builder's signing tools need symlinks (Windows Developer Mode); the default Electron icon.
+- **Electron 45** (2026-11-04): Electron 45.2.2, electron-builder 26.18.0 and electron-updater 6.8.11. A packaged copy
+  was checked on this PC: start page, fuses, one real evaluation, video playback, and the updater through a fake local
+  feed up to the hand-over to a stand-in installer. The real installer over an installed copy is checked at the release.
 - **Runtimes upgraded** (2026-10-23, after the security review): Python 3.14.9 (python.org, signature and checksum
   checked; every pin has a cp314 Windows wheel) and Electron 44.9.3 with electron-builder 26.15.3 and fuses on. The
   bundle stays ~1 GB (Tcl/Tk 9 and CPython's C test modules skipped); the installer is 513 MB. The built app started

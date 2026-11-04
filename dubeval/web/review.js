@@ -25,11 +25,18 @@ function dubTime(data, sec) {
   return sec + (data.offset_sec || 0);
 }
 
-// Dub time → original time (the other way round); null where the original has nothing at that moment of the dub.
+// Dub time → original time (the other way round). Between two parts, where the dub has a moment the original doesn't,
+// the time moves evenly on to the next part, so the timeline's line never looks stuck.
 function originalTime(data, sec) {
-  if (data.parts) {
+  if (data.parts && data.parts.length) {
     const p = data.parts.find(p => sec >= p.start + p.offset_sec && sec < p.end + p.offset_sec);
-    return p ? sec - p.offset_sec : null;
+    if (p) return sec - p.offset_sec;
+    const i = data.parts.findIndex(p => sec < p.start + p.offset_sec);
+    if (i < 0) return data.parts[data.parts.length - 1].end;
+    const before = data.parts[i - 1], next = data.parts[i];
+    const from = before ? before.end : 0, dubFrom = before ? before.end + before.offset_sec : 0;
+    const dubTo = next.start + next.offset_sec;
+    return dubTo > dubFrom ? from + (sec - dubFrom) / (dubTo - dubFrom) * (next.start - from) : from;
   }
   return sec - (data.offset_sec || 0);
 }
@@ -636,6 +643,7 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
 
     fill(root,
       h("section", { class: `verdict card ${o.level}` },
+        dub ? h("p", { class: "title-note muted small" }, t("w.review.video_title")) : null,
         h("div", { class: "row" }, editableTitle(p.title, jobId, dub), h("span", { class: "grow" }),
           h("div", { class: "head-actions" }, badge(rep, o.level),
             embedded ? null : h("a", { class: "button", href: "#/new" }, t("w.review.new")),

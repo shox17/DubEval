@@ -135,37 +135,13 @@ function modelsTab(panel, timers, alive) {
 // ---------- Storage ----------
 // What DubEval keeps on this computer, in the Models list's shape: the evaluations, the downloaded videos (those no
 // evaluation or draft uses can be cleared), the models, and the folder it all lives in.
-function storageTab(panel, alive) {
-  const draw = s => {
-    if (!alive()) return;
-    const total = s.evaluations.bytes + s.downloads.bytes + s.models_bytes;
-    const open = h("button", { type: "button", class: "btn", onclick: () => api("/api/settings/open-data", { method: "POST" })
-      .catch(e => alert(e.message)) }, t("w.priv.open"));
-    const clear = h("button", { type: "button", class: "btn", disabled: !s.downloads.unused_bytes, onclick: async () => {
-      if (!await confirmAlert({ title: t("w.store.clear_confirm", { size: gb(s.downloads.unused_bytes) }),
-        text: t("w.store.clear_text"), keep: t("w.cancel"), confirm: t("w.store.clear") })) return;
-      try { draw(await api("/api/settings/storage/clear", { method: "POST" })); } catch (e) { alert(e.message); }
-    } }, t("w.store.clear"));
-    const item = (name, size, note, button) => h("div", { class: "model-row" }, h("span", { class: "model-name" }, name),
-      h("span", { class: "model-size" }, size), h("div", { class: "model-state" }, h("span", { class: "settings-hint" }, note)),
-      button || h("span", {}));
-    fill(panel,
-      h("div", { class: "set-summary" }, t("w.store.summary", { size: gb(total) })),
-      band(t("w.store.group.data"), gb(s.evaluations.bytes + s.downloads.bytes)),
-      h("div", { class: "model-rows" },
-        item(t("w.store.evaluations"), gb(s.evaluations.bytes), t("w.store.evaluations_note", { n: s.evaluations.count })),
-        item(t("w.store.downloads"), gb(s.downloads.bytes), s.downloads.unused_bytes
-          ? t("w.store.downloads_note", { size: gb(s.downloads.unused_bytes) }) : t("w.store.downloads_used"), clear)),
-      band(t("w.store.group.models"), gb(s.models_bytes)),
-      h("div", { class: "model-rows" },
-        item(t("w.set.tab.models"), gb(s.models_bytes), t("w.store.models_note"),
-          h("a", { class: "btn", href: "#/settings/models" }, t("w.store.manage")))),
-      band(t("w.store.group.folder"), ""),
-      h("div", { class: "model-rows" },
-        h("div", { class: "model-row folder" }, h("span", { class: "mono" }, s.data_dir), open),
-        h("p", { class: "settings-hint folder-note" }, t("w.priv.data_text"))));
-  };
-  api("/api/settings/storage").then(draw).catch(e => alive() && fill(panel, h("p", { class: "error" }, e.message)));
+function storageTab(panel) {
+  const open = h("button", { type: "button", class: "btn", onclick: () => api(`/api/settings/open-data?lang=${state.lang}`, { method: "POST" })
+    .catch(e => alert(e.message)) }, t("w.priv.open"));
+  fill(panel,
+    band(t("w.store.group.folder"), ""),
+    h("div", { class: "model-rows" },
+      h("div", { class: "model-row folder" }, h("span", { class: "settings-hint" }, t("w.priv.data_text")), open)));
 }
 
 // ---------- API keys ----------
@@ -281,7 +257,7 @@ export function renderSettings(root, tab) {
     else if (current === "about") aboutTab(panel, view);
   };
   if (current === "models") modelsTab(panel, timers, () => alive);
-  else if (current === "storage") storageTab(panel, () => alive);
+  else if (current === "storage") storageTab(panel);
   else api("/api/settings").then(show).catch(e => alive && fill(panel, h("p", { class: "error" }, e.message)));
   return () => { alive = false; for (const timer of timers) clearTimeout(timer); };
 }

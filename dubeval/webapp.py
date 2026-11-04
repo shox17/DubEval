@@ -22,7 +22,7 @@ import time
 import uuid
 import zipfile
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, Sequence
 from urllib.parse import urlsplit
 
 import numpy as np
@@ -50,6 +50,10 @@ log = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).parent / "web"
 UPLOADS_DIR = DATA_DIR / "uploads"
+MAX_DUB_NAME = 60                     # a dub's name, beside its letter
+MAX_DUB_COLUMN = 32                   # the problem sheet's dub column is at most this wide
+NO_SUCH_DUB = "That dub isn't in this comparison."
+NAME_NOT_SAVED = "Couldn't save the name. Try again."
 MAX_UPLOADS = 40                      # older uploaded files are deleted beyond this many
 PEAKS_PER_SEC = 50                    # waveform resolution sent to the timeline
 COOKIE = "dubeval_web"
@@ -72,6 +76,7 @@ class DubOptions(BaseModel):
     dub_type: Optional[str] = None
     target_lang: Optional[str] = None
     subtitles: Optional[str] = None       # this dub's own subtitle file (a path or upload:<id>)
+    name: Optional[str] = Field(default=None, max_length=MAX_DUB_NAME)   # what the person calls it; only a label
 
 
 class EvaluationBody(BaseModel):
@@ -104,6 +109,11 @@ class DraftBody(BaseModel):
     form: dict = Field(default_factory=dict)
 
 
+class DubNameBody(BaseModel):
+    """A dub's new name in a comparison; empty takes it away."""
+    name: str = Field(default="", max_length=MAX_DUB_NAME)
+
+
 class TitleBody(BaseModel):
     """A result's new title (the video's own name stays in the saved data)."""
     title: str = Field(min_length=1, max_length=200)
@@ -118,42 +128,6 @@ class VoteBody(BaseModel):
     """A reviewer's vote on one problem interval of a finished report."""
     index: int = Field(ge=0)
     vote: Literal["real", "false_alarm"]
-
-
-STORAGE_BUSY = "An evaluation or a download is running. Clear the downloads when it has finished."
-UPLOAD_GRACE_SEC = 24 * 3600     # an upload this new may be on a start page not saved as a draft yet: never cleared
-
-
-def _bytes(path: Path) -> int:
-    """Bytes in a folder (0 when it isn't there)."""
-    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file()) if path.is_dir() else 0
-
-
-def _download_folders() -> list[Path]:
-    """Every downloaded video's folder: a share link's downloads (data/cache) and each upload (data/uploads). A
-    folder without a video or sound file isn't one: an evaluation of files keeps only its saved transcripts and
-    translation-check answers in data/cache, and clearing those would make running it again ask the checker anew."""
-    from dubeval.inputs import MEDIA_SUFFIXES
-    return [d for root in (Path(pipeline.CACHE_DIR), Path(UPLOADS_DIR)) if root.is_dir()
-            for d in root.iterdir() if d.is_dir() and any(f.suffix.lower() in MEDIA_SUFFIXES for f in d.iterdir())]
-
-
-def _unused_downloads() -> list[Path]:
-    """The download folders no kept evaluation or draft plays (library.protects), apart from recent uploads."""
-    used = library.referenced_inputs()
-    recent = time.time() - UPLOAD_GRACE_SEC
-    return [d for d in _download_folders() if not library.protects(d, used)
-            and not (d.parent == Path(UPLOADS_DIR) and d.stat().st_mtime > recent)]
-
-
-def storage_view() -> dict:
-    """Sizes for Settings → Storage: evaluations, downloaded videos (and the unused part), models, the data folder."""
-    downloads = _download_folders()
-    return {"data_dir": str(Path(DATA_DIR).resolve()),
-            "evaluations": {"count": len(library.evaluations()), "bytes": _bytes(Path(pipeline.RUNS_DIR))},
-            "downloads": {"count": len(downloads), "bytes": sum(_bytes(d) for d in downloads),
-                          "unused_bytes": sum(_bytes(d) for d in _unused_downloads())},
-            "models_bytes": packs.catalog()["bytes"]}
 
 
 # Links being downloaded into uploads (id → state), so a pasted link becomes a file like an uploaded one.
@@ -319,10 +293,11 @@ def make_app(token: str) -> FastAPI:
         return out
 
     @app.post("/api/settings/open-data", dependencies=api)
-    def open_data() -> dict:
+    def open_data(lang: Lang = "en") -> dict:
         """Opens DubEval's data folder (reports, history, votes, keys) in the file manager. Only that folder."""
         folder = Path(DATA_DIR).resolve()
         folder.mkdir(parents=True, exist_ok=True)
+        library.tidy_data_folder(folder, lang)
         if os.name == "nt":
             os.startfile(str(folder))                         # noqa: S606 - our own folder, no user input
         else:
@@ -333,20 +308,6 @@ def make_app(token: str) -> FastAPI:
     @app.get("/api/settings", dependencies=api)
     def get_settings() -> dict:
         return settings_view()
-
-    @app.get("/api/settings/storage", dependencies=api)
-    def get_storage() -> dict:
-        """Settings → Storage: what DubEval keeps on this computer and how much of the downloads nothing uses."""
-        return storage_view()
-
-    @app.post("/api/settings/storage/clear", dependencies=api)
-    def clear_storage() -> dict:
-        """Deletes the downloaded videos no evaluation or draft uses (never while an evaluation or a link download runs)."""
-        if jobs.busy() or any(f["state"] == "downloading" for f in list(_fetches.values())):
-            raise HTTPException(409, STORAGE_BUSY)
-        for folder in _unused_downloads():
-            shutil.rmtree(folder, ignore_errors=True)
-        return storage_view()
 
     @app.put("/api/settings/keys/{provider}", dependencies=api)
     async def put_key(provider: str, request: Request) -> dict:
@@ -505,7 +466,7 @@ def make_app(token: str) -> FastAPI:
             # Each dub's own subtitle file comes with its settings (per_dub); body.dub_subtitles is one dub's.
             job = jobs.start_job(lambda report, cancel: pipeline.run_files_comparison(
                 original, dubs, folder, report_lang=body.lang, report=report, cancel_event=cancel, per_dub=per_dub,
-                **options),
+                names=_dub_names(body), **options),
                 {"kind": "comparison", **params}, pipeline.files_compare_stages(len(dubs)))
         return {"id": _started(body, job).id}
 
@@ -596,8 +557,7 @@ def make_app(token: str) -> FastAPI:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         jobs.forget_folder(str(folder))                  # a kept job still has the old title: open it from the files
-        if (folder / "report.html").is_file():
-            history.rename(str(folder / "report.html"), out["title"])
+        _rename_in_history(folder, out["title"])
         return out
 
     @app.delete("/api/evaluations/{run_id}", dependencies=api)
@@ -751,6 +711,27 @@ def make_app(token: str) -> FastAPI:
             log.warning("Could not cache the waveform: %s", e)
         return out
 
+    @app.put("/api/jobs/{job_id}/dub-name", dependencies=api)
+    def rename_dub(job_id: str, body: DubNameBody, dub: str) -> dict:
+        """Names one dub of a comparison: its tab, the ranking, the sentences and the saved files use it. Only a label."""
+        job = finished(job_id)
+        if "comparison" not in job.result or dub not in job.result["results"]:
+            raise HTTPException(status_code=404, detail=NO_SUCH_DUB)
+        name = " ".join(body.name.split())
+        saved, results = job.result["comparison"], job.result["results"]
+        folder = Path(job.params.get("folder") or "")
+        if folder.name and folder.parent.resolve() == Path(pipeline.RUNS_DIR).resolve() and (folder / "comparison.json").is_file():
+            try:                                                 # the saved files first: the job only follows what was saved
+                comp, results = library.rename_dub(folder.name, dub, name)
+            except (OSError, ValueError) as e:
+                log.warning("Could not save the dub's name: %s", e)
+                raise HTTPException(status_code=409, detail=NAME_NOT_SAVED)
+        else:
+            comp = library.name_dub(results, dub, name, saved.get("lang") or "en", saved["meta"].get("run_seconds"))
+        job.result.update(results=results, comparison={k: v for k, v in comp.items() if k != "reports"})
+        job.save()
+        return {"name": name}
+
     @app.put("/api/jobs/{job_id}/title", dependencies=api)
     def rename(job_id: str, body: TitleBody, dub: Optional[str] = None) -> dict:
         """Renames a finished result: the review, exports, its saved report and History use the new title."""
@@ -770,10 +751,8 @@ def make_app(token: str) -> FastAPI:
                     library.rename(folder.name, title)
                 except (OSError, ValueError) as e:
                     log.warning("Could not save the renamed comparison: %s", e)
-            for each in job.result["results"].values():
-                html = ((each.get("pipeline") or {}).get("report_files") or {}).get("html")
-                if html:
-                    history.rename(html, title)
+            _rename_in_history(folder, title, [((each.get("pipeline") or {}).get("report_files") or {}).get("html")
+                                               for each in job.result["results"].values()])
             return {"title": title}
         r.setdefault("pipeline", {})["custom_title"] = title
         job.save()
@@ -784,8 +763,7 @@ def make_app(token: str) -> FastAPI:
                 pipeline.save_report_files(r, job.params["folder"])
             except (OSError, KeyError, ValueError) as e:
                 log.warning("Could not save the renamed report: %s", e)
-        if report_html:
-            history.rename(report_html, title)
+        _rename_in_history(Path(job.params.get("folder") or ""), title, [report_html])
         return {"title": title}
 
     @app.post("/api/jobs/{job_id}/votes", dependencies=api)
@@ -831,35 +809,23 @@ def make_app(token: str) -> FastAPI:
     def history_summary(days: Optional[int] = Query(None, ge=1, le=3650)) -> dict:
         """Every past evaluation summarized (dubeval/history.py) plus the reviewer votes (dubeval/feedback.py).
 
-        Each recent run carries `report`: a path under the data folder the page can open with /api/reports, or None
-        when its report lives elsewhere (CLI runs into ./output) or is gone.
+        Each recent run carries `run`, the evaluation the page opens, and `report`, a path under the data folder for
+        /api/reports (None when that file is gone).
         """
         records = history.load()
         summary = history.summarize(records, days=days)
-        # The latest evaluations leave out ones whose report is gone (deleted on the Evaluations screen): a row the
-        # person can't open again. The totals and trends above still count every evaluation that was run.
-        kept = [r for r in records if not r.get("report") or Path(r["report"]).is_file()]
+        # The latest evaluations are the ones on Home, so every row opens (not deleted ones, nor command-line and batch
+        # runs). The totals and trends above still count every evaluation that was run.
+        runs = Path(pipeline.RUNS_DIR).resolve()
+        on_home = {runs / c["id"] for c in library.evaluations()}
+        kept = [r for r in records if r.get("report") and Path(r["report"]).resolve().parent in on_home]
+        names = {}                                      # one comparison's names, for all its rows
         summary["recent"] = [{k: r.get(k) for k in ("time", "mode", "title", "languages", "verdict", "poor", "check",
-                                                    "problem_seconds")} | {"report": _report_ref(r.get("report"))}
-                             for r in history.summarize(kept, days=days)["recent"]]
+                                                    "problem_seconds")}
+                             | {"report": _report_ref(r.get("report")), "run": Path(r["report"]).parent.name}
+                             | _which_dub(r.get("report"), names)
+                             for r in history.summarize(kept, days=days, recent=None)["recent"]]
         return {"history": summary, "feedback": feedback.summarize(feedback.load())}
-
-    @app.post("/api/history/open", dependencies=api)
-    def open_past(path: str) -> dict:
-        """A past evaluation (one History names) as a job the review screen can show: its kept job, or one made again
-        from the report files in its run folder. Returns {id, kind, dub}: kind "comparison" opens on that dub's tab."""
-        known = {_report_ref(r.get("report")) for r in history.load()} - {None}
-        if path not in known:
-            raise HTTPException(status_code=404, detail="That report is gone (old runs are pruned). Run it again.")
-        report_file = Path(DATA_DIR) / path
-        m = re.fullmatch(r"report_([A-H])\.html", report_file.name)
-        dub = m.group(1) if m else None
-        folder = report_file.parent
-        job = jobs.find_done_job(str(folder)) or _restore(folder)
-        if job is None:
-            raise HTTPException(status_code=404, detail="That report is gone (old runs are pruned). Run it again.")
-        kind = "comparison" if "comparison" in job.result else "files"
-        return {"id": job.id, "kind": kind, "dub": dub if kind == "comparison" else None}
 
     @app.get("/api/reports", dependencies=api)
     def saved_report(path: str):
@@ -910,7 +876,7 @@ def _export_files(result: dict, lang: str, kinds: list[str], folder: Path) -> tu
         comp = build_ranking([res[d] for d in saved["dubs"]], lang, run_seconds=saved["meta"].get("run_seconds"))
         per_dub = {d: {**res[d], "report": comp["reports"][d]} for d in comp["dubs"]}
         written = pipeline.save_comparison_files(comp, per_dub, folder, absolute_videos=True)
-        reports = [(d, per_dub[d]["report"]) for d in comp["dubs"]]
+        reports = [(f"{d} · {comp['names'][d]}" if comp["names"][d] else d, per_dub[d]["report"]) for d in comp["dubs"]]
         title = comp["recommendation"].get("title")
     else:
         r = {**result, "report": build_report(result, lang)}
@@ -953,7 +919,8 @@ def _problems_xlsx(reports: list[tuple[Optional[str], dict]], lang: str, path: P
     head = ([tr("w.exp.col.dub")] if many else []) + [tr(f"w.exp.col.{c}") for c in
                                                        ("start", "end", "check", "severity", "description")]
     rows = [([dub] if many else []) + row for dub, rep in reports for row in problem_rows(rep, lang)]
-    widths = ([6] if many else []) + [9, 9, 24, 12, 90]
+    longest = max((len(dub or "") for dub, _ in reports), default=0)
+    widths = ([min(MAX_DUB_COLUMN, max(6, longest + 2))] if many else []) + [9, 9, 24, 12, 90]
     return write_xlsx(path, tr("w.exp.sheet"), head, rows, widths, wrap=[len(head) - 1])
 
 
@@ -1011,8 +978,32 @@ def _start_share_job(body: EvaluationBody, original: Optional[str], links: list[
     per_dub = [{"dub_subtitles": _upload_path(o.subtitles), "dub_type": o.dub_type or None} for o in body.dub_options]
     return jobs.start_job(lambda report, cancel: pipeline.run_comparison(
         links[0], links[1], folder, more_urls=tuple(links[2:]), report=report, cancel_event=cancel,
-        original_subtitles=_upload_path(body.original_subtitles), per_dub=per_dub, **common),
+        original_subtitles=_upload_path(body.original_subtitles), per_dub=per_dub, names=_dub_names(body), **common),
         {"kind": "comparison", **params}, pipeline.compare_stages(len(links)))
+
+
+def _rename_in_history(folder: Path, title: str, reports: Sequence[Optional[str]] = ()) -> None:
+    """Gives History's records of a run a new title: found by the reports in its folder, because a reopened evaluation's
+    results don't name them, and by the ones its results do name."""
+    saved = [folder / "report.html", *folder.glob("report_[A-H].html")] if folder.name else []
+    for report in {str(p.resolve()) for p in saved if p.is_file()} | {str(Path(r).resolve()) for r in reports if r}:
+        history.rename(report, title)
+
+
+def _dub_names(body: EvaluationBody) -> list[str]:
+    """The names given to the dubs of a comparison, in order (empty when one has none)."""
+    return [" ".join((o.name or "").split()) for o in body.dub_options]
+
+
+def _which_dub(report: Optional[str], names: dict) -> dict:
+    """Which dub of a comparison a History row is, from its report's file name, and that dub's name right now."""
+    path = Path(report or "")
+    m = re.fullmatch(r"report_([A-H])\.html", path.name)
+    if not m:
+        return {"dub": None, "dub_name": None}
+    if path.parent not in names:
+        names[path.parent] = library.dub_names(path.parent)
+    return {"dub": m.group(1), "dub_name": names[path.parent].get(m.group(1))}
 
 
 def _report_ref(path: Optional[str]) -> Optional[str]:

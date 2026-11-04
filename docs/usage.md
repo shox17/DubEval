@@ -5,7 +5,7 @@ Everything DubEval can do, every check it runs and how to read the results. Inst
 ## What you can do with it
 | Way | How | What for |
 |---|---|---|
-| **Web interface** | `dubeval web` | Choose an original and its dub (or up to 8 dubs to compare and get a recommendation), follow the evaluation, then review it like an editor: both videos in sync, a timeline with both waveforms, every line and every problem. **Settings** is PersoDub's dialog: **API keys** (Claude, Gemini, ChatGPT), **Models** (built-in and optional models by purpose, with sizes: offline meaning check, NVIDIA GPU speed-up, a large speech model, the lip-sync check), **Storage** (what DubEval keeps on this computer; clear the downloaded videos no evaluation uses), **Privacy** and **About**, with **Cancel** and **Save** (Save keeps the keys you typed and a new interface language; downloads and removals happen at once). A report row that couldn't be measured for a fixable reason links straight to the tab that fixes it. A **History** page shows every past evaluation, trends and which checks reviewers call false alarms |
+| **Web interface** | `dubeval web` | Choose an original and its dub (or up to 8 dubs to compare and get a recommendation), follow the evaluation, then review it like an editor: both videos in sync, a timeline with both waveforms, every line and every problem. **Settings** is PersoDub's dialog: **API keys** (Claude, Gemini, ChatGPT), **Models** (built-in and optional models by purpose, with sizes: offline meaning check, NVIDIA GPU speed-up, a large speech model, the lip-sync check), **Storage** (opens the data folder where downloaded videos, reports and history are kept), **Privacy** and **About**, with **Cancel** and **Save** (Save keeps the keys you typed and a new interface language; downloads and removals happen at once). A report row that couldn't be measured for a fixable reason links straight to the tab that fixes it. A **History** page shows every past evaluation, trends and which checks reviewers call false alarms |
 | **Command line** | `dubeval evaluate --original A --dub B`, or `python qa.py "<share link>"` | A report in the terminal plus saved files |
 | **Compare** | **Add another dub** in `dubeval web`, or `python qa.py compare A B C …` | Rank 2–8 dubs of the same video and pick the one to deliver |
 | **Batch** | `python qa.py batch links.txt` | Check many links at once; one summary spreadsheet, and agreement with your own verdicts |
@@ -107,7 +107,7 @@ Probable speech-recognition mistakes are listed separately as "possible ASR erro
 **Interface language:** English, 한국어, Português or Español (top right of the web interface). Everything follows it: the report's explanations, verdict and things to check, Gemini's translation comments, error messages, and the downloaded HTML report. The command line takes `--lang ko` (the default), `en`, `es` or `pt`.
 
 ### Compare two dubs
-**In the web interface:** press **Add another dub to compare** (up to 8 dubs of one original, each with its own kind and language, or up to 8 Perso share links) and **Compare**. The comparison shows the recommended version and why, the ranking, every check side by side, and a tab per dub with its own synced players and timeline.
+**In the web interface:** press **Add another dub to compare** (up to 8 dubs of one original, each with its own kind and language, or up to 8 Perso share links) and **Compare**. Each dub can have a **name**, such as the service that made it; without one it goes by its file's name when the files tell the dubs apart. Names only tell the dubs apart: they never change the ranking. Click its name under the tabs to change it later; the tabs, ranking, saved report, export and History follow. The video's own title stays one for the whole comparison. The comparison shows the recommended version and why, the ranking, every check side by side, and a tab per dub with its own synced players and timeline.
 
 **On the command line:**
 ```bash
@@ -172,7 +172,7 @@ dubeval validate testset.csv --out data/validation/run1       # known problems: 
 Only the printed link opens the page (it carries a new token each time), so no other web page can read or change your labels.
 
 ### History and trends
-Every evaluation (web interface, command line, compare, batch and API) is added to `data/history.jsonl` on your machine. See it with **History** at the top of the web interface (period filter, week-by-week chart, language pairs, most frequent problems, reviewer votes, latest runs with their reports), or:
+Every evaluation (web interface, command line, compare, batch and API) is added to `data/history.jsonl` on your machine. See it with **History** at the top of the web interface (period filter, week-by-week chart, language pairs, most frequent problems, reviewer votes, and the latest evaluations that are on Home; the totals count every run), or:
 ```bash
 python qa.py history --days 30 --lang en          # summary in the terminal
 python qa.py history --csv history.csv            # every recorded evaluation as a spreadsheet

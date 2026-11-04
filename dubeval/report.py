@@ -133,6 +133,9 @@ def _pairing(tr: Tr, pr: Optional[dict]) -> list[dict]:
     if pr.get("applied_parts") and len(parts) > 1:
         shifts = ", ".join(f"{p['offset_sec']:+.2f}" for p in parts)
         msg, disp = tr("r.pair.shift_parts", shifts=shifts), tr("r.pair.disp_parts", n=len(parts))
+        if pr.get("drift"):
+            low, high = f"{pr['drift']['low_sec']:+.1f}", f"{pr['drift']['high_sec']:+.1f}"
+            msg, disp = tr("r.pair.shift_drift", low=low, high=high), tr("r.pair.disp_drift", low=low, high=high)
     elif applied:
         msg = tr("r.pair.shift_later" if applied > 0 else "r.pair.shift_earlier", sec=f"{abs(applied):.2f}")
         disp = tr("r.pair.disp_corrected", sec=f"{applied:+.2f}")
@@ -656,6 +659,7 @@ def _project(r: dict) -> dict:
     share = p.get("input") or p.get("share") or {}
     return {
         "title": p.get("custom_title") or share.get("title") or Path(p.get("input_video_path") or "").name,
+        "dub_name": p.get("dub_name"),
         "perso_seq": share.get("seq"),
         "share_url": share.get("share_url"),
         "source_language": share.get("source_language_name") or meta.get("detected_source_language"),
@@ -838,7 +842,8 @@ def render_text(rep: dict, width: int = 78) -> str:
     bar, thin = "═" * width, "─" * width
     wrap = lambda text, first, rest: textwrap.wrap(text, width, initial_indent=first, subsequent_indent=rest)
     lines = [bar, f" {lb['title'].upper()}" + (p.get("timestamp") or "").rjust(max(0, width - len(lb["title"]) - 1)),
-             bar, f" {lb['project']}: {p['title']}" + (f"   (Perso #{p['perso_seq']})" if p.get("perso_seq") else ""),
+             bar, f" {lb['project']}: {p['title']}" + (f" · {p['dub_name']}" if p.get("dub_name") else "")
+             + (f"   (Perso #{p['perso_seq']})" if p.get("perso_seq") else ""),
              f" {lb['languages']}: {p.get('source_language') or '?'} → {p.get('target_language') or '?'}"
              + (f"   {lb['length']}: {p['duration_sec']:.1f} s" if p.get("duration_sec") else "")]
     if p.get("evaluated_video"):
@@ -935,7 +940,7 @@ def render_html(rep: dict, results: Optional[dict] = None, original_src: str = "
     out = [f"<!doctype html><html lang={e(rep.get('lang', 'en'))}><head><meta charset=utf-8><meta name=viewport "
            f"content='width=device-width,initial-scale=1'><title>{e(lb['title'])}</title><style>{_CSS}</style>"
            f"</head><body><main>",
-           f"<h1>{e(lb['title'])}</h1><div class='meta muted'><span>{e(p['title'])}</span>"
+           f"<h1>{e(lb['title'])}</h1><div class='meta muted'><span>{e(p['title'] + (' · ' + p['dub_name'] if p.get('dub_name') else ''))}</span>"
            + (f"<span>Perso #{e(p['perso_seq'])}</span>" if p.get("perso_seq") else "")
            + f"<span>{e(p.get('source_language') or '?')} → {e(p.get('target_language') or '?')}</span>"
            + (f"<span>{p['duration_sec']:.1f} s</span>" if p.get("duration_sec") else "")

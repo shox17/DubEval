@@ -819,6 +819,18 @@ REPORT_TEXT = {
         "es": "Las partes del doblaje están en desfases distintos ({shifts} s): se editó de otra forma. DubEval alineó "
               "cada parte con el original, así que todos los tiempos de este informe son los del original.",
     },
+    "r.pair.shift_drift": {
+        "en": "The dub's picture drifts against the original, between {low} and {high} s: it was slowed down or sped up in "
+              "places. DubEval followed the drift, so every time in this report is the original's.",
+        "ko": "더빙 영상의 화면이 원본과 {low}초에서 {high}초 사이로 조금씩 어긋납니다. 군데군데 느리거나 빠르게 바뀌었습니다. "
+              "DubEval이 이 어긋남을 따라갔으므로 이 보고서의 모든 시간은 원본 기준입니다.",
+        "pt": "A imagem da dublagem se desloca em relação ao original, entre {low} e {high} s: ela foi desacelerada ou acelerada "
+              "em alguns trechos. O DubEval acompanhou esse deslocamento, então todos os tempos deste relatório são os do original.",
+        "es": "La imagen del doblaje se desplaza respecto al original, entre {low} y {high} s: se ralentizó o aceleró en algunos "
+              "tramos. DubEval siguió ese desplazamiento, así que todos los tiempos de este informe son los del original.",
+    },
+    "r.pair.disp_drift": {"en": "{low} to {high} s, followed", "ko": "{low}초~{high}초, 따라감",
+                          "pt": "{low} a {high} s, acompanhado", "es": "{low} a {high} s, seguido"},
     "r.pair.disp_parts": {"en": "{n} parts, each corrected", "ko": "{n}개 부분, 각각 보정됨",
                           "pt": "{n} partes, cada uma corrigida", "es": "{n} partes, cada una corregida"},
     "r.pair.cov_full": {

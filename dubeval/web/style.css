@@ -349,6 +349,15 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
 .tabs-title { margin-top: 24px; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 8px; scroll-margin-top: 12px; }
 .tabs button { height: 30px; font-weight: 500; }
+.dub-name { margin: 10px 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dub-name-input { width: 260px; max-width: 100%; }
+/* The dub's own name wears its active tab's colours and a pencil, so it can't be read as the video's title below it. */
+.dub-name-value, .dub-name-value:hover, .dub-name-value:focus-visible {
+  background: var(--primary-soft); color: var(--primary-ink); font-weight: 600; margin-left: 0; padding: 2px 10px; border-radius: 999px; }
+.dub-name-value::after { content: "\270E"; margin-left: 6px; font-weight: 400; opacity: .7; }
+.dub-name-value.empty { font-weight: 500; }
+.title-note { margin: 0 0 2px; }
+.hist-dub { margin-left: 6px; color: var(--muted-foreground); }
 .tabs button.on { background: var(--primary-soft); color: var(--primary-ink); border-color: transparent; }
 .star { color: var(--warning); }
 
@@ -425,8 +434,6 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
 .model-ok { color: var(--success); font-weight: 600; font-size: 11.5px; }
 .model-state progress { flex-basis: 100%; margin: 4px 0 0; }
 .model-row.folder { grid-template-columns: minmax(0, 1fr) auto; }
-.model-row.folder .mono { overflow-wrap: anywhere; font-size: 11px; padding-right: 12px; }
-.folder-note { margin: 0 0 4px; }
 .judges { list-style: none; padding: 0; margin: 2px 0 0; display: grid; gap: 4px; }
 .license-list { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 4px; }
 .license-list li { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 3px 0; }
@@ -601,18 +608,22 @@ canvas.timeline.dragging { cursor: grabbing; }
 
 /* ---------- the boot screen (until app.js main has the texts and the first screen) ---------- */
 body.booting .app { visibility: hidden; }
+/* Pixel for pixel desktop/status.html's starting page, so the change from one to the other can't be seen: its system
+   font (Onest arrives later and would move the words), its sizes, and its bar. */
 .boot { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: var(--desk);
-  -webkit-app-region: drag; }
+  -webkit-app-region: drag; font: 13px/1.5 -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
 .boot-box { width: min(700px, calc(100vw - 64px)); }
+/* Nothing is drawn until boot.js has put the words in: the window keeps showing the starting page until then. */
+.boot:not(.ready) .boot-box { visibility: hidden; }
 .boot-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; font-weight: 700; font-size: 16px; }
 .boot-brand img { width: 34px; height: 34px; border-radius: 8px; }
-.boot h1 { font-size: 28px; margin: 0 0 18px; }
+.boot h1 { font-size: 28px; font-weight: 700; letter-spacing: normal; line-height: 1.5; margin: 0 0 18px; }
 .boot-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; position: relative; }
 .boot-bar::after { content: ""; position: absolute; top: 0; bottom: 0; width: 32%; border-radius: 4px;
-  background: var(--primary); animation: boot-slide 1.6s ease-in-out infinite; }
+  background: var(--primary); animation: boot-slide 1.6s ease-in-out infinite; animation-delay: var(--sweep, 0s); }
 @keyframes boot-slide { from { left: -32%; } to { left: 100%; } }
 @media (prefers-reduced-motion: reduce) { .boot-bar::after { animation: none; left: 0; width: 100%; opacity: .5; } }
-.boot p { color: var(--muted-foreground); margin-top: 10px; }
+.boot p { color: var(--muted-foreground); margin: 6px 0; }
 .boot.failed .boot-bar { display: none; }
 .boot.failed p { color: var(--destructive); }
 

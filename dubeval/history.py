@@ -133,7 +133,7 @@ def _week(stamp: str) -> str:
     return (d - timedelta(days=d.weekday())).isoformat()
 
 
-def summarize(records: list[dict], days: Optional[int] = None, today: Optional[date] = None) -> dict:
+def summarize(records: list[dict], days: Optional[int] = None, today: Optional[date] = None, recent: Optional[int] = 20) -> dict:
     """Totals, per-language-pair verdict mix, the most frequent problems, a weekly trend and the recent runs."""
     if days is not None:
         since = ((today or date.today()) - timedelta(days=days)).isoformat()
@@ -170,7 +170,7 @@ def summarize(records: list[dict], days: Optional[int] = None, today: Optional[d
         "problems": sorted(({"measure": mid, **c, "dubs": c["check"] + c["poor"]} for mid, c in by_measure.items()),
                            key=lambda x: (-x["poor"], -x["dubs"], x["measure"])),
         "weekly": [{"week": w, **{lv: c.get(lv, 0) for lv in LEVELS}} for w, c in sorted(weekly.items())],
-        "recent": list(reversed(records))[:20],
+        "recent": list(reversed(records))[:recent],
     }
 
 
