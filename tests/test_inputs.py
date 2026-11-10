@@ -128,12 +128,13 @@ def test_probe_reads_duration_video_and_audio_tracks(tmp_path):
 def test_check_refuses_unreadable_silent_and_too_long_files(tmp_path, monkeypatch):
     junk = tmp_path / "junk.mp4"
     junk.write_bytes(b"not a video")
-    with pytest.raises(ValueError, match="can't be read"):
+    # InputError (a ValueError): the file itself is the problem, so the app offers no Continue (jobs.Job.retry_helps)
+    with pytest.raises(inputs.InputError, match="can't be read"):
         inputs.check(str(junk), "original video")
-    with pytest.raises(ValueError, match="no audio track"):
+    with pytest.raises(inputs.InputError, match="no audio track"):
         inputs.check(make_media(tmp_path / "silent.mp4", audio_tracks=0), "dubbed video")
     monkeypatch.setattr(inputs, "MAX_MINUTES", 0.01)
-    with pytest.raises(ValueError, match="accepts up to"):
+    with pytest.raises(inputs.InputError, match="accepts up to"):
         inputs.check(make_media(tmp_path / "ok.mp4"), "dubbed video")
 
 

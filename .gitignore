@@ -49,3 +49,5 @@ Thumbs.db
 desktop/node_modules/
 desktop/dist/
 desktop/resources/
+# The signing portal's address is internal: it stays in this local file (desktop/scripts/release-windows.js)
+desktop/codesign.local.json

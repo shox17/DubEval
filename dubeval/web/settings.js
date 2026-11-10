@@ -181,11 +181,31 @@ function keysTab(panel, view, show) {
 }
 
 // ---------- Privacy ----------
+// Usage stats: a switch that applies at once, what it sends, and what this launch has actually sent.
+function usageRow(stats) {
+  if (!stats.available) return row(t("w.priv.usage"), h("span", {}, t("w.priv.usage_off")));
+  const toggle = h("input", { type: "checkbox", class: "switch", "aria-label": t("w.priv.usage_switch") });
+  toggle.checked = stats.on;
+  toggle.addEventListener("change", async () => {
+    try {
+      await api("/api/settings/usage-stats", { method: "PUT", body: JSON.stringify({ on: toggle.checked }) });
+      state.info.ask_usage_stats = false;
+    } catch (e) { toggle.checked = false; alert(e.message); }   // not saved: the server keeps stats off for now
+  });
+  const sent = stats.about ? [JSON.stringify(stats.about), ...stats.recent.map(e => JSON.stringify(e))] : [];
+  return row(t("w.priv.usage"),
+    h("label", { class: "set-inline" }, toggle, h("span", {}, t("w.priv.usage_switch"))),
+    h("span", { class: "settings-hint" }, t("w.priv.usage_text")),
+    h("details", { class: "stats-recent" }, h("summary", { class: "settings-hint" }, t("w.priv.usage_recent")),
+      stats.recent.length ? h("pre", {}, sent.join("\n"))
+        : h("span", { class: "settings-hint" }, t("w.priv.usage_none"))));
+}
+
 function privacyTab(panel, view) {
   const j = view.judge;
   const checker = j.active ? t(`w.set.judge.${j.active}`, { model: j.local_model }) : t("w.set.judge.none");
   fill(panel,
-    row(t("w.priv.usage"), h("span", {}, t("w.priv.usage_text"))),
+    usageRow(view.usage_stats),
     row(t("w.priv.translation"), h("span", {}, t("w.priv.translation_text", { checker }))),
     row(t("w.priv.links"), h("span", {}, t("w.priv.links_text"))),
     row(t("w.priv.downloads"), h("span", {}, t("w.priv.downloads_text"))),

@@ -1,7 +1,7 @@
 {
   "name": "dubeval-desktop",
   "productName": "DubEval",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "DubEval desktop app: evaluates a dub against its original, on your computer.",
   "license": "AGPL-3.0-or-later",
   "author": "DubEval contributors",
@@ -10,7 +10,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis --publish never",
-    "release": "electron-builder --win nsis --publish always"
+    "build:windows:release": "node scripts/release-windows.js build",
+    "release:windows:finish": "node scripts/release-windows.js finish"
   },
   "dependencies": {
     "electron-updater": "6.8.11"
@@ -65,6 +66,11 @@
         "nsis"
       ],
       "signAndEditExecutable": false,
+      "signtoolOptions": {
+        "publisherName": [
+          "ESTsoft Corp."
+        ]
+      },
       "icon": "build/icon.ico"
     },
     "nsis": {

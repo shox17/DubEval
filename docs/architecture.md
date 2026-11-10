@@ -91,6 +91,14 @@ Pure. `parse_batch_file` reads one link per line with an optional person's verdi
 ### `dubeval/history.py`
 `record(results, mode)` (mode single / compare / batch / api / web) appends one JSON line per evaluated dub to `data/history.jsonl` (`DUBEVAL_HISTORY` overrides): time, tool version, mode (single / compare / batch), link, Perso project, languages and language pair, lip-sync, verdict, Poor/Check counts, problem seconds, meaning score, speech-timing overlap, every measure's level and the report path. Failures are logged, never raised. `summarize(records, days)` counts each dub once (latest run; by Perso project, link, or for files the `inputs` original|dub), and returns totals, per-pair verdict mix and averages, the most frequent Check/Poor measures, a weekly trend and the 20 latest runs; `render_history_text` prints it. `pipeline.run_share_evaluation` (with `history_mode`), `run_comparison` (every dub) and `run_batch` record.
 
+### `dubeval/usage_stats.py`
+Opt-in usage stats from the app (never the command line or REST API). Off until the person answers the question at launch,
+or turns on the switch in Settings → Privacy; the choice is in `data/usage_stats.json`. `record(name, **fields)` does nothing
+unless they said yes and never raises. `_clean()` keeps only listed values and `_batch()` adds a random weekly number, the
+app version and the kind of system; batches go in the background to `dubeval.com/api/usage` (`DUBEVAL_USAGE_STATS_URL`
+overrides, for testing; `DUBEVAL_USAGE_STATS=0` turns the feature off, without the question). `webapp.py` notes evaluations
+through `jobs.on_finish` and features in their routes. [What is sent](privacy.md).
+
 ### `dubeval/feedback.py`
 `vote(project, interval, verdict)` appends `{time, key, link, seq, category, check, severity, start, end, vote, reviewer}` to `data/feedback.jsonl` (`DUBEVAL_FEEDBACK` overrides); `interval_key` = the dub (Perso project, or `file:<dub_id>` for a dub given as a file: its path hashed, so a rename
 keeps its votes) | category | start | end (`legacy_key` finds votes keyed by title before `dub_id`), and `latest()` keeps
@@ -159,7 +167,10 @@ meaning screen and the translation check run through `pipeline._abandonable`: a 
 once (the abandoned web request ends on its own; its result is dropped). Each job keeps its request
 (`params["request"]`), and `POST /api/jobs/{id}/continue` starts it again for a cancelled, failed or interrupted job
 (`can_continue` in the job state); cached speech recognition and the same-video check make it pick up about where it
-stopped, and its draft follows the new job.
+stopped, and its draft follows the new job. A failure on the input itself (`inputs.InputError`: unreadable, no
+audio, too long, not a video, clearly different videos; or a missing file) sets `Job.retry_helps` to False, saved
+with the job: the same request would fail the same way, so there is no Continue (the route answers 409) and only
+**Change and start again** is offered. Such a failure is logged as a warning, without a traceback.
 
 ### `dubeval/jobs.py`
 - `start_job(runner, params, stages)` runs `runner(report, cancel_event)` in a daemon thread. Jobs live in a process-wide registry, so a page reload (`?job=<id>`) reattaches to them. `Cancelled` marks a stopped job.

@@ -117,17 +117,43 @@ SYNC = {"measured": True, "moments": 30, "original_match": 28, "dub_match": 26, 
 
 
 @pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
-def test_the_report_shows_the_lip_sync_line_instead_of_lip_movement_and_never_grades_it(lang):
+def test_the_report_shows_the_lip_sync_line_instead_of_lip_movement(lang):
     results = make_results(translation_judge=JUDGED)
     results["lipsync_metrics"]["sync"] = SYNC
     rep = build_report(results, lang)
     row = metric(rep, "lip_sync")
-    assert row["level"] == "info" and row["value"] == 87 and "26" in row["message"] and "28" in row["message"]
-    assert row["thresholds"] and "30" in row["thresholds"]
+    assert row["value"] == 87 and "26" in row["message"] and "28" in row["message"]
+    assert row["thresholds"] and "30" in row["thresholds"] and "90" in row["thresholds"]
     assert not any(m["id"] == "lip_movement" for s in rep["sections"] for m in s["metrics"])
     section = next(s for s in rep["sections"] if s["id"] == "lipsync")
     assert section["title"] == {"en": "Lip sync", "ko": "립싱크", "pt": "Sincronia labial", "es": "Sincronía labial"}[lang]
-    assert rep["overall"]["level"] == "good"
+
+
+@pytest.mark.parametrize("dub, level, verdict", [
+    (30, "good", "good"), (27, "good", "good"),            # 90% or more: Good
+    (26, "check", "check"), (10, "check", "check"),        # between: Check (10 of 30 is 33%)
+    (9, "poor", "poor"), (0, "poor", "poor"),              # 30% or less: Poor
+])
+def test_lip_sync_is_graded_on_the_share_of_moments_that_line_up(dub, level, verdict):
+    """The owner's rule (2026-11-10): Good from 90%, Poor at 30% or less, Check between; it counts in the verdict."""
+    results = make_results(translation_judge=JUDGED)
+    results["lipsync_metrics"]["sync"] = {**SYNC, "dub_match": dub, "dub_match_pct": round(dub / 30 * 100),
+                                          "dub_offset_ms": None}
+    rep = build_report(results)
+    row = metric(rep, "lip_sync")
+    assert row["level"] == level and rep["overall"]["level"] == verdict
+    if level == "poor":
+        assert "redo the lip sync" in row["message"]
+    elif level == "check":
+        assert "close-ups" in row["message"]
+
+
+def test_lip_sync_that_wasnt_measured_or_only_estimated_never_counts():
+    results = make_results(translation_judge=JUDGED)
+    results["lipsync_metrics"]["sync"] = ls.not_measured("r.sync_lips.few_moments", n=3)
+    assert build_report(results)["overall"]["level"] == "good"
+    rep = build_report(make_results(translation_judge=JUDGED))          # no pack: the rough estimate, information only
+    assert metric(rep, "lip_movement")["level"] == "info" and rep["overall"]["level"] == "good"
 
 
 def test_the_report_says_when_the_sound_is_off_and_why_it_wasnt_measured():

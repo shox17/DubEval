@@ -38,7 +38,8 @@ DRAFT_TOO_BIG = "This draft is too big to keep."
 EMPTY_TITLE = "Type a title for this result."
 
 
-APP_ONLY = ("cache", "drafts", "jobs", "logs", ".env", "history.jsonl", "feedback.jsonl")   # hidden in the data folder
+APP_ONLY = ("cache", "drafts", "jobs", "logs", ".env", "history.jsonl", "feedback.jsonl",
+            "usage_stats.json")   # hidden in the data folder
 HIDDEN = 2                                                  # Windows' FILE_ATTRIBUTE_HIDDEN
 
 def _runs() -> Path:

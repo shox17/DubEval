@@ -26,17 +26,17 @@ problem time ranges to jump there.
   scored very low that might be misheard shows as Check, a moment to listen to, so a real error can't hide behind it. On the
   graded dubs its meaning grade matched the person's on 3 of 7; the misses came from misheard words. Different
   judges can disagree, so compare dubs with the same one.
-- **Lip sync is informational only**: shown for lip-synced dubs, never part of the verdict. For a real check,
-  download it in Settings → Models (ByteDance's StableSyncNet, 1.6 GB): it counts how often the lips line up with
-  the dubbed speech next to the original, and says when the sound is late or early. Without it, a rough
+- **Lip sync counts in the verdict only with its download**: measured for lip-synced dubs. Download it in Settings →
+  Models (ByteDance's StableSyncNet, 1.6 GB): it counts how often the lips line up with the dubbed speech next to the
+  original (90% or more is Good, 30% or less Poor, Check between), and says when the sound is late or early. Without it, a rough
   lip-movement measure is shown.
 
 ## Known limits
 - **Thresholds are calibrated on only 20 real dubs** (see [How accurate is it?](faq.md#how-accurate-is-it)). Treat borderline results with care, and use labelled batches to tune them.
 - **Background music makes voice checks harder:** on music-heavy videos voice similarity is not measured (by design), and speech timing and clarity are noisier.
 - **Voice quality doesn't detect a muffled voice.**
-- **Lip sync is information only.** The lip-sync check (download) was tested on one real dub; without it, lip
-  movement is a rough heuristic.
+- **The lip-sync bands rest on one real dub.** The lip-sync check (download) counts in the verdict but was tested on
+  one real dub and planted delays; without it, lip movement is a rough heuristic shown for information only.
 - **The translation check reads transcripts, not audio:** a misheard word can look like a translation error (the report marks probable mishearings). It needs a Claude, Gemini or ChatGPT key, or a local model; Gemini is sometimes overloaded or out of its free daily quota, in which case the check is reported as not measured and you can run again later.
 - **Speaking pace** is graded for Korean, English, Spanish, Japanese and Chinese only; other languages show "not measured".
 - **Speech checks are being recalibrated for faster-whisper**, the default recognizer. The thresholds were set with the original Whisper, and on difficult audio the two can disagree (for example voice clarity 0% against 100% on the same dub). Treat clarity, timing and pace verdicts as provisional, or set `DUBEVAL_ASR=openai-whisper` for the original behaviour.

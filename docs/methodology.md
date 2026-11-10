@@ -82,7 +82,7 @@ DubEval treats a dub the same way whichever service made it:
 | Noise | Does the dub fill with hiss or static the original doesn't have? | Found 15 of 15 planted bursts, with no false alarm on 22 real dubs; none has been seen in a real dub yet. Misses hum, buzz, crackle and bursts under 1.5 s |
 | Voice similarity | Does the dub sound like the same person? | Measured only with a clean background; never Poor, since a new voice can be on purpose |
 | Translation | Does each line mean what the original said, naturally? | With Gemini, high: 23 of 23 planted wrong numbers, reversed meanings and left-out lines found, no harmless rewording flagged. With the local model, low: 4 of 23. It reads transcripts, not audio, and scores vary between runs |
-| Lip sync | Do the lips follow the dub's speech? | With the lip-sync download (StableSyncNet): on a real Perso dub it told the lip-synced version from the plain one and measured planted sound delays to the frame; tested on one video, so information only. Without it, a rough lip-movement measure |
+| Lip sync | Do the lips follow the dub's speech? | With the lip-sync download (StableSyncNet): on a real Perso dub it told the lip-synced version from the plain one and measured planted sound delays to the frame. It counts in the verdict (90% of moments lined up is Good, 30% or less Poor), though it was tested on one video. Without it, a rough lip-movement measure, information only |
 
 ## How the verdict is decided
 
@@ -151,8 +151,9 @@ how good it is in general.
   service falls back to a smaller model (locking the model stops that). Even one model doesn't repeat itself exactly:
   scores move, and on one dub of six reviewed more than once, the verdict flipped between Needs review and Poor. **The local model is private but weak**: in testing it found 4 of 23 planted
   translation mistakes, against 23 of 23 for Gemini.
-- **Lip sync** never changes the verdict. The lip-sync check (an optional 1.6 GB download) has been tested on one
-  real dub and planted delays; without it, only a rough lip-movement measure is shown.
+- **Lip sync** counts in the verdict only with the lip-sync check (an optional 1.6 GB download), whose bands were set
+  by decision rather than from graded dubs: it has been tested on one real dub and planted delays. Without it, only a
+  rough lip-movement measure is shown, and it never changes the verdict.
 - **The evidence is still small:** 19 graded dubs, one reviewer, three languages. Korean has the most.
 
 ## How it gets better
@@ -168,8 +169,7 @@ how good it is in general.
 
 ## What leaves your computer
 
-Videos, audio, pictures and scores stay on your computer. The translation check is the only part that can send
-anything about a dub: the two **transcripts** (the words, with times) and the video's title, to the first AI service
-whose key you set (Claude, then Gemini, then ChatGPT). With the local judge (`DUBEVAL_JUDGE=ollama`) or none
-(`off`), nothing about the dub leaves the computer. Downloads (models, share links, links you give) are listed in
-[privacy.md](privacy.md).
+Videos, audio and pictures stay on your computer. The translation check sends the two **transcripts** (the words, with
+times) and the video's title to the first AI service whose key you set (Claude, then Gemini, then ChatGPT); the local
+judge (`DUBEVAL_JUDGE=ollama`) or none (`off`) keeps them here. If you say yes to usage stats, dubeval.com also gets the
+verdict and language codes. Everything that can leave, downloads included, is listed in [privacy.md](privacy.md).

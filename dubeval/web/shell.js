@@ -4,7 +4,7 @@
 // version in the background and reports {phase, version, pct}; phase is idle | checking | none | downloading |
 // ready | download-failed | error. In a plain browser there is no shell, so nothing is announced and the card only
 // shows the notes.
-import { h, openModal, state, t } from "./app.js";
+import { api, h, openModal, state, t } from "./app.js";
 
 const shell = window.dubevalShell || null;
 let update = { phase: "idle" };
@@ -189,6 +189,23 @@ async function updatedBanner() {
   document.body.append(banner);
 }
 
+// Usage stats are off until the person says yes. Asked once at launch until answered; neither button is pushed, and
+// closing the window answers nothing, so it asks again next launch.
+function askUsageStats() {
+  if (!state.info.ask_usage_stats || document.querySelector(".modal-overlay")) return;
+  const answer = on => close => {
+    close();
+    state.info.ask_usage_stats = false;
+    api("/api/settings/usage-stats", { method: "PUT", body: JSON.stringify({ on }) })
+      .catch(() => { state.info.ask_usage_stats = true; });
+  };
+  openModal(t("w.stats.title"), h("div", { class: "stats-ask" },
+    h("p", {}, t("w.stats.intro")),
+    h("h3", {}, t("w.stats.sent_h")), h("p", {}, t("w.stats.sent")),
+    h("h3", {}, t("w.stats.never_h")), h("p", {}, t("w.stats.never"))),
+  [{ label: t("w.stats.no"), onclick: answer(false) }, { label: t("w.stats.yes"), onclick: answer(true) }], { width: 520 });
+}
+
 // The window opens by itself once a session, the first time an update is found while no other window is open.
 let autoShown = false;
 function maybeAnnounce(u) {
@@ -247,6 +264,7 @@ export function initSidebar() {
     window.open(`${state.info.repository}/issues`, "_blank", "noopener"));
   document.getElementById("nav-whats-new").addEventListener("click", versionWindow);
   updatedBanner();
+  askUsageStats();
   if (shell) {
     shell.onUpdate(setUpdate);
     // The state can change before this answer comes: it never replaces what the listener has had since.

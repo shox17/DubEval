@@ -1,6 +1,6 @@
 // Review screen: both videos in sync, a timeline (waveforms, lines, problem intervals), the selected item's details,
 // and every measure of the report. Levels and texts come from the server's report; nothing is graded here.
-import { api, fill, fmtTime, h, state, t } from "./app.js";
+import { api, fill, fmtTime, h, noteUsageStep, state, t } from "./app.js";
 import { exportButton } from "./export.js";
 
 const GUTTER = 96;                                  // px for the lane names on the left of the timeline
@@ -481,13 +481,20 @@ function sections(rep, fixes) {
   const rows = {};
   const cards = rep.sections.filter(s => s.metrics.length).map(s => {
     const count = lv => s.metrics.filter(m => m.level === lv).length;
-    const summary = ATTENTION.filter(count).map(lv => `${count(lv)} ${rep.badges?.[lv] ?? t(`verdict.${lv}`)}`);
+    const counted = lv => `${count(lv)} ${rep.badges?.[lv] ?? t(`verdict.${lv}`)}`;
+    const summary = ATTENTION.filter(count).map(counted);
     const graded = s.metrics.some(m => ["good", ...ATTENTION].includes(m.level));
+    // A part whose measures didn't all run never reads "All good": it says how many weren't measured (the
+    // translation check without a judge is the usual one), so nobody takes a missing check for a passed one.
+    const missing = graded && count("not_measured") ? counted("not_measured") : null;
+    const calm = missing ? [counted("good"), missing].join(" · ")
+      : graded ? t("w.review.all_good") : t("w.review.info_only");
     const mine = [];
     const card = h("details", { class: "card section fold" },
       h("summary", {}, h("h2", {}, s.title), h("span", { class: "grow" }),
-        summary.length ? h("span", { class: `fold-count ${count("poor") ? "poor" : "check"}` }, summary.join(" · "))
-          : h("span", { class: "fold-count muted" }, graded ? t("w.review.all_good") : t("w.review.info_only"))),
+        summary.length ? h("span", { class: `fold-count ${count("poor") ? "poor" : "check"}` },
+          [...summary, missing].filter(Boolean).join(" · "))
+          : h("span", { class: "fold-count muted" }, calm)),
       s.metrics.map(m => {
         const row = h("details", { class: `metric ${m.level}`, open: fixes && fixes[m.id] ? true : null },
           h("summary", {}, h("span", { class: "label" }, m.label), badge(rep, m.level),
@@ -599,6 +606,7 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
 
   api(`/api/jobs/${jobId}/report?lang=${state.lang}${dub ? `&dub=${dub}` : ""}`).then(data => {
     if (!alive) return;
+    if (!embedded) noteUsageStep("result_opened", "single");    // a comparison notes its own
     const rep = data.report, p = rep.project, o = rep.overall;
     const detail = detailPanel(data, voteStore(data, jobId, q));
     const clock = h("span", { class: "mono clock" }, "0:00.0");

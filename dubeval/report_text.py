@@ -699,14 +699,18 @@ REPORT_TEXT = {
     "r.file.audio_yes": {"en": "audio ✓", "ko": "오디오 ✓", "pt": "áudio ✓", "es": "audio ✓"},
     "r.file.audio_no": {"en": "no audio", "ko": "오디오 없음", "pt": "sem áudio", "es": "sin audio"},
     "r.g.lip_sync": {
-        "en": "For information: never changes the verdict. Up to {n} moments with a face and speech in both videos are "
-              "checked; a moment lines up when the lips match the sound within {sec} s of where they do in the original.",
-        "ko": "참고용이며 판정에는 영향을 주지 않습니다. 두 영상 모두 얼굴과 음성이 있는 순간을 최대 {n}개 확인하며, 입 모양이 "
-              "원본에서와 같은 위치의 {sec}초 안에서 소리와 맞으면 맞는 순간으로 봅니다.",
-        "pt": "Informativo: nunca muda o resultado. São verificados até {n} momentos com rosto e fala nos dois vídeos; um "
-              "momento combina quando os lábios acompanham o som a até {sec} s de onde acompanham no original.",
-        "es": "Informativo: nunca cambia el resultado. Se revisan hasta {n} momentos con cara y voz en los dos videos; un "
-              "momento coincide cuando los labios siguen el sonido a menos de {sec} s de donde lo hacen en el original.",
+        "en": "Good when the lips line up in {good}% or more of the moments checked, Poor at {poor}% or less, Check in "
+              "between. Up to {n} moments with a face and speech in both videos are checked; a moment lines up when the "
+              "lips match the sound within {sec} s of where they do in the original.",
+        "ko": "확인한 순간 중 입 모양이 맞는 비율이 {good}% 이상이면 좋음, {poor}% 이하면 미흡, 그 사이면 확인 필요입니다. 두 "
+              "영상 모두 얼굴과 음성이 있는 순간을 최대 {n}개 확인하며, 입 모양이 원본에서와 같은 위치의 {sec}초 안에서 소리와 "
+              "맞으면 맞는 순간으로 봅니다.",
+        "pt": "Bom quando os lábios combinam em {good}% ou mais dos momentos verificados, Ruim com {poor}% ou menos, "
+              "Verificar entre os dois. São verificados até {n} momentos com rosto e fala nos dois vídeos; um momento "
+              "combina quando os lábios acompanham o som a até {sec} s de onde acompanham no original.",
+        "es": "Bien cuando los labios coinciden en el {good}% o más de los momentos revisados, Deficiente con el {poor}% o "
+              "menos, Revisar entre medias. Se revisan hasta {n} momentos con cara y voz en los dos videos; un momento "
+              "coincide cuando los labios siguen el sonido a menos de {sec} s de donde lo hacen en el original.",
     },
     "r.g.file": {
         "en": "Good when the picture size and frame rate match the original and there is an audio track.",
@@ -1389,6 +1393,21 @@ REPORT_TEXT = {
               "{n}. Cerca del original significa que el espectador ve la boca decir lo que oye. Un doblaje sin "
               "sincronía labial coincide por azar alrededor de 1 vez de cada 6.",
     },
+    "r.sync_lips.check_hint": {
+        "en": "Some moments don't line up: watch the dub's close-ups before delivering it.",
+        "ko": "맞지 않는 순간이 있습니다. 전달하기 전에 더빙의 클로즈업 장면을 확인하세요.",
+        "pt": "Alguns momentos não combinam: confira os closes da dublagem antes de entregá-la.",
+        "es": "Algunos momentos no coinciden: revisa los primeros planos del doblaje antes de entregarlo.",
+    },
+    "r.sync_lips.poor_hint": {
+        "en": "Most moments don't line up, so viewers will see the mouth out of step with the voice: redo the lip sync "
+              "before delivering it.",
+        "ko": "대부분의 순간이 맞지 않아 시청자에게 입 모양과 목소리가 어긋나 보입니다. 전달하기 전에 립싱크를 다시 하세요.",
+        "pt": "A maioria dos momentos não combina, então quem assiste verá a boca fora do tempo da voz: refaça a "
+              "sincronia labial antes de entregar.",
+        "es": "La mayoría de los momentos no coinciden, así que el público verá la boca desfasada de la voz: rehaz la "
+              "sincronía labial antes de entregarlo.",
+    },
     "r.sync_lips.late": {
         "en": "The lips do follow the speech, but the sound comes {sec} s after them: check that the sound is in step "
               "with the picture.",
@@ -1928,6 +1947,26 @@ REPORT_TEXT = {
               "doblaje está Bien: revisa el sentido tú mismo o añade una clave de IA en Ajustes → Claves de API y "
               "vuelve a ejecutarlo.",
     },
+    "r.sure.translation_off": {
+        "en": "The translation check was turned off for this run, so DubEval can't call the dub Good: check the meaning "
+              "yourself, or turn the check on and run it again.",
+        "ko": "이번 실행에서는 번역 검사를 껐습니다. 그래서 DubEval은 좋음으로 판정할 수 없습니다. 의미를 직접 확인하거나, 번역 "
+              "검사를 켠 뒤 다시 실행하세요.",
+        "pt": "A verificação da tradução foi desligada nesta execução, então o DubEval não pode dizer que a dublagem está "
+              "Boa: confira o sentido você mesmo ou ligue a verificação e rode de novo.",
+        "es": "La comprobación de la traducción estaba desactivada en esta ejecución, así que DubEval no puede decir que "
+              "el doblaje está Bien: revisa el sentido tú mismo o activa la comprobación y vuelve a ejecutarlo.",
+    },
+    "r.sure.translation_failed": {
+        "en": "The translation wasn't checked (the reason is under Translation), so DubEval can't call the dub Good: "
+              "check the meaning yourself, or fix what's described there and run it again.",
+        "ko": "번역을 확인하지 못했습니다(이유는 번역 항목 참고). 그래서 DubEval은 좋음으로 판정할 수 없습니다. 의미를 직접 "
+              "확인하거나, 번역 항목에 적힌 문제를 해결한 뒤 다시 실행하세요.",
+        "pt": "A tradução não foi verificada (o motivo está em Tradução), então o DubEval não pode dizer que a dublagem "
+              "está Boa: confira o sentido você mesmo ou resolva o que está descrito lá e rode de novo.",
+        "es": "No se comprobó la traducción (el motivo está en Traducción), así que DubEval no puede decir que el "
+              "doblaje está Bien: revisa el sentido tú mismo o resuelve lo que se indica allí y vuelve a ejecutarlo.",
+    },
     "r.sure.judge_fallback": {
         "en": "Note: the translation was judged by {model}, a backup model, because the first choice was busy; its "
               "scores can differ from run to run.",
@@ -1968,12 +2007,14 @@ REPORT_TEXT = {
               "un error de traducción. Esos casos se marcan como probables errores de reconocimiento.",
     },
     "r.note.lip_sync": {
-        "en": "Shown for information: it never changes the overall verdict until graded lip-synced dubs confirm it.",
-        "ko": "참고용으로 보여 주며, 사람이 평가한 립싱크 더빙으로 확인되기 전까지 전체 판정에는 영향을 주지 않습니다.",
-        "pt": "Mostrado para informação: não muda o resultado geral até que dublagens com sincronia labial avaliadas por "
-              "pessoas o confirmem.",
-        "es": "Se muestra a título informativo: no cambia el resultado general hasta que doblajes con sincronía labial "
-              "evaluados por personas lo confirmen.",
+        "en": "Counts in the overall verdict. The original's own score shows what this video can reach: some faces and "
+              "angles line up less often even when they're in sync.",
+        "ko": "전체 판정에 반영됩니다. 원본의 점수는 이 영상이 도달할 수 있는 수준을 보여 줍니다. 얼굴이나 각도에 따라서는 "
+              "싱크가 맞아도 덜 맞는 것으로 나올 수 있습니다.",
+        "pt": "Conta no resultado geral. A pontuação do próprio original mostra até onde este vídeo pode chegar: alguns "
+              "rostos e ângulos combinam menos vezes mesmo quando estão sincronizados.",
+        "es": "Cuenta en el resultado general. La puntuación del propio original muestra hasta dónde puede llegar este "
+              "video: algunas caras y ángulos coinciden menos veces aunque estén sincronizados.",
     },
     "r.note.lipsync": {
         "en": "This measure is experimental: it is shown to help you look, but it never changes the overall verdict.",

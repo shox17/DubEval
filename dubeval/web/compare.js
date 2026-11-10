@@ -1,6 +1,6 @@
 // Comparison screen: the recommended dub and why, the ranking, every check side by side, then one tab per dub with
 // its own review (synced players and timeline). Decisions and levels come from the server; nothing is ranked here.
-import { api, fill, h, setAddress, state, t } from "./app.js";
+import { api, fill, h, noteUsageStep, setAddress, state, t } from "./app.js";
 import { renderReview } from "./review.js";
 import { exportButton } from "./export.js";
 
@@ -106,6 +106,7 @@ export function renderCompare(root, jobId, firstDub) {
 
   load().then(comp => {
     if (!alive) return;
+    noteUsageStep("result_opened", "compare");
     const tabs = h("div", { class: "tabs", role: "tablist", "aria-label": t("w.cmp.dubs") });
     const nameRow = h("div");
     const panel = h("div", { class: "tab-panel", role: "tabpanel" });

@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
-from dubeval import asr, feedback, history, jobs, library, packs, pipeline, settings
+from dubeval import asr, feedback, history, jobs, library, packs, pipeline, settings, usage_stats
 from dubeval.compare import MAX_DUBS, build_ranking
 from dubeval.i18n import TEXT, UI_LANGUAGES, translate_message
 from dubeval.inputs import MAX_MEDIA_BYTES, TOO_BIG, is_link
@@ -128,6 +128,17 @@ class VoteBody(BaseModel):
     """A reviewer's vote on one problem interval of a finished report."""
     index: int = Field(ge=0)
     vote: Literal["real", "false_alarm"]
+
+
+class UsageStatsBody(BaseModel):
+    """The person's answer about sending usage stats."""
+    on: bool
+
+
+class UsageStepBody(BaseModel):
+    """A step of a new evaluation the page reached: its name, never what was chosen."""
+    step: Literal["new_evaluation_opened", "dub_added", "original_added", "result_opened"]
+    mode: Literal["single", "compare"] = "single"
 
 
 # Links being downloaded into uploads (id → state), so a pasted link becomes a file like an uploaded one.
@@ -266,7 +277,9 @@ def make_app(token: str) -> FastAPI:
     @app.get("/api/info", dependencies=api)
     def info(lang: Lang = "en") -> dict:
         """Texts, languages, dub types and which translation judges are ready."""
+        usage_stats.app_opened()
         return {"version": TOOL_VERSION, "languages": UI_LANGUAGES, "texts": _texts(lang), "dub_types": list(DUB_TYPES),
+                "ask_usage_stats": usage_stats.status()["ask"],
                 "judges": available_judges(), "large_model": packs.state("large_model") == "installed",
                 "lip_sync": packs.state("lip_sync") == "installed",
                 "speech_auto": asr.default_model(),
@@ -280,7 +293,22 @@ def make_app(token: str) -> FastAPI:
         return {"keys": settings.status(), "judge": {
             "active": tj.judge_provider(), "available": tj.available_judges(),
             "choice": (os.getenv("DUBEVAL_JUDGE") or "auto").strip().lower(), "order": list(tj.JUDGES),
-            "local_model": tj.OLLAMA_MODEL}, "data_dir": str(Path(DATA_DIR).resolve()), "version": TOOL_VERSION}
+            "local_model": tj.OLLAMA_MODEL}, "data_dir": str(Path(DATA_DIR).resolve()), "version": TOOL_VERSION,
+            "usage_stats": usage_stats.status()}
+
+    @app.put("/api/settings/usage-stats", dependencies=api)
+    def set_usage_stats(body: UsageStatsBody) -> dict:
+        """The person's yes or no to usage stats; it applies at once. If it can't be saved, stats stay off for now."""
+        try:
+            return usage_stats.choose(body.on)
+        except usage_stats.NotSaved as e:
+            raise HTTPException(status_code=503, detail=str(e))
+
+    @app.post("/api/settings/usage-stats/step", dependencies=api)
+    def usage_step(body: UsageStepBody) -> dict:
+        """Notes a step the page reached, if this person said yes (usage_stats.record checks)."""
+        usage_stats.record(body.step, mode=body.mode)
+        return {"ok": True}
 
     @app.get("/api/models", dependencies=api)
     def list_models() -> dict:
@@ -358,6 +386,7 @@ def make_app(token: str) -> FastAPI:
         running = pack_job(pack_id)
         if running:
             return {"id": running.id}
+        usage_stats.record("feature_used", feature="model_download")
 
         def runner(report, cancel):
             try:
@@ -474,6 +503,7 @@ def make_app(token: str) -> FastAPI:
         """Keeps the request (Continue runs it again) and ties the job to its draft: the draft's card shows the run,
         and the run folder gets its picture."""
         job.params["request"] = body.model_dump()
+        usage_stats.record("evaluation_started", mode=_stats_mode(job), dubs=len(job.params.get("dubs") or []))
         if body.draft_id:
             library.start_draft(body.draft_id, job.id, job.params["folder"])
             job.params["draft_id"] = body.draft_id
@@ -489,12 +519,14 @@ def make_app(token: str) -> FastAPI:
         if job is None:
             raise HTTPException(status_code=404, detail="No job with this id.")
         request = job.params.get("request")
-        if job.status not in ("cancelled", "interrupted", "failed") or not isinstance(request, dict):
+        if job.status not in ("cancelled", "interrupted", "failed") or not isinstance(request, dict) \
+                or not job.retry_helps:                # the same input would fail the same way: change it instead
             raise HTTPException(status_code=409, detail=CANT_CONTINUE)
         try:
             body = EvaluationBody(**request)
         except ValueError:
             raise HTTPException(status_code=409, detail=CANT_CONTINUE)
+        usage_stats.record("feature_used", feature="continue")
         return start(body)
 
     # ----- the Evaluations list (home screen) -----
@@ -558,6 +590,7 @@ def make_app(token: str) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(e))
         jobs.forget_folder(str(folder))                  # a kept job still has the old title: open it from the files
         _rename_in_history(folder, out["title"])
+        usage_stats.record("feature_used", feature="rename")
         return out
 
     @app.delete("/api/evaluations/{run_id}", dependencies=api)
@@ -635,7 +668,8 @@ def make_app(token: str) -> FastAPI:
         return {"id": job.id, "status": job.status, "stage": job.stage, "kind": job.params.get("kind", "files"),
                 "message": translate_message(job.message, lang), "progress": round(job.overall_fraction, 3),
                 "elapsed_sec": round(job.elapsed_sec, 1), "draft_id": job.params.get("draft_id"),
-                "can_continue": job.status in ("cancelled", "interrupted", "failed") and "request" in job.params,
+                "can_continue": job.status in ("cancelled", "interrupted", "failed") and "request" in job.params
+                and job.retry_helps,
                 "error": translate_message(job.error, lang) if job.error else None,
                 "stages": [{"id": s, "state": job.stage_state(s)} for s in job.stages]}
 
@@ -740,6 +774,7 @@ def make_app(token: str) -> FastAPI:
         title = " ".join(body.title.split())
         if not title:
             raise HTTPException(status_code=400, detail=EMPTY_TITLE)
+        usage_stats.record("feature_used", feature="rename")
         if "comparison" in job.result:
             # One video, one name: every dub tab, the Home card and the saved files take it.
             for each in job.result["results"].values():
@@ -774,6 +809,7 @@ def make_app(token: str) -> FastAPI:
         if body.index >= len(rep["problem_intervals"]):
             raise HTTPException(status_code=404, detail="No problem interval with this number.")
         feedback.vote(rep["project"], rep["problem_intervals"][body.index], body.vote, reviewer="web")
+        usage_stats.record("feature_used", feature="vote")
         return {"index": body.index, "vote": body.vote}
 
     @app.get("/api/jobs/{job_id}/export", dependencies=api)
@@ -787,6 +823,7 @@ def make_app(token: str) -> FastAPI:
         wanted = [k for k in EXPORT_KINDS if k in kinds.split(",")]
         if not wanted:
             raise HTTPException(status_code=400, detail=NO_EXPORT_KIND)
+        usage_stats.record("feature_used", feature="export")
         folder = Path(tempfile.mkdtemp(prefix="dubeval_export_"))
         try:
             files, title = _export_files(job.result, lang, wanted, folder)
@@ -812,6 +849,7 @@ def make_app(token: str) -> FastAPI:
         Each recent run carries `run`, the evaluation the page opens, and `report`, a path under the data folder for
         /api/reports (None when that file is gone).
         """
+        usage_stats.record("feature_used", feature="history")
         records = history.load()
         summary = history.summarize(records, days=days)
         # The latest evaluations are the ones on Home, so every row opens (not deleted ones, nor command-line and batch
@@ -1050,6 +1088,35 @@ def _fixes(results: dict) -> dict:
     if problem and problem["kind"] == "unrecognized" and packs.state("large_model") != "installed":
         fixes["language"] = "models"
     return fixes
+
+
+def _stats_mode(job: jobs.Job) -> str:
+    """Which kind of evaluation a job is, for usage stats."""
+    return "compare" if job.params.get("kind") == "comparison" else "single"
+
+
+def _report_job_to_stats(job: jobs.Job) -> None:
+    """Tells usage stats how an evaluation ended (only if the person said yes). A model download isn't an evaluation."""
+    if not usage_stats.enabled() or job.params.get("kind") not in ("files", "comparison"):
+        return
+    common = {"mode": _stats_mode(job), "dubs": len(job.params.get("dubs") or [])}
+    if job.status == "failed":
+        usage_stats.record("evaluation_failed", step=job.stage, error_type=job.error_type, **common)
+    elif job.status == "cancelled":
+        usage_stats.record("evaluation_stopped", step=job.stage, **common)
+    elif job.status == "done":
+        outcome = {}
+        if common["mode"] == "single" and isinstance(job.result, dict) and "report" in job.result:
+            rep = _current_report(job, job.result, "en", None)
+            run = job.result.get("pipeline") or {}
+            given = run.get("input") or run.get("share") or {}
+            outcome = {"verdict": (rep.get("overall") or {}).get("level"), "dub_type": given.get("dub_type"),
+                       "source_lang": given.get("source_language_code"),
+                       "target_lang": (rep.get("project") or {}).get("target_language_code")}
+        usage_stats.record("evaluation_finished", seconds=job.elapsed_sec, **common, **outcome)
+
+
+jobs.on_finish = _report_job_to_stats
 
 
 def _current_report(job, results: dict, lang: str, dub: Optional[str]) -> dict:

@@ -20,4 +20,5 @@ Especially relevant:
   reports or sent anywhere but their own provider;
 - files and links from users: paths, downloads and job ids;
 - the desktop app: its local web page (one random token per launch) and its updates, which come only from this
-  repository's Releases (the installer isn't code-signed yet).
+  repository's Releases. Since 0.1.6 the installer is signed by ESTsoft Corp., and the app refuses an update that isn't
+  validly signed by that publisher.

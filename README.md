@@ -98,10 +98,10 @@ so evaluations work offline. Optional models download from **Settings → Models
 <details>
 <summary>Install notes</summary>
 
-**Windows** — Run the downloaded `DubEval-Setup.exe`. It installs for your user account only, in about 2 minutes. It is not
-code-signed yet, so SmartScreen shows "Windows protected your PC" the first time: click **More info**, check that the
-app is `DubEval-Setup.exe`, then **Run anyway**. DubEval checks for updates when it starts and asks before
-installing one. [Details](INSTALL.md#install-the-desktop-app-windows-beta)
+**Windows** — Run the downloaded `DubEval-Setup.exe`. It installs for your user account only, in about 2 minutes. It is
+signed by ESTsoft Corp. While the certificate is new, SmartScreen may still show "Windows protected your PC": click
+**More info**, check that the publisher is ESTsoft Corp., then **Run anyway**. DubEval checks for updates when it
+starts and asks before installing one. [Details](INSTALL.md#install-the-desktop-app-windows-beta)
 
 **macOS and Linux** — No app yet. The command line and the web interface run from source:
 [INSTALL.md](INSTALL.md#get-started-on-a-new-machine).
@@ -123,7 +123,7 @@ Repository: https://github.com/shox17/DubEval
    If this computer falls short, say so and stop.
 2. Install the latest release:
    https://github.com/shox17/DubEval/releases/latest
-   On Windows, SmartScreen warns (not code-signed yet): More info, then Run anyway.
+   On Windows, if SmartScreen warns: More info, check the publisher is ESTsoft Corp., then Run anyway.
 3. Open DubEval. Ask me if I want the translation check. If yes, open Settings, API keys,
    so I can paste a Claude, Gemini or ChatGPT key in myself. Never ask to see it.
 4. Evaluate one short dub with me and explain the verdict and the things to check.
@@ -155,10 +155,10 @@ DubEval measures; it doesn't replace watching the dub. Use the verdict to decide
 - **Speech recognition makes mistakes, and they spread.** Timing, clarity and the translation check read what
   Whisper heard; misheard words are marked as possible mishearings and never make a dub Poor (a very low one is still a moment to
   listen to).
-- **Lip sync is shown for information only** in this beta. The real lip-sync check (ByteDance's StableSyncNet, a
+- **Lip sync counts in the verdict only with its download.** The real lip-sync check (ByteDance's StableSyncNet, a
   1.6 GB download in Settings → Models) tells a lip-synced dub from a plain one and finds a sound delay to the
-  frame; until graded lip-synced dubs confirm it, it never changes the verdict. Without it, a rough lip-movement
-  estimate is shown instead.
+  frame: lips that line up in 90% of the moments checked are Good, 30% or less Poor. It has been tested on one real
+  dub so far. Without it, a rough lip-movement estimate is shown for information only.
 
 How each check works, how it was tested and what it can't do yet: [How DubEval measures](docs/methodology.md).
 
@@ -169,7 +169,7 @@ How each check works, how it was tested and what it can't do yet: [How DubEval m
 | **Requirements** | 64-bit Windows 10 or 11 · 2 GB free disk · an NVIDIA GPU is optional (faster, and a more accurate speech model). [Install](INSTALL.md) |
 | **Languages** | Any pair Whisper knows. Speaking pace is graded for Korean, English, Spanish, Japanese and Chinese; a check that can't work for a language says "not measured" with the reason. |
 | **Translation check** | Claude, Gemini or ChatGPT with your own key, or a local model. Five scores per line: meaning, naturalness, context, terms, localization. A changed number is caught offline too, without an AI. [How it works](docs/metrics.md) |
-| **Privacy** | Videos and audio never leave this computer; the translation check sends text only, and only if you turn it on. [What is sent](docs/privacy.md) |
+| **Privacy** | Videos and audio never leave this computer; the translation check sends text only, and only if you turn it on. Usage stats stay off unless you say yes. [What is sent](docs/privacy.md) |
 | **Beyond the app** | Command line, batch checks of many links, a REST API and Docker. [Usage](docs/usage.md) |
 | **How it works** | Motion and picture fingerprints, Whisper, DNSMOS, WeSpeaker, BGE-M3, an LLM judge. [Architecture](docs/architecture.md) · [Every check and its bands](docs/metrics.md) · [Roadmap](docs/roadmap.md) |
 | **Build from source** | [INSTALL.md](INSTALL.md) · [Development](docs/development.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) |

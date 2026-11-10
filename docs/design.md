@@ -51,7 +51,7 @@ before a change are recomputed.
 ## Voice/music separation: measured, deferred
 Separating the vocals with Demucs before transcription raised speech-timing overlap by 1.4 and 6.1 points on two
 real dubs with music, and removed a false language guess caused by noise, at about five times the evaluation time
-on a laptop. It was deferred because of a torchaudio version conflict, and is planned for the general version
+on a laptop. It was deferred because of a torchaudio version conflict, and an optional switch is under consideration
 (see [roadmap.md](roadmap.md)).
 
 ## Translation check
@@ -66,9 +66,10 @@ on a laptop. It was deferred because of a torchaudio version conflict, and is pl
 
 ## Lip movement: informational only
 A heuristic (mouth opening against loudness, compared with the original). On an in-sync sample the original itself
-scored −0.20, so the number is not reliable. It is shown for information and never changes the verdict. A
-SyncNet-style audio-visual model would replace it; it is the last item on the roadmap because video analysis is
-expensive.
+scored −0.20, so the number is not reliable. It is shown for information and never changes the verdict. The optional
+lip-sync check, an audio-visual model, replaces it when downloaded, and that check counts in the verdict: 90% of
+moments lined up is Good, 30% or less Poor (the owner's decision of 2026-11-10). The bands rest on one tested real dub
+and should be checked against graded lip-synced dubs (see [roadmap.md](roadmap.md)).
 
 ## Timing moments: confirmed by a voice detector
 Timing moments come from recognized word timings, and a small change anywhere in a file can shift those all over it,

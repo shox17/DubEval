@@ -39,6 +39,13 @@ BAD_LINK = "Links must start with http:// or https://."
 TOO_BIG = f"The file is larger than {MAX_MEDIA_GB:g} GB. Use a smaller or shorter video."
 
 
+class InputError(ValueError):
+    """A problem with a given file or link itself (unreadable, no audio, too long, not a video): the same request
+    would fail the same way again, so the app offers to change it rather than to continue (jobs.Job.retry_helps).
+    A failed download is not one: the connection may be back next time."""
+    retry_helps = False
+
+
 def is_link(spec: str) -> bool:
     """Whether spec is a web link rather than a file path."""
     return spec.strip().lower().startswith(("http://", "https://"))
@@ -98,7 +105,7 @@ def fetch(spec: str, folder: Path, label: str, session=None, sleep: Callable[[fl
         return str(path.resolve())
     parts = urlsplit(text)
     if parts.scheme not in ("http", "https") or not parts.netloc:
-        raise ValueError(BAD_LINK)
+        raise InputError(BAD_LINK)
     folder.mkdir(parents=True, exist_ok=True)
     done = [p for p in folder.glob(f"{_hash(text)}.*") if not p.name.endswith(".part") and p.stat().st_size > 0]
     if done:
@@ -152,10 +159,10 @@ def _download(url: str, folder: Path, session, sleep, progress=None, key: Option
                 if resp.status_code != 200:
                     raise RuntimeError(f"HTTP {resp.status_code}")
                 if "text/html" in (resp.headers.get("content-type") or "").lower():
-                    raise ValueError(NOT_A_VIDEO_LINK)
+                    raise InputError(NOT_A_VIDEO_LINK)
                 total = int(resp.headers.get("content-length") or 0)
                 if total > MAX_MEDIA_BYTES:
-                    raise ValueError(TOO_BIG)
+                    raise InputError(TOO_BIG)
                 tmp = target.with_name(target.name + ".part")
                 written = 0
                 with open(tmp, "wb") as f:
@@ -168,7 +175,7 @@ def _download(url: str, folder: Path, session, sleep, progress=None, key: Option
                             progress(min(1.0, written / total))
                 if written > MAX_MEDIA_BYTES:
                     tmp.unlink(missing_ok=True)
-                    raise ValueError(TOO_BIG)
+                    raise InputError(TOO_BIG)
                 os.replace(tmp, target)
             return str(target)
         except ValueError:
@@ -228,11 +235,11 @@ def check(path: str, label: str, info: Optional[dict] = None) -> dict:
     """Checks that a file can be evaluated (readable, has audio, not too long); returns its probe."""
     info = info or probe(path)
     if not info["readable"] or not info["duration_sec"]:
-        raise ValueError(f"The {label} can't be read. Check that it's a video or audio file and not damaged.")
+        raise InputError(f"The {label} can't be read. Check that it's a video or audio file and not damaged.")
     if not info["audio_tracks"]:
-        raise ValueError(f"The {label} has no audio track, so there is no speech to evaluate.")
+        raise InputError(f"The {label} has no audio track, so there is no speech to evaluate.")
     if info["duration_sec"] > MAX_MINUTES * 60:
-        raise ValueError(f"The {label} is {info['duration_sec'] / 60:.0f} minutes long; DubEval accepts up to "
+        raise InputError(f"The {label} is {info['duration_sec'] / 60:.0f} minutes long; DubEval accepts up to "
                          f"{MAX_MINUTES:.0f} minutes. Cut it shorter, or set DUBEVAL_MAX_MINUTES.")
     return info
 
@@ -244,7 +251,7 @@ def select_track(path: str, track: Optional[int], folder: Path, label: str) -> s
         return path
     tracks = probe(path)["audio_tracks"]
     if not 0 <= track < len(tracks):
-        raise ValueError(f"The {label} has {len(tracks)} audio track(s), so there is no track {track} "
+        raise InputError(f"The {label} has {len(tracks)} audio track(s), so there is no track {track} "
                          f"(tracks are counted from 0).")
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"{_hash(fingerprint(path))}_track{track}.mkv"
@@ -302,12 +309,12 @@ def read_subtitles(path: str, label: str) -> list[dict]:
     if not p.is_file():
         raise FileNotFoundError(f"The {label} subtitle file doesn't exist: {p}")
     if p.suffix.lower() not in SUBTITLE_SUFFIXES:
-        raise ValueError(f"The {label} subtitles must be an .srt or .vtt file.")
+        raise InputError(f"The {label} subtitles must be an .srt or .vtt file.")
     try:
         text = p.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
         text = p.read_text(encoding="cp1252", errors="replace")
     cues = parse_subtitles(text)
     if not cues:
-        raise ValueError(f"The {label} subtitle file has no timed lines. Check that it's a valid .srt or .vtt file.")
+        raise InputError(f"The {label} subtitle file has no timed lines. Check that it's a valid .srt or .vtt file.")
     return cues

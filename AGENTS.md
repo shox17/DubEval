@@ -94,7 +94,8 @@ dubeval/pipeline.py          evaluate_share (fetch → cached download → evalu
                          (+ report files), run_comparison (two links → comparison files); per-link cache in data/cache/
 dubeval/evaluate.py          All measurements (pure). run_full_evaluation returns the results dict (SCHEMA_VERSION)
 dubeval/inputs.py        Inputs: local files, links (yt-dlp for pages), one audio track of a file, SRT/VTT subtitles;
-                         probe + check (readable, has audio, ≤ DUBEVAL_MAX_MINUTES)
+                         probe + check (readable, has audio, ≤ DUBEVAL_MAX_MINUTES); a problem with the input
+                         itself raises InputError, so the failed job offers no Continue (jobs.Job.retry_helps)
 dubeval/asr.py           Speech recognition over faster-whisper (default) or openai-whisper (DUBEVAL_ASR); same
                          output shapes, seeded; GPU when it works, else CPU
 dubeval/settings.py      API keys (Claude, Gemini, ChatGPT) from Settings → API keys: data folder's .env, status only
@@ -147,6 +148,7 @@ dubeval/network.py           The computer's trusted certificates (truststore) an
                              describe() turns a blocked connection into a plain message
 dubeval/paths.py             DATA_DIR (DUBEVAL_DATA, default ./data): output, cache, history, votes, jobs
 dubeval/feedback.py          Reviewer votes (real problem / false alarm) per interval; per-check summary
+dubeval/usage_stats.py       Opt-in usage stats from the app: off until the person says yes; only listed values can be sent
 dubeval/history.py           Records every evaluation to data/history.jsonl; summarize() and the history text view
 dubeval/version.py           TOOL_VERSION (= desktop/package.json's version, tested) and REPOSITORY_URL (Help, Send
                              feedback, and the releases the app updates from)
@@ -183,6 +185,11 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   not even in a validation error (`PUT /api/settings/keys/{provider}` reads the body by hand); tests point both
   `.env` files at temp files (`tests/conftest.py`). Send the Gemini key only in the `x-goog-api-key` header, never
   in a URL.
+- **Usage stats are opt-in and can hold no free text:** `dubeval/usage_stats.py` sends nothing until the person says yes,
+  and closing the question isn't a yes. Every field comes from a fixed list or strict pattern, and `worker/validate.ts`
+  refuses anything else. Never add titles, file names, links, paths, error messages or measured values, and never a number
+  that follows one app across weeks. A new field or event needs both lists, `docs/privacy.md`, the question and the Privacy
+  tab. Stats never affect an evaluation: problems are logged and dropped. Tests never post (`tests/conftest.py`).
 - **History recording never fails a run** (errors are logged); tests write history and votes to temp files
   (`tests/conftest.py`).
 - **Calibrate with evidence:** reviewer votes (`qa.py feedback`, cast on each problem's card in the review) and batch
@@ -237,9 +244,12 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   Poor (a new voice can be deliberate). Line-level "different voice" intervals are relative to the dub's own median.
   The model downloads on first use to `~/.cache/dubeval/` (`DUBEVAL_MODELS` overrides); tests never download
   (`tests/conftest.py`).
-- Lip sync is measured automatically only when the dub is lip-synced, is always informational and never
-  changes the verdict (until graded lip-synced dubs back it). With the `lip_sync` download it is StableSyncNet
-  (`dubeval/lip_sync.py`): the dub is judged against the original at the same moments, never in absolute terms, and
+- Lip sync is measured automatically only when the dub is lip-synced. **With the `lip_sync` download it counts in the
+  verdict** (owner's decision, 2026-11-10, on one tested real dub): the share of checked moments whose lips line up is
+  Good from 90%, Poor at 30% or less, Check between (`report.LIP_SYNC_PCT`); not measured (no download, too few faces,
+  a narrated original, a recut dub) never counts. Without the download, the lip-movement estimate stays information
+  only. The download's check is StableSyncNet
+  (`dubeval/lip_sync.py`): each moment is judged against the original at the same moments (its zero point), and
   the bundled graphs read ByteDance's checkpoint unchanged (rebuild them with `tools/build_syncnet_onnx.py`, never
   redistribute the weights). Without it, the lip-movement estimate runs; don't present its number as reliable
   (metrics.md §3).
@@ -295,11 +305,16 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   `icon-small.svg` (16-32 px, bolder and flat); `icon.png`, `icon.ico`, `docs/images/icon.png` and
   `dubeval/web/icon.png` are rendered from them. It replaced a blue waveform-and-check tile (2026-10-26), which had
   replaced PersoDub's icon (that needed ESTsoft's permission).
-- **Releases and updates:** the version lives in `dubeval/version.py` and `desktop/package.json` (a test keeps them
-  equal) and every version needs its lines in `dubeval/release_notes.json`. Installed apps update themselves from the
-  GitHub Releases of `REPOSITORY_URL` (`build.publish`): publish the installer, its `.blockmap` and `latest.yml` together
-  (`npm run release` with `GH_TOKEN`, or upload the three files from `desktop/dist`). Until the installer is code-signed,
-  an update is trusted because it comes from that repository: keep its releases to the owner.
+- **Releases and updates:** the version lives in `dubeval/version.py`, `desktop/package.json` and `pyproject.toml`
+  (a test keeps them equal) and every version needs its lines in `dubeval/release_notes.json`. Installed apps update themselves from the
+  GitHub Releases of `REPOSITORY_URL` (`build.publish`): publish the installer, its `.blockmap` and `latest.yml` together.
+  **Since 0.1.6 the installer is signed** (ESTsoft Corp., through the company's internal portal, by hand):
+  `npm run build:windows:release`, sign in the portal, then `npm run release:windows:finish`, which checks the signature
+  and rebuilds `latest.yml` and the `.blockmap` from the signed file (signing changes the bytes; with the build's
+  `latest.yml` every app refuses the update). Never upload an installer `finish` didn't process, and never publish an
+  unsigned one again: the app's `publisherName` (`build.win.signtoolOptions`) makes electron-updater refuse any update not
+  validly signed by that CN. The portal's address stays in the git-ignored `desktop/codesign.local.json`, never in the
+  repository. Steps in `desktop/README.md`.
 - **The page keeps its address between launches:** what it keeps in the browser (language, sidebar width, history period)
   belongs to the address, so `dubeval web` takes the first free of `webapp.USUAL_PORTS`. Don't go back to a new port per
   launch, and keep `Cache-Control: no-cache` on the page's files, or an update would run yesterday's script from the cache.
@@ -420,8 +435,8 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   30 s (at most 30 moments from the first 60 s).
 - The translation check reads Whisper transcripts, not audio, so misheard words can look like translation errors
   (they're flagged as probable recognition errors).
-- **Thresholds were calibrated with openai-whisper, but faster-whisper is the default** (decided 2026-10-21; recalibrate
-  in Phase 5). On 7 real PersoDub dubs the two disagree: clarity 0% vs 100% on one Korean dub (faster-whisper's
+- **Thresholds were calibrated with openai-whisper, but faster-whisper is the default** (decided 2026-10-21; recalibration
+  is on the roadmap). On 7 real PersoDub dubs the two disagree: clarity 0% vs 100% on one Korean dub (faster-whisper's
   fallback ends at temperature 1.0 with a lower avg_logprob), speech timing 58% vs 26% on another, and no speech
   found in a music video. Until then, clarity, timing and pace verdicts from faster-whisper are provisional;
   `DUBEVAL_ASR=openai-whisper` reproduces the calibrated behaviour.
@@ -431,7 +446,7 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   Claude is the reliable judge; the offline BGE-M3 screen found the real error with no false alarm.
 - Less common languages are recognized poorly: a real EN→UZ dub was heard as Kazakh (47% with `base`, 75% with
   `large-v3-turbo`), and forcing the wrong language collapses the transcript (speech timing read 0%). Users should
-  pass `--target-lang`; the default model may move to `large-v3-turbo` after Phase 5 calibration.
+  pass `--target-lang`; the default model may move to `large-v3-turbo` after calibration.
 - **Candidate change, on hold** (decided 2026-10-22): speech-timing Poor below 55% → 45%. On 7 labelled PersoDub
   pairs, dubs at 47-52% overlap were Check to the reviewer, not Poor; revisit with 20-30 labelled pairs.
 - Speech-timing and pace bands are calibrated on one real Perso EN→KO dub (81–82% overlap, 5.8 chars/s).

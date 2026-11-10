@@ -2,7 +2,7 @@
 // Once a video is given, the page keeps itself as a draft on the server (its card is on the home screen) and saves as
 // it is edited; #/draft/<id> fills it in again. A chosen file is added (uploaded) as soon as it is chosen, so the
 // draft holds it too.
-import { INFO_EVENT, api, fmtTime, go, h, setAddress, state, t } from "./app.js";
+import { INFO_EVENT, api, fmtTime, go, h, noteUsageStep, setAddress, state, t } from "./app.js";
 import { PREFILL_KEY } from "./home.js";
 
 const SHARE_LINK = /^https?:\/\/(www\.)?perso\.ai\//i;
@@ -245,6 +245,9 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
     setTitle(title) { heading.textContent = title; text.setAttribute("aria-label", title); },
     typed: () => (fileName() ? "" : text.value.trim()),
     empty: () => !fileName() && !text.value.trim() && !included,
+    // The person really gave a video here: a file, or a typed link or path that could be read. Not half-typed text, and
+    // not the original that comes with a Perso share link.
+    given: () => !!fileName() || (!!text.value.trim() && !!last),
     onPreview(fn) { listener = fn; },
     preview: () => last,
     setTyped(value) { cancelLink(); chosen = null; files.clear(); fileInput.value = ""; text.value = value; show(); read(); },
@@ -522,6 +525,14 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
     const face = faces.find(f => f.name || f.thumbnail) || {};
     return { name: face.name || null, thumbnail: face.thumbnail || faces.find(f => f.thumbnail)?.thumbnail || null };
   }
+  // Usage stats (only if the person said yes): how far a new evaluation got, by step name only, once per form. Checked
+  // when a draft is saved: a card calls for that once its file is in or its typed link has been read.
+  const noted = { dub: false, original: false };
+  const stepMode = () => (compare || dubs.length > 1 ? "compare" : "single");
+  function noteGiven() {
+    if (!noted.dub && dubs.some(d => d.given())) { noted.dub = true; noteUsageStep("dub_added", stepMode()); }
+    if (!noted.original && original.given()) { noted.original = true; noteUsageStep("original_added", stepMode()); }
+  }
   // Saves the draft (or deletes it when nothing is given). After the page was left it still saves a change that was
   // waiting, but no longer touches the page or its address.
   async function saveDraft() {
@@ -536,6 +547,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
         }
         return;
       }
+      noteGiven();
       const body = JSON.stringify({ ...cardFace(), form: formState() });
       const saved = draft ? await api(`/api/drafts/${draft}`, { method: "PUT", body })
         : await api("/api/drafts", { method: "POST", body });
@@ -569,6 +581,8 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
         pick(speechModel, f.speech_model || "auto");
         if (more.open !== !!f.more_open) { restoredToggle = true; more.open = !!f.more_open; }
         savedNote.hidden = false;
+        noted.dub = dubs.some(d => !d.empty());    // a reopened draft's videos were counted when they were added
+        noted.original = !original.empty();
       } catch (e) {
         draft = null;
         setAddress("#/new");
@@ -576,6 +590,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
       }
     } else {
       if (compare) addDub();
+      noteUsageStep("new_evaluation_opened", stepMode());
       // What the home screen's card was given: a file it added (upload) or a link, for the dub's card.
       let given = null;
       try { given = sessionStorage.getItem(PREFILL_KEY); sessionStorage.removeItem(PREFILL_KEY); } catch { /* none */ }

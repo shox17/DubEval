@@ -439,6 +439,11 @@ TEXT.update(WEB_TEXT)
 
 # Fixed English progress messages reported by dubeval/ (Perso steps, pipeline and evaluation), translated by text.
 MESSAGES = {
+    "Couldn't save your choice. Usage stats stay off until you close DubEval. Check that DubEval can write to its folder, then try again.": {
+        "ko": "선택을 저장하지 못했습니다. DubEval을 닫을 때까지 사용 통계는 꺼져 있습니다. DubEval이 폴더에 쓸 수 있는지 확인한 뒤 다시 시도하세요.",
+        "pt": "Não foi possível salvar sua escolha. As estatísticas de uso ficam desligadas até você fechar o DubEval. Verifique se o DubEval pode gravar na pasta dele e tente de novo.",
+        "es": "No se pudo guardar tu elección. Las estadísticas de uso seguirán desactivadas hasta que cierres DubEval. Comprueba que DubEval puede escribir en su carpeta e inténtalo de nuevo.",
+    },
     # The web interface's own errors (dubeval/webapp.py).
     "This evaluation can't continue. Start it again from its draft.": {"ko": "이 평가는 이어서 할 수 없습니다. 초안에서 다시 시작하세요.", "pt": "Esta avaliação não pode continuar. Comece de novo pelo rascunho.", "es": "Esta evaluación no puede continuar. Empiézala de nuevo desde su borrador."},
     "That evaluation is gone. It may have been deleted.": {"ko": "그 평가가 없습니다. 삭제되었을 수 있습니다.", "pt": "Essa avaliação não existe mais. Talvez tenha sido apagada.", "es": "Esa evaluación ya no está. Puede que se haya borrado."},

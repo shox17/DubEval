@@ -109,7 +109,8 @@ The dBFS of each 0.25 s window, for both tracks. Peaks and gaps should line up. 
 | Matches your script: accuracy | ≥ 80% | ≥ 50% | below |
 | Loudness match: dub vs original | within ±3 dB | within ±6 dB | beyond |
 | Extra silence in the dub | ≤ 5 pts | ≤ 15 pts | above |
-| Lip sync / lip movement | always informational ||| 
+| Lip sync (with the download): moments that line up | ≥ 90% | between | ≤ 30% |
+| Lip movement (without it) | always informational ||| 
 
 The script-free measures and their bands are in §4 and §5. The script bands are lenient on purpose, because paraphrases count as errors (§2).
 The loudness band was 2 / 4 dB until 2026-11-01: a person graded a dub 5.1 dB off the original Good, and no dub they
@@ -118,8 +119,10 @@ graded Poor was more than 1.7 dB off.
 ## 3. Lip sync
 
 Measured automatically when the shared dub is lip-synced (`isLipSync`); skipped otherwise, and the report says why.
-Always informational. With the `lip_sync` download installed, the lip-sync check below runs; without it, the
-lip-movement estimate after it.
+With the `lip_sync` download installed, the lip-sync check below runs and **counts in the verdict**: the share of
+checked moments that line up is Good from 90%, Poor at 30% or less, Check between (`LIP_SYNC_PCT` in `report.py`,
+the owner's decision of 2026-11-10; the check was tested on one real dub, so these bands aren't calibrated yet).
+Not measured never counts. Without the download, the lip-movement estimate after it runs, information only.
 
 ### The lip-sync check (`dubeval/lip_sync.py`, the `lip_sync` download)
 1. **Model:** StableSyncNet from ByteDance's LatentSync 1.5 (`stable_syncnet.pt`, 1.6 GB, CreativeML OpenRAIL++-M),
@@ -270,7 +273,7 @@ running over is Check, Poor from 1 s. Each names the line number and both length
 
 **Verified** on real PersoDub dubs: an untouched EN→KO dub had 12 of 13 lines fit; the same dub with its audio
 slowed by 20% was Poor on line length and overruns; a 7 s clip with one line off out of two is Check, not Poor.
-The bands are first guesses (Phase 5 calibrates them on labelled dubs). Lines near the recognizer's segment
+The bands are first guesses (still to be calibrated on labelled dubs). Lines near the recognizer's segment
 boundaries can tip either way when the audio is shifted.
 
 ### Distortion (`clipping_pct`)
@@ -388,7 +391,7 @@ skip voice similarity (another voice is expected).
 
 **Local judge, measured:** on the Francis EN→KO dub, `qwen3:8b` (English-only answers, ~50 s on an 8 GB laptop
 GPU) reported missing content in 11 of 13 lines, nearly all wrongly, which made the verdict Poor. Treat its issues
-as rough until Phase 5 checks it against labelled dubs; use Claude for reliable reviews.
+as rough until it's checked against more labelled dubs; use Claude for reliable reviews.
 
 Bands (`RUBRIC_FLAG` 6, `RUBRIC_POOR` 4, `RUBRIC_POOR_LINES` 3 in `report.py`): each row shows the average over the
 lines and how many lines scored 6 or lower. **Meaning** is Poor when 3 or more lines, or most lines, score 4 or lower;

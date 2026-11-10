@@ -15,10 +15,42 @@ def test_the_desktop_app_and_the_engine_have_the_same_version():
     assert package["version"] == TOOL_VERSION
 
 
+def test_the_python_package_has_the_same_version():
+    # pip show dubeval and the installed metadata read pyproject's version; it stayed at 0.1.0 until 0.1.5.
+    import tomllib
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    assert project["version"] == TOOL_VERSION
+
+
 def test_this_version_has_whats_new_in_every_language():
     for lang in ("en", "ko", "pt", "es"):
         assert release_notes.NOTES[TOOL_VERSION][lang], lang
     assert len({len(release_notes.NOTES[TOOL_VERSION][lang]) for lang in ("en", "ko", "pt", "es")}) == 1
+
+
+def test_releases_are_published_signed_only():
+    """From 0.1.6 the app carries publisherName, so an unsigned release would strand every installed app: nothing may
+    publish straight from the build, and the finish step must rebuild latest.yml and the blockmap from the signed file
+    (signing changes the bytes; the build's latest.yml made 0.1.5 refuse the update in the 2026-11-10 test)."""
+    package = json.loads((ROOT / "desktop" / "package.json").read_text(encoding="utf-8"))
+    assert package["build"]["win"]["signtoolOptions"]["publisherName"] == ["ESTsoft Corp."]
+    scripts = package["scripts"]
+    assert not any("--publish always" in s or "--publish onTagOrDraft" in s for s in scripts.values())
+    assert scripts["build:windows:release"].endswith("release-windows.js build")
+    assert scripts["release:windows:finish"].endswith("release-windows.js finish")
+    release = (ROOT / "desktop" / "scripts" / "release-windows.js").read_text(encoding="utf-8")
+    for needed in ("buildBlockMap", "latest.yml", 'sig.status !== "Valid"', "cn !== PUBLISHER", "timestamped"):
+        assert needed in release, needed
+
+
+def test_the_signing_portals_address_stays_out_of_the_repository():
+    # It's internal: desktop/codesign.local.json (git-ignored) or DUBEVAL_CODESIGN_PORTAL holds it.
+    assert "desktop/codesign.local.json" in (ROOT / ".gitignore").read_text(encoding="utf-8")
+    files = [*ROOT.glob("*.md"), *(ROOT / "docs").glob("*.md"), *(ROOT / "desktop").glob("*.js"),
+             *(ROOT / "desktop" / "scripts").glob("*.js"), ROOT / "desktop" / "package.json", ROOT / "desktop" / "README.md"]
+    for f in files:
+        text = f.read_text(encoding="utf-8").lower()
+        assert "altoolsbuild" not in text and "192.168." not in text, f.name
 
 
 def test_updates_come_from_the_repository_the_app_names():

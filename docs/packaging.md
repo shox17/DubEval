@@ -105,7 +105,7 @@ app where a person chooses extras, each with its size, a progress bar and a chec
   11.8 s to 1.8 s with identical scores, and the whole evaluation from 30.4 s to 20.0 s.
 - **CPU and GPU recognition differ** (found while checking): on p006 the CPU (int8) split the dub into 7 matched lines,
   the GPU (float16) into 13, and the meaning screen was Good vs Check. The desktop app runs on the CPU unless the GPU
-  pack is installed, so calibration (Phase 5) should be checked on the CPU too.
+  pack is installed, so calibration should be checked on the CPU too.
 
 - **Downloads page** (2026-10-22): `dubeval/packs.py` + `#/downloads`. No hosting of our own was needed: the meaning
   pack comes from Xenova/bge-m3's int8 ONNX export on Hugging Face, the GPU pack from NVIDIA's cuBLAS wheel on PyPI
@@ -125,8 +125,8 @@ app where a person chooses extras, each with its size, a progress bar and a chec
 
 ## Still to do for option C
 1. DubEval's own icon and auto-update are done (see `desktop/README.md`).
-2. Later: code signing (until then Windows SmartScreen warns on first run; INSTALL.md's install steps say what to
-   click), the macOS build.
+2. Code signing is done from 0.1.6: the installer is signed by ESTsoft Corp. through the company's internal portal
+   (`desktop/README.md` → Publish a new version). Later: signing the app's own files too, and the macOS build.
 
 Licenses to add to NOTICE when shipping: Python (PSF), ffmpeg from imageio-ffmpeg (GPL build: fine under AGPL, but
 its license text and source offer ship with the app), CUDA libraries (NVIDIA's redistribution terms) in the GPU pack,

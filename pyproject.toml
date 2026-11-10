@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dubeval"
-version = "0.1.0"
+version = "0.1.6"
 description = "Open-source quality evaluation for dubbed videos: length and timing, translation meaning, and where the problems are."
 readme = "README.md"
 license = "AGPL-3.0-or-later"

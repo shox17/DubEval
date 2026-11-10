@@ -1,0 +1,2 @@
+# Only for tools/release_qa (not the app or CI). 1.65 has wheels for Python 3.14; 1.49 needed a greenlet build.
+playwright==1.65.0

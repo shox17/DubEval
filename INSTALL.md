@@ -8,10 +8,11 @@ For Windows 10 or 11 (64-bit). No Python or other tools needed.
 1. [Download `DubEval-Setup.exe`](https://github.com/shox17/DubEval/releases/latest/download/DubEval-Setup.exe),
    always the newest version (about 500 MB: the app, Python and the speech, voice and picture models are inside, so
    evaluations work offline). Every version is on the [Releases page](https://github.com/shox17/DubEval/releases).
-2. Open it. Because the beta isn't code-signed yet, Windows may show **"Windows protected your PC"** (SmartScreen).
-   Click **More info**, check that the app is `DubEval-Setup.exe` and the publisher reads "Unknown
-   publisher", then click **Run anyway**. If your browser warns about the download first, choose **Keep**. Only do
-   this for a file you downloaded from this repository's Releases page.
+2. Open it. The installer is signed by **ESTsoft Corp.** (since 0.1.6). Windows builds trust in a new certificate as
+   people install, so for now it may still show **"Windows protected your PC"** (SmartScreen): click **More info**,
+   check that the app is `DubEval-Setup.exe` and the publisher reads **ESTsoft Corp.**, then click **Run anyway**. If
+   your browser warns about the download first, choose **Keep**. Only do this for a file you downloaded from this
+   repository's Releases page; a different publisher, or "Unknown publisher" on 0.1.6 or later, means it isn't ours.
 3. Choose **Install**. It takes about 2 to 3 minutes and needs about 1.5 GB of disk space; no administrator rights
    are needed (it installs for your Windows user only).
 4. DubEval opens on **Evaluations**. Choose **New evaluation**, add the original and the dub, and start.

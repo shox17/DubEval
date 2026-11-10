@@ -17,6 +17,14 @@ export function t(key, values = {}) {
   return s.replace(/\{(\w+)\}/g, (m, k) => (k in values ? values[k] : m));
 }
 
+// Usage stats: a step of a new evaluation, by name. The server drops it unless this person said yes, and a problem here
+// never reaches the page.
+let stepsQuietUntil = 0;                             // a language change redraws the screen: that's no new step
+export function noteUsageStep(step, mode) {
+  if (Date.now() < stepsQuietUntil) return;
+  api("/api/settings/usage-stats/step", { method: "POST", body: JSON.stringify({ step, mode }) }).catch(() => {});
+}
+
 export async function api(path, options = {}) {
   const headers = { "Accept-Language": state.lang };
   if (options.body && !(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
@@ -139,6 +147,7 @@ export async function setLanguage(code) {
   try { localStorage.setItem(LANG_KEY, code); } catch { /* not kept */ }
   window.dubevalShell?.rememberLanguage(code);      // the desktop app's starting page opens before this page can say
   await loadInfo();
+  stepsQuietUntil = Date.now() + 5000;
   route(true);
 }
 

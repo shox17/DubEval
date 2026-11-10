@@ -1074,6 +1074,23 @@ def test_a_stopped_evaluation_continues_with_the_same_request(client, monkeypatc
     assert listed["drafts"] == [] and len(listed["evaluations"]) == 1         # the draft followed the new run
 
 
+@pytest.mark.parametrize("problem, can_continue", [
+    (lambda: __import__("dubeval.inputs").inputs.InputError("The original video can't be read."), False),
+    (lambda: FileNotFoundError("The original video file doesn't exist: o.mp4"), False),
+    (lambda: MemoryError(), True),                   # may pass next time: running again is worth offering
+    (lambda: ValueError("The video couldn't be downloaded."), True),
+])
+def test_continue_is_offered_only_when_running_again_could_help(client, monkeypatch, problem, can_continue):
+    """Continue once re-ran an unreadable file, which failed the same way every time."""
+    def failing(original, dub, **options):
+        raise problem()
+    monkeypatch.setattr(pipeline, "run_files_evaluation", failing)
+    job = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    failed = finished(client, job)
+    assert failed["status"] == "failed" and failed["can_continue"] is can_continue
+    assert (client.post(f"/api/jobs/{job}/continue").status_code == 409) is not can_continue
+
+
 def test_only_a_stopped_evaluation_can_continue(client):
     job = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
     assert finished(client, job)["can_continue"] is False

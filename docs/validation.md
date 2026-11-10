@@ -138,8 +138,9 @@ another track at the same 30 moments; the delayed copies are the original with s
 
 So the check tells a lip-synced dub from a plain one and measures a delay to the frame, and a delay beyond its reach
 still shows as lips that don't line up (the sound-sync check measures those, up to 2 s). One video, one face, one
-language pair: it stays information only until graded lip-synced dubs, ideally with another face and language, back
-it. Before the speed work the same check took about 4 minutes per dub on this computer's processor; it now takes
+language pair. Since 2026-11-10 it counts in the verdict anyway (the owner's decision: 90% of moments lined up is Good,
+30% or less Poor); on this video the lip-synced dub (84%) would be Check and the plain one (16%) Poor. Graded
+lip-synced dubs, ideally with another face and language, should still confirm those bands. Before the speed work the same check took about 4 minutes per dub on this computer's processor; it now takes
 about 30 s (30 moments at most, faces found only where needed, a coarse-to-fine shift search, busy-waiting off).
 
 ## Agreement with a person (2026-10-29)

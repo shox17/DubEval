@@ -59,6 +59,8 @@ SCREEN_LOW = 0.6                         # meaning screen: a line below this sim
                                          # (real correct lines: median 0.81, 95% above 0.59; wrong pairs: median 0.49)
 VOICE_SIMILAR = 0.5                      # voice similarity to the original speaker: Good from this, else Check
 LIP_OFFSET_MS = 120                      # lip sync: lips that follow the sound this far off are reported as late/early
+LIP_SYNC_PCT = (90, 30)                  # lip sync: share of checked moments that line up: Good from 90%, Poor at 30% or
+                                         # less, Check between (owner's decision, 2026-11-10; tested on one real dub)
 # Voice-quality window bands (how far the dub may fall below the original) are in dubeval/intervals.py.
 
 # How sure DubEval is (sure_of). When the speech measures rest on little or unclear speech, nothing but the measures in
@@ -607,24 +609,30 @@ def _integrity(tr: Tr, vi: Optional[dict]) -> list[dict]:
 
 
 def _lip_sync(tr: Tr, sync: dict) -> list[dict]:
-    """The lip-sync check (its pack installed): how often the lips line up, next to the original. Information only."""
+    """The lip-sync check (its pack installed): how often the lips line up, next to the original. Graded on the share
+    of checked moments that line up (LIP_SYNC_PCT); not measured never counts."""
     from dubeval.lip_sync import FPS, MATCH_FRAMES, MAX_MOMENTS
-    graded = tr("r.g.lip_sync", n=MAX_MOMENTS, sec=f"{MATCH_FRAMES / FPS:.2f}")
+    good, poor = LIP_SYNC_PCT
+    graded = tr("r.g.lip_sync", n=MAX_MOMENTS, sec=f"{MATCH_FRAMES / FPS:.2f}", good=good, poor=poor)
     if not sync.get("measured"):
         return [_metric(tr, "lip_sync", "not_measured", tr(sync["reason_key"], **sync.get("reason_params", {})),
                         graded=graded)]
     n, dub, orig = sync["moments"], sync["dub_match"], sync["original_match"]
+    pct = dub / n * 100 if n else sync["dub_match_pct"]          # from the counts: 27 of 30 is exactly 90%
+    level = "good" if pct >= good else "poor" if pct <= poor else "check"
     msg = tr("r.sync_lips.info", dub=dub, orig=orig, n=n)
     offset = sync.get("dub_offset_ms")
     if offset is not None and abs(offset) >= LIP_OFFSET_MS:
         msg += " " + tr("r.sync_lips.late" if offset > 0 else "r.sync_lips.early", sec=f"{abs(offset) / 1000:.2f}")
-    return [_metric(tr, "lip_sync", "info", msg, sync["dub_match_pct"], tr("r.sync_lips.display", dub=dub, orig=orig, n=n),
+    elif level != "good":
+        msg += " " + tr(f"r.sync_lips.{level}_hint")
+    return [_metric(tr, "lip_sync", level, msg, sync["dub_match_pct"], tr("r.sync_lips.display", dub=dub, orig=orig, n=n),
                     graded)]
 
 
 def _lipsync(tr: Tr, ls: dict, is_lipsync: Optional[bool]) -> list[dict]:
-    """Lip sync, informational only, never part of the verdict: the real check when its pack ran, else the
-    experimental lip-movement estimate."""
+    """Lip sync: the real check when its pack ran (graded, part of the verdict), else the experimental lip-movement
+    estimate (information only: its number isn't reliable)."""
     if ls.get("sync"):
         return _lip_sync(tr, ls["sync"])
     if not ls.get("measured", True) or ls.get("reason_key") == "r.lips.skipped":
@@ -685,7 +693,8 @@ def sure_of(r: dict, problem: Optional[dict] = None) -> list[dict]:
     """What makes DubEval less sure of this dub, each {"kind", params}: little_speech, short_speech, unclear_speech
     (the speech measures rest on shaky transcripts), background_replaced (silence and loudness compare different
     soundtracks), words_unchecked (the dub's language wasn't recognized), translation_unchecked (the translation
-    check didn't run: a required check, so never Good) and judge_fallback (a smaller model judged; a note only)."""
+    check didn't run: a required check, so never Good; "text" names the sentence that fits why) and judge_fallback (a
+    smaller model judged; a note only)."""
     import statistics
     ac, ta, sr = r.get("acoustic_metrics") or {}, r.get("timing_alignment") or {}, r.get("speech_recognition") or {}
     out = []
@@ -709,7 +718,10 @@ def sure_of(r: dict, problem: Optional[dict] = None) -> list[dict]:
     if problem and problem["kind"] == "unrecognized":
         out.append({"kind": "words_unchecked"})
     elif not tj.get("measured"):                         # a required check that didn't run: never Good
-        out.append({"kind": "translation_unchecked"})
+        # The advice follows the reason: "add a key" only when no key is set (a key without credit was told to add one).
+        why = tj.get("reason_key")
+        out.append({"kind": "translation_unchecked", "text": "r.sure.translation_unchecked" if why == "r.judge.no_key"
+                    else "r.sure.translation_off" if why == "r.judge.off" else "r.sure.translation_failed"})
     if tj.get("measured") and tj.get("fallback"):
         out.append({"kind": "judge_fallback", "model": tj.get("model") or ""})
     return out
@@ -749,7 +761,8 @@ def _apply_sure(tr: Tr, metrics: list[dict], unsure: list[dict]) -> str:
 
 def _sure_text(tr: Tr, unsure: list[dict]) -> str:
     """The sentences that say what DubEval is unsure of, and what a person should do."""
-    text = [tr(f"r.sure.{u['kind']}", **{k: v for k, v in u.items() if k != "kind"}) for u in unsure]
+    text = [tr(u.get("text") or f"r.sure.{u['kind']}", **{k: v for k, v in u.items() if k not in ("kind", "text")})
+            for u in unsure]
     if any(u["kind"] in ("little_speech", "short_speech", "unclear_speech") for u in unsure):
         text.append(tr("r.sure.listen"))                 # said once, after every speech reason
     return " ".join(text)

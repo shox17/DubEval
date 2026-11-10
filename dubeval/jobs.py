@@ -74,6 +74,8 @@ class Job:
     finished_at: Optional[float] = None
     result: Optional[dict] = None
     error: Optional[str] = None
+    error_type: Optional[str] = None                # the exception's class name, kept in memory only
+    retry_helps: bool = True                        # False when the input itself failed: Continue would fail the same way
     cancel_event: threading.Event = field(default_factory=threading.Event)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _saved_at: float = 0.0
@@ -94,7 +96,7 @@ class Job:
         return {"id": self.id, "params": self.params, "stages": self.stages, "status": status or self.status,
                 "stage": self.stage, "message": self.message, "stage_fraction": self.stage_fraction,
                 "started_at": self.started_at, "stage_started_at": self.stage_started_at,
-                "finished_at": self.finished_at, "error": self.error}
+                "finished_at": self.finished_at, "error": self.error, "retry_helps": self.retry_helps}
 
     def save(self, status: Optional[str] = None) -> None:
         """Writes the state file (and the result once done); a failure is logged, never raised.
@@ -150,6 +152,7 @@ class Job:
 
 _jobs: dict[str, Job] = {}
 _registry_lock = threading.Lock()
+on_finish: Optional[Callable[[Job], None]] = None   # called once a job has ended, from its own thread
 
 
 def _write(path: Path, data) -> None:
@@ -179,7 +182,8 @@ def _load(job_id: str) -> Optional[Job]:
     except (OSError, json.JSONDecodeError):
         return None
     job = Job(id=job_id, params=state.get("params") or {}, stages=state.get("stages") or ["evaluate"])
-    for k in ("status", "stage", "message", "stage_fraction", "started_at", "stage_started_at", "finished_at", "error"):
+    for k in ("status", "stage", "message", "stage_fraction", "started_at", "stage_started_at", "finished_at", "error",
+              "retry_helps"):
         if state.get(k) is not None:
             setattr(job, k, state[k])
     if job.status == "running":
@@ -212,11 +216,22 @@ def start_job(runner: Callable[[Callable[[Progress], None], threading.Event], di
             if isinstance(e, Cancelled):
                 status, job.error = "cancelled", "You stopped this job."
             else:
-                log.exception("Job %s failed", job.id)
-                status, job.error = "failed", str(e)
+                # A problem with the given file or link (an exception saying retry_helps = False, or a missing file)
+                # is the person's to fix: logged as a warning, and the job says Continue can't help.
+                job.retry_helps = getattr(e, "retry_helps", True) and not isinstance(e, FileNotFoundError)
+                if job.retry_helps:
+                    log.exception("Job %s failed", job.id)
+                else:
+                    log.warning("Job %s stopped on its input: %s", job.id, e)
+                status, job.error, job.error_type = "failed", str(e), type(e).__name__
         job.finished_at = time.time()
         job.save(status)                              # on disk first, then visible: see Job.save
         job.status = status
+        if on_finish is not None:
+            try:
+                on_finish(job)
+            except Exception as e:                    # a watcher never changes how the job ended
+                log.warning("After job %s: %s", job.id, type(e).__name__)
 
     threading.Thread(target=target, name=f"job-{job.id}", daemon=True).start()
     return job

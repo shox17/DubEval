@@ -707,7 +707,7 @@ def evaluate_files(
     pair = pair_videos(original_path, dub_path, cache, audio,
                        lambda message, fraction: notify("prepare", message, 0.55 + 0.25 * fraction))
     if pair.get("same_video") is False and not allow_different:
-        raise ValueError(DIFFERENT_VIDEOS)
+        raise inputs.InputError(DIFFERENT_VIDEOS)              # the same two files would differ again
     check_cancel()
     target_given, target_prob = bool(target_lang), None
     if not target_given:

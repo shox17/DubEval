@@ -76,21 +76,44 @@ test checks they match).
   `release_notes.json` served over HTTP) to try a release before publishing it.
 
 ## Publish a new version
-1. Raise the version in `dubeval/version.py` **and** `desktop/package.json` (a test checks they match) and add the
+1. Raise the version in `dubeval/version.py`, `desktop/package.json` **and** `pyproject.toml` (a test checks they
+   match) and add the
    version's lines to `dubeval/release_notes.json` in all four languages.
-2. Build: `python tools/build_desktop.py`, then `cd desktop && npm run dist`.
-3. Write the release's description as the version's What's new lines (the English ones from
-   `dubeval/release_notes.json`, one bullet each): installed apps show it in their **Version update** window when they
-   can't read that file at the tag, or don't read it yet (0.1.3 and earlier). With neither, the window links to the
+2. Build the Python bundle: `python tools/build_desktop.py`.
+3. **Sign** (since 0.1.6; ESTsoft Corp.'s certificate, through the company's internal signing portal, so it can't be
+   part of the build). The portal's address and the signing folder go in `desktop/codesign.local.json` (git-ignored:
+   `{"dir": "C:\\dubeval_windows_codesign", "vdiDrive": "Z:", "portal": "<address>"}`; or `DUBEVAL_CODESIGN_*`
+   environment variables), never in the repository.
+   - `npm run build:windows:release` builds the installer, copies it to
+     `<dir>\Before_Sign\DubEval-Setup-<version>-unsigned.exe` and prints the portal steps.
+   - In the VDI (this PC's `C:` is its `Z:`): upload that file to the portal, then download the signed file into
+     `<dir>\After_Sign\`.
+   - `npm run release:windows:finish` checks the signature (valid, signed by the `publisherName` in `package.json`,
+     timestamped, this version), puts the signed installer in `dist/` and **rebuilds `latest.yml` and the `.blockmap`
+     from it**. Never upload an installer it didn't finish: signing changes the file's bytes, and with the build's
+     `latest.yml` every installed app refuses the update (sha512 mismatch; tested 2026-11-10).
+4. Optional: test the signed installer before publishing: `python tools/release_qa/release_qa.py --installer
+   desktop/dist/DubEval-Setup.exe` (it replaces the installed DubEval).
+5. Write the release's description as the version's What's new lines (`finish` writes the English ones to
+   `dist/release-notes.md`): installed apps show it in their **Version update** window when they can't read
+   `release_notes.json` at the tag, or don't read it yet (0.1.3 and earlier). With neither, the window links to the
    release page.
-4. Publish a GitHub release tagged `v<version>` in the repository from `build.publish` with **all three** files from
-   `desktop/dist`: `DubEval-Setup.exe`, its `.blockmap` and `latest.yml` (or `npm run release` with a
-   `GH_TOKEN` that may write releases). Installed apps find it within 4 hours, or at once from Settings → About.
-   Publish it as a normal release, never a draft or a **pre-release** (even for a beta): GitHub's
-   `releases/latest/download/...` link and the app's update check both skip pre-releases.
+6. Publish a GitHub release tagged `v<version>` in the repository from `build.publish` with **all three** files from
+   `desktop/dist`: `DubEval-Setup.exe`, its `.blockmap` and `latest.yml` (`finish` prints the `gh release create`
+   command). Installed apps find it within 4 hours, or at once from Settings → About. Publish it as a normal release,
+   never a draft or a **pre-release** (even for a beta): GitHub's `releases/latest/download/...` link and the app's
+   update check both skip pre-releases. There is no `npm run release` any more: it published straight from the build,
+   which would now be an unsigned installer.
 The installer's name has no version (`artifactName`), so the README's download link
 (`https://github.com/shox17/DubEval/releases/latest/download/DubEval-Setup.exe`) always gives the newest one; `latest.yml` names the file, so updates work the same.
-Until the installer is code-signed, an update is trusted only because it comes from that repository.
+
+**Signed updates:** the app carries `publisherName` (`build.win.signtoolOptions`; it lands in the installed app's
+`resources/app-update.yml`). An app without it (0.1.5 and earlier) installs any update whose sha512 matches
+`latest.yml`, signed or not, so the first signed release reaches everyone. From then on electron-updater checks each
+downloaded update: it must be validly signed and its signer's CN must equal `publisherName`, or it's refused ("not
+signed by the application owner"). So every later release must be signed by the same publisher; publishing an
+unsigned one would strand every installed app. If the certificate's name ever changes, list both names in
+`publisherName` for a release before switching.
 
 **First release only:** create the repository as exactly `shox17/DubEval` (the name in `build.publish`; another name
 means installed apps never find updates). In its **About** settings, set the description to "Open-source quality
@@ -101,6 +124,7 @@ timeline, and which of several dubs to deliver. Runs on your computer." and the 
 "repo not found" until the repository and its first release exist.
 
 ## Not done yet (Phase 7)
-- Code signing (until then Windows SmartScreen warns on first run, and updates are trusted by their source only),
-  the macOS build. Updates need the GitHub repository and its first release.
+- Signing the app's own files (`DubEval.exe`, the uninstaller, the bundled Python): the portal signs the installer,
+  which is what SmartScreen checks. Signing them too would take a second trip to the portal during the build. The
+  macOS build.
 - The desktop shell's few texts live in `status.html`; the web interface brings its own.

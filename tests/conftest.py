@@ -66,6 +66,22 @@ def no_system_network_settings(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_usage_stats(tmp_path, monkeypatch):
+    """Usage stats start unanswered and post nowhere: a test of sending replaces _post and calls flush itself."""
+    from dubeval import usage_stats
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("tests never post to dubeval.com")
+    monkeypatch.setattr(usage_stats, "STATE_FILE", tmp_path / "usage_stats.json")
+    monkeypatch.setattr(usage_stats, "_post", refuse)
+    monkeypatch.setattr(usage_stats, "_schedule", lambda: None)
+    monkeypatch.setattr(usage_stats, "_opened", False)
+    monkeypatch.delenv("DUBEVAL_USAGE_STATS", raising=False)
+    usage_stats._queue.clear()
+    usage_stats._recent.clear()
+
+
+@pytest.fixture(autouse=True)
 def no_real_api_keys(monkeypatch):
     """Tests never see real keys (the app loads .env): every provider key is removed from the environment."""
     for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"):

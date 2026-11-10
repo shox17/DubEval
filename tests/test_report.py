@@ -80,6 +80,24 @@ def test_missing_judge_is_not_measured_with_a_reason_and_the_dub_is_never_good()
     assert "translation wasn't checked" in rep["overall"]["headline"]   # a required check that didn't run
 
 
+@pytest.mark.parametrize("key, params, says", [
+    ("r.judge.no_key", {}, "add an AI key in Settings"),
+    ("r.judge.no_credit", {"model": "Claude"}, "fix what's described there"),
+    ("r.judge.bad_key", {"model": "Gemini"}, "fix what's described there"),
+    ("r.judge.off", {}, "turn the check on"),
+])
+def test_the_headline_advice_follows_why_the_translation_wasnt_checked(key, params, says):
+    """A key without credit was once told to "add an AI key": only a missing key gets that advice."""
+    from dubeval.translation_judge import not_measured
+    for lang in ("en", "ko", "pt", "es"):
+        rep = build_report(make_results(translation_judge=not_measured(key, **params)), lang)
+        assert rep["overall"]["level"] == "check" and rep["overall"]["unsure"] == ["translation_unchecked"]
+        assert rep["overall"]["headline"] and "{" not in rep["overall"]["headline"], lang
+    headline = build_report(make_results(translation_judge=not_measured(key, **params)))["overall"]["headline"]
+    assert says in headline
+    assert ("add an AI key" in headline) == (key == "r.judge.no_key")
+
+
 def test_translation_issues_drive_levels_and_things_to_check():
     judged = {**JUDGED, "meaning_score": 3, "summary": "Mostly right, one sentence changed.", "issues": [
         {"type": "missing", "severity": "major", "start_sec": 8.0, "original": "Thank you", "dubbed": "",

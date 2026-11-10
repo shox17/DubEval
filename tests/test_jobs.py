@@ -78,6 +78,19 @@ def test_a_job_running_when_the_app_stopped_is_reported_as_interrupted():
     assert lost.stage == "evaluate" and lost.stage_state("evaluate") == "failed"
 
 
+def test_a_failure_on_the_input_says_running_again_cant_help_even_after_a_restart():
+    from dubeval.inputs import InputError
+
+    def unreadable(report, cancel):
+        raise InputError("The original video can't be read.")
+    job = wait(start_job(unreadable, {}, ["prepare"]))
+    assert job.status == "failed" and job.retry_helps is False
+    forget_memory()
+    assert get_job(job.id).retry_helps is False
+    other = wait(start_job(lambda report, cancel: 1 / 0, {}, ["prepare"]))
+    assert other.status == "failed" and other.retry_helps is True
+
+
 def test_unknown_or_malformed_job_ids_are_rejected_without_touching_disk():
     assert get_job("0123456789ab") is None
     assert get_job("../../etc/passwd") is None and get_job("A" * 12) is None
