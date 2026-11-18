@@ -120,14 +120,16 @@ LARGE = "large-v3-turbo"          # the large_model download (dubeval/packs.py)
 
 
 def default_model() -> str:
-    """What "auto" means on this computer: large-v3-turbo when it is downloaded and a GPU runs it (fewer errors on
-    natural speech at about the same speed; benchmark of 2026-10-26), else base, which is fast enough on any CPU."""
+    """What "auto" means on this computer: large-v3-turbo when it is downloaded, else base. On a processor the large
+    model is a few times slower than base (16-18 s per minute of sound against 5 on a 2025 laptop) but still faster
+    than real time, and base read only 4 of 36 languages well (docs/validation.md, 2026-11-15): a person who
+    downloaded the large model gets it. The start page's More options can still name the standard one."""
     return pick_default(backend(), bool(_local_model(LARGE)), _device()[0])
 
 
 def pick_default(kind: str, large_downloaded: bool, device: str) -> str:
     """The rule behind default_model, from what this computer has."""
-    return LARGE if kind == FASTER and large_downloaded and device == "cuda" else "base"
+    return LARGE if kind == FASTER and large_downloaded else "base"
 
 
 def resolve(name: str) -> str:
@@ -135,17 +137,18 @@ def resolve(name: str) -> str:
     return default_model() if (name or AUTO) == AUTO else name
 
 
-def load_model(name: str):
-    """Loads and caches a recognizer model by name ("base", "small", "large-v3-turbo", or "auto")."""
+def load_model(name: str, cpu: bool = False):
+    """Loads and caches a recognizer model by name ("base", "small", "large-v3-turbo", or "auto"). cpu: on the
+    processor even when a graphics card could run it (faster-whisper), for when something else holds the card."""
     name = resolve(name)
     kind = backend()
     with _lock:
-        key = (kind, name)
+        key = (kind, name, "cpu") if cpu and kind == FASTER else (kind, name)
         if key not in _models:
             log.info("Loading %s model %r", kind, name)
             if kind == FASTER:
                 from faster_whisper import WhisperModel
-                device, compute = _device()
+                device, compute = ("cpu", "int8") if cpu else _device()
                 source = _local_model(name) or name
                 try:
                     model = WhisperModel(source, device=device, compute_type=compute)

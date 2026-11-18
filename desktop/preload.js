@@ -3,6 +3,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("dubevalShell", {
+  // Every build updates itself, Windows and macOS (updater.js). A shell that can't would say false here, and the page
+  // then points to the releases page instead (w.upd.by_hand).
+  selfUpdates: true,
   rememberLanguage: code => ipcRenderer.send("language", code),
   getUpdate: () => ipcRenderer.invoke("update:get"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),

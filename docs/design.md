@@ -33,6 +33,11 @@ before a change are recomputed.
 - **Not where the original is too noisy.** Scores below 1.6 jump with any small change, so a stretch where the original
   scores that low isn't held against the dub. **Rejected:** applying this to the whole video. It also dropped simulated
   robotic voices in clean stretches of noisy videos (flagged on 7 of 17 dubs, against 9 of 17).
+- **With its download: Audiobox Aesthetics** (2026-11-13). DNSMOS can't hear a voice apart from music: its scores
+  moved by up to 0.87 of 5 between stretches of an undamaged dub with music, and of 15 damaged stretches put into
+  five dubs it noticed one. Audiobox Aesthetics, trained on speech, music and sound together, moved 0.14-0.30 of 10
+  and noticed 14 of the 15, so it grades when it is installed. It is 415 MB, so it is a download, not a bundled
+  model, and DNSMOS stays for everyone without it.
 - **Rejected: UTMOS.** It rated clean synthetic speech well (3.9) but scored every real recording 1.2–1.5, even
   the originals and even after separating the voice from the music, so it could not tell a good dub from a bad one.
   Lesson: test any speech model on real dubs before relying on it.
@@ -40,11 +45,16 @@ before a change are recomputed.
   right place; clean dubs stayed inside the bands. **Blind spot:** a muffled (low-passed) voice barely changes any
   score.
 
-## Voice similarity: only on clean lines
+## Voice similarity: trusted where the model knows the original
 - WeSpeaker ResNet34 (ONNX, downloaded once and checked against a pinned SHA-256), with a NumPy filterbank so
   there is no torchaudio dependency.
-- Measured only on lines whose original background is quiet: music blurs voice fingerprints (on a film, even one
-  actor's own lines scored below 0.45 against each other). On music-heavy videos it is honestly "not measured".
+- **The original is matched with itself.** Some videos fool the model (on a film, even one actor's own lines scored
+  below 0.45 against each other). So each original line is also compared with the other original lines; when they
+  don't match each other, a low score for the dub says nothing and the row isn't graded.
+- **Rejected: counting only lines with a quiet background** (the rule until 2026-11-13). It left 16 of 20 test dubs
+  unmeasured, and on the dubs tried the scores with the music in equalled those with the voice separated out.
+- **Rejected: separating the voice first** (Hybrid Demucs, five dubs). It changed similarity by 0.01 on average, and
+  for voice quality it removed a simulated robotic voice and changed two answers with nothing to say which was right.
 - Good or Check, never Poor: a different voice can be deliberate.
 - **Rejected for now: pitch matching.** It tracked the music instead of the voice.
 

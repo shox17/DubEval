@@ -44,26 +44,25 @@ async function downloadLink(url, onProgress, stillWanted) {
   }
 }
 
-// The preview under an input: a picture (or the chosen file itself), its title and one line about it.
+// A file's size as the preview says it ("12.3 MB").
+const sizeText = file => `${(file.size / 1048576).toFixed(1)} MB`;
+
+// The preview under an input: a picture, its title and one line about it. A chosen file shows its name and size while
+// it is added, then the server's still frame and length (a player in the small box was all controls and no picture).
 function previewBox() {
   const el = h("div", { class: "preview", hidden: true });
-  let objectUrl = null;
-  const release = () => { if (objectUrl) URL.revokeObjectURL(objectUrl); objectUrl = null; };
   return {
     el,
-    clear() { release(); el.hidden = true; el.replaceChildren(); },
-    busy() { release(); el.hidden = false; el.replaceChildren(h("span", { class: "muted small" }, t("w.prev.reading"))); },
-    error(message) { release(); el.hidden = false; el.replaceChildren(h("span", { class: "error small" }, message)); },
+    clear() { el.hidden = true; el.replaceChildren(); },
+    busy() { el.hidden = false; el.replaceChildren(h("span", { class: "muted small" }, t("w.prev.reading"))); },
+    error(message) { el.hidden = false; el.replaceChildren(h("span", { class: "error small" }, message)); },
     file(file) {
-      release();
-      objectUrl = URL.createObjectURL(file);
       el.hidden = false;
-      el.replaceChildren(h("video", { class: "thumb", src: objectUrl, muted: true, preload: "metadata", controls: true }),
+      el.replaceChildren(h("div", { class: "thumb" }),
         h("div", { class: "preview-text" }, h("strong", {}, file.name),
-          h("span", { class: "muted small" }, `${t("w.prev.on_computer")} · ${(file.size / 1048576).toFixed(1)} MB`)));
+          h("span", { class: "muted small" }, `${t("w.prev.on_computer")} · ${sizeText(file)}`)));
     },
     show(p, title = null, note = null) {
-      release();
       const meta = [p.kind === "file" ? t("w.prev.on_computer") : p.site, p.duration_sec ? fmtTime(p.duration_sec) : null,
         p.source_lang && p.target_lang ? `${langName(p.source_lang)} → ${langName(p.target_lang)}` : null,
         p.lipsync ? t("w.prev.lipsync") : null].filter(Boolean).join(" · ");
@@ -169,6 +168,7 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
     const added = await files.add(file, bar, error);
     if (!added) return;
     try { last = await api(`/api/preview?source=${encodeURIComponent(added.id)}`); } catch { last = null; }
+    if (last && chosen === file) box.show(last, file.name, sizeText(file));   // still this card's file
     onChange();
   }
   fileInput.addEventListener("change", () => { if (fileInput.files[0]) choose(fileInput.files[0]); });
@@ -362,7 +362,7 @@ function subtitleField(onChange) {
 function withSettings(d, dubTypes, onChange) {
   const kinds = ["", ...dubTypes];
   const hintOf = k => t(`w.type.${k || "unknown"}_hint`);
-  const type = h("select", {}, kinds.map(k => h("option", { value: k, title: hintOf(k) }, t(`w.type.${k || "unknown"}`))));
+  const type = h("select", { class: "type-pick" }, kinds.map(k => h("option", { value: k, title: hintOf(k) }, t(`w.type.${k || "unknown"}`))));
   const meaning = h("span", { class: "type-hint muted small" });
   const explain = () => { meaning.textContent = hintOf(type.value); type.title = hintOf(type.value); };
   type.addEventListener("change", explain);
@@ -508,7 +508,9 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
     h("div", { class: "options" },
       info.large_model ? h("label", {}, t("w.start.speech_model"), speechModel)
         : h("a", { href: "#/settings/models", class: "small" }, t("w.start.get_large")),
-      h("label", { class: "check" }, lipsync, t(info.lip_sync ? "w.start.lip_sync" : "w.start.lipsync"))),
+      // The lip-sync check is a download; without it there is nothing to turn on, only where to get it.
+      info.lip_sync ? h("label", { class: "check" }, lipsync, t("w.start.lip_sync"))
+        : h("a", { href: "#/settings/models", class: "small" }, t("w.start.lip_sync_get"))),
     h("p", { class: "muted small" }, t("w.start.lang_pick")));
   let restoredToggle = false;                        // the toggle that restoring "More options" fires, later
   more.addEventListener("toggle", () => { if (restoredToggle) restoredToggle = false; else changed(); });

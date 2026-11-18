@@ -31,6 +31,8 @@
   --radius-sm: 6px;
   --radius-lg: 12px;
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--primary) 45%, transparent);
+  /* a dropdown's arrow, in --icon (a picture can't read a name) */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%23d8deea' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
 
   /* the names the pages and the timeline use */
   --bg: var(--desk); --card: var(--well); --panel: #171c24; --text: var(--foreground); --muted: var(--muted-foreground);
@@ -162,11 +164,15 @@ a { color: var(--primary-ink); }
 .tip:hover .tip-body, .tip:focus .tip-body, .tip:focus-within .tip-body { display: flex; }
 .tip-row strong { display: block; }
 .type-hint { flex-basis: 100%; }
-.lang-pick { max-width: 220px; }
+.lang-pick { width: 200px; max-width: 100%; }     /* set widths: a dropdown the page draws is as wide as its choice, */
+.type-pick { min-width: 160px; }                  /* and what stands beside it would move with every change */
+#check { min-width: 200px; }
 .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
   stroke-linecap: round; stroke-linejoin: round; color: var(--icon); }
-.work { flex: 1; min-width: 0; overflow-y: auto; background: var(--background); border-radius: var(--radius);
-  padding: 16px 22px 28px; }
+/* position: relative keeps the hidden file fields (.sr) inside the panel's scroll: placed against the window, those
+   under a long start page (3 or more dubs) made the whole window scroll, top bar and panels with it. */
+.work { position: relative; flex: 1; min-width: 0; overflow-y: auto; background: var(--background);
+  border-radius: var(--radius); padding: 16px 22px 28px; }
 .work > * { max-width: 1240px; margin-left: auto; margin-right: auto; }
 .work.wide > * { max-width: none; }          /* a result fills the window, however wide */
 
@@ -183,6 +189,24 @@ button.link:hover { background: none; text-decoration: underline; }
 select, input[type=text], input[type=password] { font: inherit; font-size: var(--font-ui); color: var(--foreground);
   background: var(--background); border: 1px solid var(--control-line); border-radius: var(--radius-sm);
   padding: 7px 9px; min-width: 0; }
+/* Dropdowns are drawn by the page, not the system: a Mac puts its arrow against the edge and opens a light list as
+   tall as the screen. Where the browser can't open the list in the page, only the arrow is ours. */
+select { appearance: none; -webkit-appearance: none; padding-right: 30px; background-image: var(--chevron);
+  background-repeat: no-repeat; background-position: right 11px center; background-size: 10px 6px; cursor: pointer; }
+@supports (appearance: base-select) {
+  select, ::picker(select) { appearance: base-select; }
+  select { align-items: center; }
+  select::picker-icon { display: none; }
+  ::picker(select) { margin: 4px 0; padding: 4px; max-height: min(336px, 60vh); overflow-y: auto;
+    border: 1px solid var(--divider); border-radius: var(--radius); background: var(--head-bg);
+    color: var(--foreground); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+    scrollbar-width: thin; scrollbar-color: var(--divider) transparent; }
+  option { min-height: 26px; padding: 4px 10px; border-radius: 5px; font-size: var(--font-ui); cursor: pointer; }
+  option::checkmark { display: none; }
+  option:hover, option:focus-visible { background: var(--secondary); outline: none; }
+  option:checked { background: var(--primary-accent); color: var(--primary-ink); font-weight: 600; }
+  option:disabled { color: var(--muted-foreground); background: none; cursor: not-allowed; }
+}
 select:focus, input:focus { outline: none; border-color: var(--primary); box-shadow: var(--focus-ring); }
 input::placeholder { color: var(--muted-foreground); }
 input[type=checkbox] { accent-color: var(--primary); width: 14px; height: 14px; }
@@ -202,6 +226,13 @@ progress::-webkit-progress-value { background: var(--primary); border-radius: 6p
 .badge.poor { color: var(--destructive); background: var(--destructive-soft); }
 .badge.info, .badge.not_measured { color: var(--muted-foreground); background: var(--secondary); }
 .headline { font-weight: 600; }
+.sure-notes { list-style: none; margin: 6px 0 0; padding: 0 0 0 10px; border-left: 2px solid var(--divider);
+  color: var(--muted-foreground); font-size: var(--font-label); }
+.sure-notes li + li { margin-top: 2px; }
+.skipped-banner { border-left: 4px solid var(--divider); }
+.skipped-banner .row { align-items: baseline; }
+.skipped-banner p { margin: 6px 0 0; }
+.skipped-banner .action { color: var(--primary-ink); }
 
 /* ---------- start ---------- */
 .start .lead { margin: 0 0 16px; color: var(--muted-foreground); }
@@ -219,6 +250,7 @@ progress::-webkit-progress-value { background: var(--primary); border-radius: 6p
 .drop-row .path { flex: 1; }
 .drop progress { margin-top: 10px; }
 .chosen { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; color: var(--foreground); }
+.chosen:empty { display: none; }    /* nothing chosen yet: the link field gets the whole row */
 .options { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 14px; align-items: center; }
 .options label { display: flex; gap: 8px; align-items: center; }
 .options label.check { flex-wrap: wrap; }
@@ -258,7 +290,10 @@ details.more .pair { margin-top: 10px; }
 /* ---------- review ---------- */
 /* The result's summary card: a plain card as in PersoDub; the verdict is the badge, not a coloured edge. */
 .verdict .badge { font-size: 12px; padding: 2px 12px; }
-.verdict .head-actions { display: flex; gap: 8px; align-items: center; }
+/* Buttons keep their label on one line; in a narrow window the row wraps instead (it squeezed "Evaluate another dub"
+   into three lines that ran out of the button). */
+.verdict .head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; }
+.verdict .head-actions button { white-space: nowrap; }
 .editable { cursor: text; border-radius: var(--radius-sm); padding: 0 4px; margin-left: -4px; }
 .editable:hover, .editable:focus-visible { background: var(--secondary); outline: none; }
 .title-field { font-size: 18px; font-weight: 600; min-width: min(560px, 60%); }
@@ -377,14 +412,18 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
   min-width: 34px; flex: 1; max-width: 64px; gap: 4px; }
 .bar { width: 100%; display: flex; flex-direction: column; border-radius: 3px 3px 0 0; overflow: hidden; min-height: 2px; }
 .seg { width: 100%; }
+.bar-n { font-size: 11px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: var(--foreground); }
 .seg + .seg { border-top: 1px solid var(--well); }
 .status.noisy { color: var(--destructive); font-weight: 600; } .status.reliable { color: var(--success); }
 @media (max-width: 600px) { .tiles { grid-template-columns: repeat(2, 1fr); } }
+/* The two tables need about 520 px each: in a narrow window they stack instead of cutting columns off. */
+@media (max-width: 1180px) { .split.hist-split { grid-template-columns: minmax(0, 1fr); } }
 
-/* ---------- settings: PersoDub's 512 × 594 dialog: the title bar, one row of tabs, one darker panel that scrolls,
-   Cancel and Save side by side. Models and Storage: bands (a group and its size) over rows of
+/* ---------- settings: PersoDub's dialog, wider (640 px: at 512 the model names wrapped and every row was cramped):
+   the title bar, one row of tabs, one darker panel that scrolls, Cancel and Save side by side (Close alone on a tab
+   with nothing to save). Models and Storage: bands (a group and its size) over rows of
    name | size | state | button; the other tabs: "label | control" rows. ---------- */
-.settings-modal { width: min(512px, 92vw); height: min(594px, 90vh); max-height: none; }
+.settings-modal { width: min(640px, 92vw); height: min(594px, 90vh); max-height: none; }
 .settings-modal .modal-body { display: flex; flex-direction: column; gap: 16px; padding: 16px; overflow: hidden; }
 .settings-modal .set-tabs { flex: none; margin-bottom: 0; }
 .settings-modal .set-panel { flex: 1; min-height: 0; overflow-y: auto; }
@@ -408,7 +447,8 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
 .set-inline .path { flex: 1; }
 .set-wide { grid-column: 1 / -1; padding-top: 8px; }
 .set-panel input[type=password], .set-panel input[type=text], .set-panel select { height: 28px; padding: 0 8px;
-  border: 1px solid transparent; border-radius: 5px; background: var(--secondary); font-size: 11.5px; }
+  border: 1px solid transparent; border-radius: 5px; background-color: var(--secondary); font-size: 11.5px; }
+.set-panel select { min-width: 120px; padding-right: 30px; }
 .set-panel input:focus, .set-panel select:focus { border-color: var(--primary); }
 .set-panel .btn { height: 24px; min-width: 76px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); font-size: 11.5px;
   font-weight: 600; white-space: nowrap; background: var(--secondary); color: var(--foreground); text-decoration: none; }
@@ -423,10 +463,12 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
   background: var(--head-bg); font-size: 13px; font-weight: 600; }
 .model-group-head .model-size { font-weight: 400; }
 .model-rows { padding: 2px 24px 10px; }
-.model-row { display: grid; grid-template-columns: 140px 62px minmax(0, 1fr) auto; align-items: center; column-gap: 0;
+.model-row { display: grid; grid-template-columns: 180px 62px minmax(0, 1fr) auto; align-items: center; column-gap: 0;
   min-height: 45px; padding: 8px 0; font-size: 12px; }
 .model-row + .model-row { border-top: 1px solid var(--border); }
 .model-row > .btn { margin-left: 12px; }
+/* two buttons (Remove, Update) don't fit beside the text: they get their own line */
+.model-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .model-name { font-weight: 500; overflow-wrap: anywhere; padding-right: 12px; }
 .model-size { color: color-mix(in srgb, var(--foreground) 80%, transparent); font-size: 11.5px;
   font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -538,6 +580,19 @@ input.switch:checked::after { left: 21px; }
 .proj-menu button { display: block; width: 100%; height: auto; padding: 6px 10px; text-align: left; border: none;
   background: none; border-radius: 5px; }
 .proj-menu button:hover, .proj-menu button:focus-visible { background: var(--secondary); outline: none; }
+.proj-menu .menu-choice { display: flex; align-items: center; gap: 8px; }
+.menu-tick { display: inline-flex; width: 14px; flex: none; color: var(--primary); }
+.home-view { gap: 4px; padding: 0 8px; }
+.home-view .icon:last-child { color: var(--muted-foreground); }
+
+/* List view: one row per evaluation, a small 16:9 picture (chip and length on it), then the name and its line. */
+.projects-grid.list { grid-template-columns: 1fr; gap: 2px; }
+.projects-grid.list .proj-card { flex-direction: row; align-items: center; gap: 12px; padding: 6px 8px; }
+.projects-grid.list .proj-card:hover { background: var(--secondary); }
+.projects-grid.list .proj-thumb { width: 112px; aspect-ratio: 16 / 9; flex: none; }
+.projects-grid.list .proj-row { flex: 1; min-width: 0; align-items: center; margin-top: 0; }
+.projects-grid.list .proj-name { font-size: 13px; line-height: 18px; }
+.projects-grid.list .proj-meta { font-size: 12px; line-height: 16px; }
 
 /* PersoDub's alert (Stop, Delete): a warning sign, the question, a line under it, two equal buttons side by side. */
 .modal.modal-alert { width: min(300px, 92vw); text-align: center; }
@@ -606,6 +661,9 @@ canvas.timeline.dragging { cursor: grabbing; }
 .what-to-check .item { display: block; width: 100%; height: auto; padding: 8px 10px; text-align: left; white-space: normal;
   font-weight: 400; background: none; border: none; border-radius: 6px; }
 .what-to-check .item .head { display: flex; align-items: baseline; gap: 8px; }
+/* A problem's kind is written to sit inside a sentence ("timing"); as a title it starts with a capital, like the
+   measures listed with it ("Loudness match"). */
+.what-to-check .item .head strong::first-letter { text-transform: uppercase; }
 .what-to-check .item .time { font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
 .what-to-check .item .why { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: var(--font-label);
   line-height: 1.45; }
@@ -644,8 +702,19 @@ body.booting .app { visibility: hidden; }
 .what-to-check .check-group.check { background: color-mix(in srgb, var(--warning-soft) 55%, transparent);
   border-color: color-mix(in srgb, var(--warning) 35%, transparent); border-left-color: var(--warning); }
 .what-to-check .group-head { display: flex; align-items: center; gap: 8px; padding: 2px 10px 4px; }
-.what-to-check .group-count { font-weight: 600; color: var(--muted-foreground); }
+.what-to-check .group-count { font-weight: 500; color: var(--muted-foreground); font-size: var(--font-label); }
+.what-to-check .item .scope { flex: none; padding: 0 6px; border-radius: 4px; background: var(--secondary);
+  color: var(--muted-foreground); font-size: 10.5px; }
 .what-to-check .check-group .item:hover { background: rgba(255, 255, 255, 0.05); }
+.subscores { width: auto; margin: 8px 0; border-collapse: collapse; font-size: var(--font-label); }
+.subscores th { padding: 2px 18px 4px 10px; text-align: left; font-weight: 500; color: var(--muted-foreground); }
+.subscores td { padding: 4px 18px 4px 10px; border-top: 1px solid var(--border); }
+.subscores td:first-child { border-left: 3px solid var(--good); }
+.subscores tr.check td:first-child { border-left-color: var(--check); }
+.subscores tr.poor td:first-child { border-left-color: var(--poor); }
+.subscores td + td { font-variant-numeric: tabular-nums; font-weight: 600; }
+.what-to-check .check-group.misheard { background: var(--well); border-left-color: var(--divider); }
+.what-to-check .item .why.also { margin-top: 3px; font-style: italic; }
 
 /* ---------- the Version update window, as PersoDub's: versions and the restart left, What's new right ---------- */
 .modal.upd-modal { width: min(720px, 92vw); height: min(380px, 90vh); max-height: none; }

@@ -16,13 +16,14 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License" /></a>
-  <a href="INSTALL.md"><img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform" /></a>
+  <a href="INSTALL.md"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey.svg" alt="Platform" /></a>
   <a href="https://github.com/shox17/DubEval/releases"><img src="https://img.shields.io/github/v/release/shox17/DubEval?include_prereleases&color=green" alt="Version" /></a>
   <a href="docs/privacy.md"><img src="https://img.shields.io/badge/privacy-videos%20stay%20local-brightgreen.svg" alt="Privacy" /></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/shox17/DubEval/releases/latest/download/DubEval-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows%20(.exe)-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
+  <a href="https://github.com/shox17/DubEval/releases/latest/download/DubEval-Mac.dmg"><img src="https://img.shields.io/badge/Download-Mac%20(.dmg)-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" /></a>
 </p>
 
 <p align="center">
@@ -83,7 +84,8 @@ Speech, voice and picture checks run here. Add a larger speech model or an offli
 
 ## Get started
 
-1. [Download for Windows](https://github.com/shox17/DubEval/releases/latest/download/DubEval-Setup.exe).
+1. Download for [Windows](https://github.com/shox17/DubEval/releases/latest/download/DubEval-Setup.exe) or
+   [Mac](https://github.com/shox17/DubEval/releases/latest/download/DubEval-Mac.dmg) (Apple silicon).
 2. Choose **New evaluation** and add the original and its dub, or paste a Perso share link.
 3. Press **Start evaluation**.
 
@@ -91,7 +93,7 @@ Every check runs on this computer and needs no account. To check the translation
 key in **Settings → API keys**: only the two transcripts (text, never the video) are sent. To keep even that here,
 download the local translation model in **Settings → Models**.
 
-The installer is about 500 MB and DubEval takes 1.5 GB once installed; the speech, voice and picture models are inside,
+The download is about 550 MB and DubEval takes 1.5 GB once installed; the speech, voice and picture models are inside,
 so evaluations work offline. Optional models download from **Settings → Models**, each with its size.
 [Full requirements](INSTALL.md)
 
@@ -103,7 +105,12 @@ signed by ESTsoft Corp. While the certificate is new, SmartScreen may still show
 **More info**, check that the publisher is ESTsoft Corp., then **Run anyway**. DubEval checks for updates when it
 starts and asks before installing one. [Details](INSTALL.md#install-the-desktop-app-windows-beta)
 
-**macOS and Linux** — No app yet. The command line and the web interface run from source:
+**Mac** — Open the downloaded `DubEval-Mac.dmg` and drag DubEval to Applications. It is signed by ESTsoft Corp. and
+checked by Apple, so the first time you open it macOS only asks whether to open an app from the Internet. It needs a Mac
+with Apple silicon (M1 or later) and macOS 14 or later, and updates itself like the Windows app.
+[Details](INSTALL.md#install-the-desktop-app-mac)
+
+**Linux** — No app yet. The command line and the web interface run from source:
 [INSTALL.md](INSTALL.md#get-started-on-a-new-machine).
 
 A walkthrough of every screen and check is in [docs/usage.md](docs/usage.md).
@@ -118,12 +125,14 @@ Paste this into Claude Code, Codex or any coding agent.
 Install DubEval on this computer and check that it works.
 Repository: https://github.com/shox17/DubEval
 
-1. Check my OS, free disk and GPU. The desktop app needs 64-bit Windows 10 or 11 and
-   2 GB of free disk. On macOS or Linux, follow INSTALL.md (from source) instead.
+1. Check my OS, free disk and GPU. The desktop app needs 64-bit Windows 10 or 11, or a Mac
+   with Apple silicon on macOS 14 or later, and 2 GB of free disk. On Linux or an Intel Mac,
+   follow INSTALL.md (from source) instead.
    If this computer falls short, say so and stop.
 2. Install the latest release:
    https://github.com/shox17/DubEval/releases/latest
    On Windows, if SmartScreen warns: More info, check the publisher is ESTsoft Corp., then Run anyway.
+   On a Mac, open DubEval-Mac.dmg and drag DubEval to Applications.
 3. Open DubEval. Ask me if I want the translation check. If yes, open Settings, API keys,
    so I can paste a Claude, Gemini or ChatGPT key in myself. Never ask to see it.
 4. Evaluate one short dub with me and explain the verdict and the things to check.
@@ -158,7 +167,7 @@ DubEval measures; it doesn't replace watching the dub. Use the verdict to decide
 - **Lip sync counts in the verdict only with its download.** The real lip-sync check (ByteDance's StableSyncNet, a
   1.6 GB download in Settings → Models) tells a lip-synced dub from a plain one and finds a sound delay to the
   frame: lips that line up in 90% of the moments checked are Good, 30% or less Poor. It has been tested on one real
-  dub so far. Without it, a rough lip-movement estimate is shown for information only.
+  dub so far. Without it, the lips aren't checked.
 
 How each check works, how it was tested and what it can't do yet: [How DubEval measures](docs/methodology.md).
 
@@ -166,12 +175,12 @@ How each check works, how it was tested and what it can't do yet: [How DubEval m
 
 | | |
 |---|---|
-| **Requirements** | 64-bit Windows 10 or 11 · 2 GB free disk · an NVIDIA GPU is optional (faster, and a more accurate speech model). [Install](INSTALL.md) |
+| **Requirements** | 64-bit Windows 10 or 11, or a Mac with Apple silicon on macOS 14 or later · 2 GB free disk · on Windows an NVIDIA GPU is optional (faster speech recognition). [Install](INSTALL.md) |
 | **Languages** | Any pair Whisper knows. Speaking pace is graded for Korean, English, Spanish, Japanese and Chinese; a check that can't work for a language says "not measured" with the reason. |
 | **Translation check** | Claude, Gemini or ChatGPT with your own key, or a local model. Five scores per line: meaning, naturalness, context, terms, localization. A changed number is caught offline too, without an AI. [How it works](docs/metrics.md) |
 | **Privacy** | Videos and audio never leave this computer; the translation check sends text only, and only if you turn it on. Usage stats stay off unless you say yes. [What is sent](docs/privacy.md) |
 | **Beyond the app** | Command line, batch checks of many links, a REST API and Docker. [Usage](docs/usage.md) |
-| **How it works** | Motion and picture fingerprints, Whisper, DNSMOS, WeSpeaker, BGE-M3, an LLM judge. [Architecture](docs/architecture.md) · [Every check and its bands](docs/metrics.md) · [Roadmap](docs/roadmap.md) |
+| **How it works** | Motion and picture fingerprints, Whisper, DNSMOS or Audiobox Aesthetics, WeSpeaker, BGE-M3, an LLM judge. [Architecture](docs/architecture.md) · [Every check and its bands](docs/metrics.md) · [Roadmap](docs/roadmap.md) |
 | **Build from source** | [INSTALL.md](INSTALL.md) · [Development](docs/development.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) |
 
 ## License

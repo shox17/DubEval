@@ -26,27 +26,27 @@ TEXT = {
               "3. Both are **measured**: length, loudness, silence, speaking pace, the dub's language and clarity "
               "(speech recognition), when each track speaks, and the video file itself.\n"
               "4. **An AI model checks the translation** (Gemini, or Claude): meaning, missing or added content, names and numbers.\n"
-              "5. You get a **report**: a verdict, every measure with Good / Check / Poor and a plain explanation, "
+              "5. You get a **report**: a verdict, every measure with Good / Needs review / Poor and a plain explanation, "
               "and timestamped places to check.",
         "ko": "1. Perso 공유 링크를 **붙여 넣습니다**.\n"
               "2. 앱이 원본과 더빙 영상을 **다운로드**합니다(립싱크 영상이 있으면 그것을 사용).\n"
               "3. 두 영상을 **측정**합니다: 길이, 음량, 무음, 말 속도, 더빙 언어와 명료도(음성 인식), "
               "각 트랙이 말하는 구간, 영상 파일 자체.\n"
               "4. **AI 모델이 번역을 검토**합니다(Gemini 또는 Claude): 의미, 누락·추가된 내용, 이름과 숫자.\n"
-              "5. **보고서**를 받습니다: 판정, 항목별 좋음 / 확인 필요 / 미흡과 쉬운 설명, 시간이 표시된 확인할 곳.",
+              "5. **보고서**를 받습니다: 판정, 항목별 좋음 / 검토 필요 / 미흡과 쉬운 설명, 시간이 표시된 확인할 곳.",
         "pt": "1. **Cole** um link de compartilhamento da Perso.\n"
               "2. O app **baixa** o original e a dublagem (a versão com sincronização labial, se houver).\n"
               "3. Os dois são **medidos**: duração, volume, silêncio, ritmo da fala, idioma e clareza da dublagem "
               "(reconhecimento de fala), quando cada faixa fala e o próprio arquivo de vídeo.\n"
               "4. **Um modelo de IA verifica a tradução** (Gemini ou Claude): sentido, conteúdo faltando ou a mais, nomes e números.\n"
-              "5. Você recebe um **relatório**: o resultado, cada medida com Bom / Verificar / Ruim e uma explicação simples, "
+              "5. Você recebe um **relatório**: o resultado, cada medida com Bom / Precisa de revisão / Ruim e uma explicação simples, "
               "e os pontos a verificar com horário.",
         "es": "1. **Pega** un enlace compartido de Perso.\n"
               "2. La app **descarga** el original y el doblaje (el de sincronización labial, si existe).\n"
               "3. Se **miden** ambos: duración, volumen, silencio, ritmo del habla, idioma y claridad del doblaje "
               "(reconocimiento de voz), cuándo habla cada pista y el propio archivo de video.\n"
               "4. **Un modelo de IA revisa la traducción** (Gemini o Claude): sentido, contenido que falta o sobra, nombres y números.\n"
-              "5. Recibes un **informe**: el resultado, cada medida con Bien / Revisar / Deficiente y una explicación sencilla, "
+              "5. Recibes un **informe**: el resultado, cada medida con Bien / Necesita revisión / Deficiente y una explicación sencilla, "
               "y los puntos a revisar con su momento.",
     },
     "sidebar.last_result": {"en": "Show last result", "ko": "마지막 결과 보기", "pt": "Mostrar último resultado",
@@ -120,7 +120,7 @@ TEXT = {
         "es": "El archivo del video doblado ya no está en el disco (las ejecuciones antiguas se eliminan).",
     },
     "badge.good": {"en": "Good", "ko": "좋음", "pt": "Bom", "es": "Bien"},
-    "badge.check": {"en": "Check", "ko": "확인 필요", "pt": "Verificar", "es": "Revisar"},
+    "badge.check": {"en": "Needs review", "ko": "검토 필요", "pt": "Precisa de revisão", "es": "Necesita revisión"},
     "badge.poor": {"en": "Poor", "ko": "미흡", "pt": "Ruim", "es": "Deficiente"},
     "badge.info": {"en": "Info", "ko": "참고", "pt": "Informativo", "es": "Informativo"},
     "badge.na": {"en": "Not measured", "ko": "측정 안 함", "pt": "Não medido", "es": "No medido"},
@@ -132,22 +132,22 @@ TEXT = {
     "verdict.counts": {
         "en": "{good} good · {check} needs review · {poor} poor · {na} not measured",
         "ko": "좋음 {good} · 검토 필요 {check} · 미흡 {poor} · 측정 안 함 {na}",
-        "pt": "{good} bons · {check} para revisar · {poor} ruins · {na} não medidos",
-        "es": "{good} bien · {check} por revisar · {poor} deficientes · {na} sin medir",
+        "pt": "{good} bons · {check} precisam de revisão · {poor} ruins · {na} não medidos",
+        "es": "{good} bien · {check} necesitan revisión · {poor} deficientes · {na} sin medir",
     },
     "verdict.rule": {
-        "en": "Any Poor makes the verdict Poor; otherwise any Check makes it Needs review. "
+        "en": "Any Poor item makes the verdict Poor; otherwise any item that needs review makes it Needs review. "
               "Info and not-measured items don't count. When DubEval isn't sure (little or unclear speech), only "
               "problems that don't depend on speech can make it Poor; when the dub's words couldn't be checked, it "
               "is never Good.",
-        "ko": "미흡 항목이 하나라도 있으면 '미흡', 없고 확인 필요 항목이 있으면 '검토 필요'입니다. "
+        "ko": "미흡 항목이 하나라도 있으면 '미흡', 없고 검토 필요 항목이 있으면 '검토 필요'입니다. "
               "참고와 측정 안 함 항목은 판정에 포함되지 않습니다. DubEval이 확실하지 않을 때(말소리가 적거나 불분명함)는 "
               "말소리와 무관한 문제만 '미흡'이 될 수 있고, 더빙의 말을 확인하지 못했을 때는 '좋음'이 되지 않습니다.",
-        "pt": "Qualquer item Ruim torna o resultado Ruim; senão, qualquer item Verificar o torna Precisa de revisão. "
+        "pt": "Qualquer item Ruim torna o resultado Ruim; senão, qualquer item que precisa de revisão o torna Precisa de revisão. "
               "Itens informativos e não medidos não contam. Quando o DubEval não tem certeza (pouca fala ou fala "
               "pouco clara), só problemas que não dependem da fala o tornam Ruim; quando as palavras da dublagem não "
               "puderam ser verificadas, ele nunca é Bom.",
-        "es": "Cualquier elemento Deficiente hace el resultado Deficiente; si no, cualquier Revisar lo hace Necesita revisión. "
+        "es": "Cualquier elemento Deficiente hace el resultado Deficiente; si no, cualquier elemento que necesita revisión lo hace Necesita revisión. "
               "Los informativos y los no medidos no cuentan. Cuando DubEval no está seguro (poca voz o voz poco "
               "clara), solo los problemas que no dependen de la voz lo hacen Deficiente; cuando no se pudieron "
               "comprobar las palabras del doblaje, nunca es Bien.",
@@ -163,14 +163,14 @@ TEXT = {
     "lab.play": {"en": 'Play both', "ko": '둘 다 재생', "pt": 'Reproduzir os dois', "es": 'Reproducir ambos'},
     "lab.pause": {"en": 'Pause', "ko": '일시 정지', "pt": 'Pausar', "es": 'Pausar'},
     "lab.q_length": {"en": 'Length and timing', "ko": '길이와 타이밍', "pt": 'Duração e tempo', "es": 'Duración y tiempo'},
-    "lab.h_length": {"en": "Good: speech matches the original's timing, nothing rushed or cut. Check: some lines noticeably fast, late or cut, or you're unsure. Poor: clearly out of sync, cut off, or long silences.", "ko": "좋음: 원본 타이밍과 맞고 빠르거나 잘린 곳이 없음. 확인 필요: 일부 대사가 눈에 띄게 빠르거나 늦거나 잘림, 또는 확신이 없음. 나쁨: 확실히 어긋나거나 잘리거나 긴 침묵이 있음.", "pt": "Bom: a fala acompanha o tempo do original, nada apressado ou cortado. Verificar: algumas falas visivelmente rápidas, atrasadas ou cortadas, ou você não tem certeza. Ruim: claramente fora de sincronia, cortado ou com longos silêncios.", "es": "Bien: el habla sigue los tiempos del original, nada apresurado ni cortado. Revisar: algunas frases claramente rápidas, tardías o cortadas, o no estás seguro. Mal: claramente desincronizado, cortado o con silencios largos."},
+    "lab.h_length": {"en": "Good: speech matches the original's timing, nothing rushed or cut. Needs review: some lines noticeably fast, late or cut, or you're unsure. Poor: clearly out of sync, cut off, or long silences.", "ko": "좋음: 원본 타이밍과 맞고 빠르거나 잘린 곳이 없음. 검토 필요: 일부 대사가 눈에 띄게 빠르거나 늦거나 잘림, 또는 확신이 없음. 미흡: 확실히 어긋나거나 잘리거나 긴 침묵이 있음.", "pt": "Bom: a fala acompanha o tempo do original, nada apressado ou cortado. Precisa de revisão: algumas falas visivelmente rápidas, atrasadas ou cortadas, ou você não tem certeza. Ruim: claramente fora de sincronia, cortado ou com longos silêncios.", "es": "Bien: el habla sigue los tiempos del original, nada apresurado ni cortado. Necesita revisión: algunas frases claramente rápidas, tardías o cortadas, o no estás seguro. Deficiente: claramente desincronizado, cortado o con silencios largos."},
     "lab.q_meaning": {"en": 'Meaning', "ko": '의미', "pt": 'Sentido', "es": 'Sentido'},
-    "lab.h_meaning": {"en": "Good: says what the original says (wording may differ). Check: small errors a viewer might notice, or you're unsure. Poor: wrong or missing meaning that misleads the viewer.", "ko": "좋음: 원본과 같은 내용(표현은 달라도 됨). 확인 필요: 시청자가 알아챌 만한 작은 오류, 또는 확신이 없음. 나쁨: 시청자를 오해하게 하는 틀린 내용이나 빠진 내용.", "pt": "Bom: diz o que o original diz (as palavras podem mudar). Verificar: pequenos erros que o público pode notar, ou você não tem certeza. Ruim: sentido errado ou faltando, que engana o público.", "es": "Bien: dice lo que dice el original (las palabras pueden cambiar). Revisar: pequeños errores que el público podría notar, o no estás seguro. Mal: sentido erróneo o ausente que confunde al público."},
+    "lab.h_meaning": {"en": "Good: says what the original says (wording may differ). Needs review: small errors a viewer might notice, or you're unsure. Poor: wrong or missing meaning that misleads the viewer.", "ko": "좋음: 원본과 같은 내용(표현은 달라도 됨). 검토 필요: 시청자가 알아챌 만한 작은 오류, 또는 확신이 없음. 미흡: 시청자를 오해하게 하는 틀린 내용이나 빠진 내용.", "pt": "Bom: diz o que o original diz (as palavras podem mudar). Precisa de revisão: pequenos erros que o público pode notar, ou você não tem certeza. Ruim: sentido errado ou faltando, que engana o público.", "es": "Bien: dice lo que dice el original (las palabras pueden cambiar). Necesita revisión: pequeños errores que el público podría notar, o no estás seguro. Deficiente: sentido erróneo o ausente que confunde al público."},
     "lab.q_overall": {"en": 'Overall', "ko": '전체', "pt": 'Geral', "es": 'General'},
-    "lab.h_overall": {"en": "Good: I would deliver this dub as it is. Check: deliverable after small fixes, or I'm unsure. Poor: not deliverable; it needs redoing.", "ko": "좋음: 이대로 납품하겠다. 확인 필요: 작은 수정 후 납품 가능하거나, 확신이 없다. 나쁨: 납품 불가, 다시 만들어야 한다.", "pt": "Bom: eu entregaria esta dublagem como está. Verificar: entregável após pequenas correções, ou não tenho certeza. Ruim: não entregável; precisa ser refeita.", "es": "Bien: entregaría este doblaje tal como está. Revisar: entregable tras pequeños arreglos, o no estoy seguro. Mal: no entregable; hay que rehacerlo."},
+    "lab.h_overall": {"en": "Good: I would deliver this dub as it is. Needs review: deliverable after small fixes, or I'm unsure. Poor: not deliverable; it needs redoing.", "ko": "좋음: 이대로 납품하겠다. 검토 필요: 작은 수정 후 납품 가능하거나, 확신이 없다. 미흡: 납품 불가, 다시 만들어야 한다.", "pt": "Bom: eu entregaria esta dublagem como está. Precisa de revisão: entregável após pequenas correções, ou não tenho certeza. Ruim: não entregável; precisa ser refeita.", "es": "Bien: entregaría este doblaje tal como está. Necesita revisión: entregable tras pequeños arreglos, o no estoy seguro. Deficiente: no entregable; hay que rehacerlo."},
     "lab.c_good": {"en": 'Good', "ko": '좋음', "pt": 'Bom', "es": 'Bien'},
-    "lab.c_check": {"en": 'Check', "ko": '확인 필요', "pt": 'Verificar', "es": 'Revisar'},
-    "lab.c_poor": {"en": 'Poor', "ko": '나쁨', "pt": 'Ruim', "es": 'Mal'},
+    "lab.c_check": {"en": 'Needs review', "ko": '검토 필요', "pt": 'Precisa de revisão', "es": 'Necesita revisión'},
+    "lab.c_poor": {"en": 'Poor', "ko": '미흡', "pt": 'Ruim', "es": 'Deficiente'},
     "lab.c_na": {"en": 'not measured', "ko": '측정 안 됨', "pt": 'não medido', "es": 'no medido'},
     "lab.notes": {"en": 'Notes', "ko": '메모', "pt": 'Notas', "es": 'Notas'},
     "lab.reviewer": {"en": 'Your name', "ko": '이름', "pt": 'Seu nome', "es": 'Tu nombre'},
@@ -189,9 +189,7 @@ TEXT = {
     "rsec.translation": {"en": "Translation", "ko": "번역", "pt": "Tradução", "es": "Traducción"},
     "rsec.integrity": {"en": "Video integrity", "ko": "영상 무결성", "pt": "Integridade do vídeo",
                        "es": "Integridad del video"},
-    "rsec.lipsync": {"en": "Lip movement (experimental)", "ko": "입 움직임 (실험적)",
-                     "pt": "Movimento dos lábios (experimental)", "es": "Movimiento de los labios (experimental)"},
-    "rsec.lip_sync": {"en": "Lip sync", "ko": "립싱크", "pt": "Sincronia labial", "es": "Sincronía labial"},
+    "rsec.lipsync": {"en": "Lip sync", "ko": "립싱크", "pt": "Sincronia labial", "es": "Sincronía labial"},
     "report.no_things": {"en": "Nothing specific to check.", "ko": "특별히 확인할 곳이 없습니다.",
                          "pt": "Nada específico para verificar.", "es": "Nada específico que revisar."},
     "report.jump_help": {"en": "Play both videos from this moment.", "ko": "두 영상을 이 지점부터 재생합니다.",
@@ -250,12 +248,6 @@ TEXT = {
                       "ko": "말하는 속도입니다. 언어마다 단위가 달라 비교에 주의하세요.",
                       "pt": "A velocidade com que a pessoa fala. As unidades variam por idioma, compare com cuidado.",
                       "es": "Qué tan rápido habla la persona. Las unidades varían por idioma, compara con cuidado."},
-    "row.lipsync": {"en": "Lip-sync r (experimental)", "ko": "립싱크 r (실험적)",
-                    "pt": "Sincronização labial r (experimental)", "es": "Sincronización labial r (experimental)"},
-    "row.lipsync_help": {"en": "Mouth opening vs voice loudness. Only meaningful relative to the original.",
-                         "ko": "입 벌림과 음성 크기의 관계입니다. 원본과 비교할 때만 의미가 있습니다.",
-                         "pt": "Abertura da boca vs volume da voz. Só faz sentido em relação ao original.",
-                         "es": "Apertura de la boca frente al volumen de la voz. Solo tiene sentido frente al original."},
     "row.face": {"en": "Face visible", "ko": "얼굴 인식", "pt": "Rosto visível", "es": "Rostro visible"},
     "row.face_help": {"en": "Share of frames where a face was found.", "ko": "얼굴이 발견된 프레임의 비율입니다.",
                       "pt": "Parte dos quadros em que um rosto foi encontrado.",
@@ -297,24 +289,6 @@ TEXT = {
     },
     "said.detected": {"en": "Detected language: `{lang}`", "ko": "감지된 언어: `{lang}`",
                       "pt": "Idioma detectado: `{lang}`", "es": "Idioma detectado: `{lang}`"},
-    "lips.expander": {"en": "Lip movement details (experimental)", "ko": "입 움직임 상세 (실험적)",
-                      "pt": "Detalhes do movimento dos lábios (experimental)",
-                      "es": "Detalles del movimiento de los labios (experimental)"},
-    "lips.mouth": {"en": "Mouth opening", "ko": "입 벌림", "pt": "Abertura da boca", "es": "Apertura de la boca"},
-    "lips.voice": {"en": "Voice loudness", "ko": "음성 크기", "pt": "Volume da voz", "es": "Volumen de la voz"},
-    "lips.caption": {
-        "en": "When the lips match the voice, the two lines rise and fall together. This simple measure is "
-              "easily confused by voice-over, cut-aways and background music, so compare the dub with the "
-              "original rather than reading the number on its own.",
-        "ko": "입이 목소리와 맞으면 두 선이 함께 오르내립니다. 이 간단한 측정은 내레이션, 장면 전환, 배경 음악에 "
-              "쉽게 흔들리므로 숫자만 보지 말고 더빙을 원본과 비교하세요.",
-        "pt": "Quando os lábios combinam com a voz, as duas linhas sobem e descem juntas. Esta medida simples se "
-              "confunde facilmente com narração, cortes de cena e música de fundo, então compare a dublagem com o "
-              "original em vez de ler o número sozinho.",
-        "es": "Cuando los labios coinciden con la voz, las dos líneas suben y bajan juntas. Esta medida sencilla se "
-              "confunde fácilmente con voz en off, cambios de plano y música de fondo, así que compara el doblaje "
-              "con el original en lugar de leer el número por sí solo.",
-    },
 
     # ----- setup page -----
     "setup.title": {"en": "Check the quality of a dubbed video", "ko": "더빙 영상 품질 확인",
@@ -543,15 +517,9 @@ MESSAGES = {
                                             "es": "Transcribiendo el habla original..."},
     "Transcribing the dubbed speech...": {"ko": "더빙 음성 받아쓰는 중...", "pt": "Transcrevendo a fala dublada...",
                                           "es": "Transcribiendo el habla doblada..."},
-    "Analyzing lip movement in the dubbed video...": {"ko": "더빙 영상의 입 움직임 분석 중...",
-                                                      "pt": "Analisando o movimento dos lábios no vídeo dublado...",
-                                                      "es": "Analizando el movimiento de los labios en el video doblado..."},
     "Checking lip sync in both videos...": {"ko": "두 영상의 립싱크 확인 중...",
                                             "pt": "Verificando a sincronia labial nos dois vídeos...",
                                             "es": "Comprobando la sincronía labial en los dos videos..."},
-    "Analyzing lip movement in the original video...": {"ko": "원본 영상의 입 움직임 분석 중...",
-                                                        "pt": "Analisando o movimento dos lábios no vídeo original...",
-                                                        "es": "Analizando el movimiento de los labios en el video original..."},
     "Done": {"ko": "완료", "pt": "Pronto", "es": "Listo"},
     "Reading the shared Perso project...": {"ko": "공유된 Perso 프로젝트 읽는 중...",
                                             "pt": "Lendo o projeto compartilhado da Perso...",
@@ -586,6 +554,9 @@ MESSAGES = {
                                             "es": "Comparando cuándo habla cada pista..."},
     "Checking the translation...": {"ko": "번역 검토 중...", "pt": "Verificando a tradução...",
                                     "es": "Revisando la traducción..."},
+    "Listening again to the lines with a problem...": {"ko": "문제가 있는 줄 다시 듣는 중...",
+                                                       "pt": "Ouvindo de novo as falas com problema...",
+                                                       "es": "Escuchando de nuevo las frases con problemas..."},
     "Writing the report...": {"ko": "보고서 작성 중...", "pt": "Escrevendo o relatório...", "es": "Escribiendo el informe..."},
 }
 

@@ -102,6 +102,29 @@ def test_a_server_that_ignores_ranges_starts_the_file_over(pack):
     assert (pack["dir"] / "model.onnx").read_bytes() == pack["model"]
 
 
+def test_a_pack_installed_with_an_earlier_file_list_is_outdated_until_updated(pack):
+    packs.install("meaning", session=pack["server"])
+    newer = b"a better model " * 20                          # the pack now names another model file
+    spec = packs.PACKS["meaning"]
+    spec["files"] = [entry("https://x/newer.onnx", "newer.onnx", newer), spec["files"][1]]
+    pack["server"].files["https://x/newer.onnx"] = newer
+    assert packs.state("meaning") == "outdated"              # not "installed": nothing uses the old model
+    assert next(p for p in packs.summary() if p["id"] == "meaning")["disk_mb"] is None
+    pack["server"].requests.clear()
+    packs.install("meaning", session=pack["server"])
+    assert packs.state("meaning") == "installed"
+    assert [url for url, _ in pack["server"].requests] == ["https://x/newer.onnx"]     # the kept file wasn't sent again
+    assert sorted(f.name for f in pack["dir"].iterdir()) == ["newer.onnx", "pack.json", "tokenizer.json"]
+
+
+def test_an_outdated_pack_can_be_removed(pack):
+    packs.install("meaning", session=pack["server"])
+    packs.PACKS["meaning"]["files"] = [entry("https://x/newer.onnx", "newer.onnx", b"x" * 40)]
+    assert packs.state("meaning") == "outdated"
+    packs.remove("meaning")
+    assert packs.state("meaning") == "absent" and not pack["dir"].exists()
+
+
 def test_files_are_taken_out_of_a_zip_and_the_zip_is_dropped(monkeypatch, tmp_path):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -214,3 +237,76 @@ def test_a_file_already_in_the_pack_folder_is_checked_not_downloaded_again(tmp_p
     packs.install("test_pack", session=NoNetwork())
     assert packs.state("test_pack") == "installed"
     assert (tmp_path / "ollama" / "blobs" / "sha256-x").read_bytes() == blob
+
+
+# ---------------- the local translation checker on a Mac ----------------
+def test_the_local_checker_is_offered_on_windows_and_on_apple_silicon_macs_only(monkeypatch):
+    from dubeval import local_judge
+    here = lambda name, platform, machine: (monkeypatch.setattr(local_judge.os, "name", name),
+                                            monkeypatch.setattr(local_judge.sys, "platform", platform),
+                                            monkeypatch.setattr(local_judge.platform, "machine", lambda: machine))
+    here("nt", "win32", "AMD64")
+    assert local_judge.this_computer() == "windows" and packs.available("local_judge")
+    here("posix", "darwin", "arm64")
+    assert local_judge.this_computer() == "mac" and packs.available("local_judge")
+    for platform, machine in (("darwin", "x86_64"), ("linux", "x86_64"), ("linux", "aarch64")):
+        here("posix", platform, machine)                     # no pinned runtime for an Intel Mac or for Linux
+        assert local_judge.this_computer() is None and not packs.available("local_judge")
+        with pytest.raises(ValueError, match="isn't available"):
+            packs.install("local_judge")
+
+
+def test_the_local_checker_is_the_gguf_build_of_gemma_4_12b():
+    from dubeval import local_judge
+    assert local_judge.MODEL == "gemma4:12b-it-q4_K_M"       # the default gemma4:12b needs Ollama's MLX engine on a Mac
+    files = local_judge.pack_files("windows")
+    manifest = files[-1]
+    assert manifest["url"] == "https://registry.ollama.ai/v2/library/gemma4/manifests/12b-it-q4_K_M"
+    assert manifest["name"] == "manifests/registry.ollama.ai/library/gemma4/12b-it-q4_K_M"   # where Ollama looks for it
+    blobs = [f for f in files if f["name"].startswith("blobs/")]
+    assert all(f["name"] == f"blobs/sha256-{f['sha256']}" and f["url"].endswith(f"sha256:{f['sha256']}") for f in blobs)
+    assert 7.9e9 < sum(f["bytes"] for f in blobs) < 8.1e9
+    assert packs.PACKS["local_judge"]["files"][-1] == local_judge.pack_files()[-1]
+    assert "Gemma 4 12B" in next(name for _, model_id, name, _ in packs.CATALOG if model_id == "local_judge")
+
+
+def test_each_computer_gets_its_own_runtime_and_the_same_model():
+    from dubeval import local_judge
+    mac, windows = local_judge.pack_files("mac"), local_judge.pack_files("windows")
+    runtime = lambda files: [f for f in files if f["name"].startswith("runtime/")]
+    assert all(f["zip"] == local_judge.MAC_ZIP and f["member"].startswith(local_judge.MAC_PREFIX) for f in runtime(mac))
+    assert all(f["zip"] == local_judge.OLLAMA_ZIP for f in runtime(windows))
+    names = {f["name"] for f in runtime(mac)}
+    assert {"runtime/ollama", "runtime/llama-server"} <= names and "runtime/ollama.exe" not in names
+    assert not any("mlx" in n.lower() for n in names)        # its MLX engine (580 MB) isn't needed for this model
+    assert all(len(f["sha256"]) == 64 and f["bytes"] > 0 and "v0.40.9" in f["zip"] for f in runtime(mac))
+    assert sum(f["bytes"] for f in runtime(mac)) < 150e6
+    model = lambda files: [f for f in files if not f["name"].startswith("runtime/")]
+    assert model(mac) == model(windows)
+    targets = {name for name, _ in local_judge.MAC_LINKS} | {f["name"][len("runtime/"):] for f in runtime(mac)}
+    assert all(target in targets for _, target in local_judge.MAC_LINKS)          # every link leads to a real file
+    assert all(f"runtime/{p}" in names for p in local_judge.MAC_PROGRAMS)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links need a privilege on Windows")
+def test_a_downloaded_mac_runtime_is_made_runnable(tmp_path, monkeypatch):
+    from dubeval import local_judge
+    monkeypatch.setattr(local_judge, "this_computer", lambda: "mac")
+    for member, _, _ in local_judge.MAC_RUNTIME_FILES:
+        (tmp_path / member).write_bytes(b"x")                # as a download leaves it: a plain file, not runnable
+        (tmp_path / member).chmod(0o644)
+    program = local_judge._prepare(tmp_path)
+    assert program == tmp_path / "ollama" and os.access(program, os.X_OK) and os.access(tmp_path / "llama-server", os.X_OK)
+    assert (tmp_path / "libllama.dylib").resolve() == (tmp_path / "libllama.0.7.0.dylib").resolve()
+    assert local_judge._prepare(tmp_path) == program         # a second start changes nothing
+
+
+# ---------------- the voice-quality model ----------------
+def test_the_voice_quality_pack_is_metas_file_unchanged_from_a_pinned_revision():
+    from dubeval import voice_quality
+    pack = packs.PACKS["voice_quality"]
+    assert pack["folder"]() == voice_quality.PACK_DIR and "CC BY 4.0" in pack["license"]
+    (weights,) = pack["files"]
+    assert weights["url"].startswith("https://huggingface.co/facebook/audiobox-aesthetics/resolve/")
+    assert "/main/" not in weights["url"] and weights["bytes"] == 415472992      # a fixed revision, never "main"
+    assert packs.available("voice_quality")                      # every computer: it runs on the processor

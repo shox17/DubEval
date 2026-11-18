@@ -127,11 +127,114 @@ def test_the_desktop_bundle_never_zips_a_package_with_a_model_file(tmp_path):
     spec = importlib.util.spec_from_file_location("build_desktop", Path(__file__).parents[1] / "tools" / "build_desktop.py")
     build = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(build)
-    for name, extra in (("plain", None), ("withmodel", "assets/silero_vad_v6.onnx")):
+    # A Mac or Linux program has no extension: imageio-ffmpeg's "ffmpeg-macos-aarch64-v7.1" was zipped by the first Mac
+    # build and couldn't run. A program is known by how its file starts.
+    mach_o = b"\xcf\xfa\xed\xfe" + b"\0" * 28
+    for name, extra, content in (("plain", None, b""), ("withmodel", "assets/silero_vad_v6.onnx", b"model"),
+                                 ("withprogram", "binaries/ffmpeg-macos-aarch64-v7.1", mach_o)):
         (tmp_path / name).mkdir()
         (tmp_path / name / "__init__.py").write_text("X = 1\n", encoding="utf-8")
         if extra:
             (tmp_path / name / extra).parent.mkdir(parents=True)
-            (tmp_path / name / extra).write_bytes(b"model")
+            (tmp_path / name / extra).write_bytes(content)
     _, zipped = build.zip_pure_packages(tmp_path)
     assert zipped == ["plain"] and (tmp_path / "withmodel" / "assets" / "silero_vad_v6.onnx").is_file()
+    assert (tmp_path / "withprogram" / "binaries" / "ffmpeg-macos-aarch64-v7.1").is_file()
+
+
+def _build_desktop():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_desktop", ROOT / "tools" / "build_desktop.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    return build
+
+
+def test_the_mac_apps_python_is_one_pinned_download():
+    # Like every download (AGENTS.md): one release and its SHA-256, never "latest", and the same minor version as the
+    # pins in requirements.txt.
+    build = _build_desktop()
+    for machine, (url, digest) in build.MAC_PYTHON.items():
+        assert re.fullmatch(r"https://github\.com/astral-sh/python-build-standalone/releases/download/\d{8}/"
+                            r"cpython-3\.14\.\d+%2B\d{8}-\S+-apple-darwin-install_only_stripped\.tar\.gz", url), machine
+        assert re.fullmatch(r"[0-9a-f]{64}", digest), machine
+    assert build.site_packages(Path("python"), mac=True) == Path("python/lib/python3.14/site-packages")
+    assert build.site_packages(Path("python"), mac=False) == Path("python/Lib/site-packages")
+
+
+def test_the_mac_python_loses_only_what_the_app_never_uses(tmp_path):
+    build = _build_desktop()
+    for folder in ("include", "lib/tcl9.0", "lib/python3.14/idlelib", "lib/python3.14/tkinter", "lib/python3.14/json",
+                   "lib/python3.14/lib-dynload", "lib/python3.14/site-packages/pip", "bin"):
+        (tmp_path / folder).mkdir(parents=True)
+    for file in ("lib/libpython3.14.dylib", "lib/libtcl9.0.dylib", "lib/python3.14/os.py",
+                 "lib/python3.14/lib-dynload/_tkinter.cpython-314-darwin.so",
+                 "lib/python3.14/lib-dynload/_ssl.cpython-314-darwin.so", "bin/python3.14"):
+        (tmp_path / file).write_bytes(b"x")
+    build.trim_mac_python(tmp_path)
+    left = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file())
+    assert left == ["bin/python3.14", "lib/libpython3.14.dylib", "lib/python3.14/lib-dynload/_ssl.cpython-314-darwin.so",
+                    "lib/python3.14/os.py"]
+    assert (tmp_path / "lib/python3.14/json").is_dir() and (tmp_path / "lib/python3.14/site-packages/pip").is_dir()
+
+
+def test_the_mac_app_is_built_for_apple_silicon_signed_by_estsoft_and_notarized():
+    # ESTsoft's Developer ID, the hardened runtime and Apple's notarization: what lets a downloaded copy open without
+    # a warning. The notarization credentials come from the build Mac's keychain (APPLE_KEYCHAIN_PROFILE), never from
+    # the repository.
+    package = json.loads((ROOT / "desktop" / "package.json").read_text(encoding="utf-8"))
+    mac = package["build"]["mac"]
+    assert {t["target"] for t in mac["target"]} == {"dmg", "zip"}
+    assert all(t["arch"] == ["arm64"] for t in mac["target"])
+    assert mac["identity"] == "ESTsoft corp. (WQL32M5H24)"
+    assert mac["hardenedRuntime"] is True and mac["notarize"] is True
+    entitlements = (ROOT / "desktop" / mac["entitlements"]).read_text(encoding="utf-8")
+    assert mac["entitlementsInherit"] == mac["entitlements"]
+    # Only what Electron's engine and the bundled Python's compiled code need: no library from another team.
+    assert set(re.findall(r"<key>([^<]+)</key>", entitlements)) == {
+        "com.apple.security.cs.allow-jit", "com.apple.security.cs.allow-unsigned-executable-memory"}
+    # electron-builder would sign each of the bundled Python's and models' thousands of data files (a read-only model
+    # stopped the first Mac build), so it skips them, and after-pack.js signs their programs and libraries instead,
+    # each with the hardened runtime and a timestamp, as notarization requires.
+    assert mac["signIgnore"] == ["/Contents/Resources/python/", "/Contents/Resources/models/"]
+    after_pack = (ROOT / "desktop" / "after-pack.js").read_text(encoding="utf-8")
+    assert package["build"]["afterPack"] == "after-pack.js"
+    assert '"--timestamp", "--options", "runtime"' in after_pack and '["python", "models"]' in after_pack
+    assert (ROOT / "desktop" / mac["icon"]).is_file()
+    assert "--mac" in package["scripts"]["dist:mac"] and "--publish never" in package["scripts"]["dist:mac"]
+    # A test build on a Mac without the certificate (GitHub's): ad-hoc, without the hardened runtime, which would
+    # refuse the bundled Python's libraries signed by their makers.
+    adhoc = package["scripts"]["dist:mac:adhoc"]
+    assert "-c.mac.identity=-" in adhoc and "-c.mac.hardenedRuntime=false" in adhoc and "--publish never" in adhoc
+
+
+def test_the_mac_app_never_writes_inside_its_own_bundle():
+    # A changed file breaks the app's signature. Python gets -B (no .pyc) and numba's cache goes to the data folder.
+    main = (ROOT / "desktop" / "main.js").read_text(encoding="utf-8")
+    assert 'serve.unshift("-B")' in main and "NUMBA_CACHE_DIR" in main
+    assert 'path.basename(home) === "bin"' in main            # the bundle is found from Resources/python/bin/python3
+    build = (ROOT / "tools" / "build_desktop.py").read_text(encoding="utf-8")
+    assert '"--invalidation-mode", "unchecked-hash"' in build  # the shipped .pyc are used whatever the file times
+
+
+def test_the_mac_app_has_an_edit_menu_and_updates_itself():
+    # Without an Edit menu, Cmd+C / Cmd+V do nothing in a Mac window. Since 0.1.7 the signed Mac app updates itself from
+    # the release's latest-mac.yml and .zip, as Windows does from latest.yml.
+    main = (ROOT / "desktop" / "main.js").read_text(encoding="utf-8")
+    assert '{ role: "editMenu" }' in main
+    updater = (ROOT / "desktop" / "updater.js").read_text(encoding="utf-8")
+    assert 'process.platform === "darwin") return' not in updater
+    assert "selfUpdates: true" in (ROOT / "desktop" / "preload.js").read_text(encoding="utf-8")
+    # A shell that can't update itself still gets the page's pointer to the releases page.
+    assert "updatesByHand" in (ROOT / "dubeval" / "web" / "settings.js").read_text(encoding="utf-8")
+    # The download link stays the same from one version to the next, like DubEval-Setup.exe.
+    package = json.loads((ROOT / "desktop" / "package.json").read_text(encoding="utf-8"))
+    assert package["build"]["dmg"]["artifactName"] == "DubEval-Mac.${ext}"
+
+
+def test_the_mac_build_workflow_publishes_nothing():
+    workflow = (ROOT / ".github" / "workflows" / "build-mac.yml").read_text(encoding="utf-8")
+    assert "contents: read" in workflow and "contents: write" not in workflow
+    assert "gh release" not in workflow and "--publish never" in (ROOT / "desktop" / "package.json").read_text(encoding="utf-8")
+    assert "npm run dist:mac:adhoc" in workflow       # GitHub's Mac has no Developer ID certificate
+    assert "codesign --verify --deep --strict" in workflow

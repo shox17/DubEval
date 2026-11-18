@@ -587,7 +587,8 @@ def test_downloads_are_listed_installed_and_removed_through_the_page(client, mon
 
     listing = client.get("/api/packs").json()
     assert {p["id"]: p["available"] for p in listing["packs"]} == {"meaning": True, "gpu": False, "large_model": True,
-                                                                   "local_judge": True, "lip_sync": True}
+                                                                   "local_judge": True, "lip_sync": True,
+                                                                   "voice_quality": True}
     assert client.post("/api/packs/gpu/install").status_code == 400
     assert client.post("/api/packs/nope/install").status_code == 404
     job = client.post("/api/packs/large_model/install").json()
@@ -653,11 +654,13 @@ def test_the_models_tab_lists_built_in_and_downloadable_models_by_group(client):
     data = client.get("/api/models").json()
     groups = {g["id"]: [r["id"] for r in g["rows"]] for g in data["groups"]}
     assert groups == {"speech": ["whisper_base", "large_model"], "meaning": ["meaning", "local_judge"],
-                      "voice": ["speaker", "dnsmos", "face", "lip_sync"], "speed": ["gpu"], "base": ["engine"]}
+                      "voice": ["speaker", "dnsmos", "voice_quality", "face", "lip_sync"], "speed": ["gpu"],
+                      "base": ["engine"]}
     rows = {r["id"]: r for g in data["groups"] for r in g["rows"]}
     assert rows["dnsmos"]["kind"] == "builtin" and rows["dnsmos"]["state"] == "builtin" and rows["dnsmos"]["bytes"] > 0
     assert rows["large_model"]["kind"] == "pack" and rows["large_model"]["download_mb"] > 1000 and "job" in rows["large_model"]
     assert rows["lip_sync"]["kind"] == "pack" and rows["lip_sync"]["download_mb"] == 1605
+    assert rows["voice_quality"]["kind"] == "pack" and rows["voice_quality"]["download_mb"] == 415
     assert data["ready"] >= 3 and data["bytes"] > 0
 
 
@@ -833,8 +836,8 @@ def test_the_problem_list_also_has_checks_about_the_whole_dub():
            "things_to_check": [{"start": None, "end": None, "severity": "check", "message": "No speech in the dub."}],
            "problem_intervals": []}
     rows = webapp.problem_rows(rep, "en")
-    assert rows == [[None, None, "Loudness match", "Check", "Louder than the original."],
-                    [None, None, "General", "Check", "No speech in the dub."]]
+    assert rows == [[None, None, "Loudness match", "Needs review", "Louder than the original."],
+                    [None, None, "General", "Needs review", "No speech in the dub."]]
 
 
 def test_the_page_gets_speech_languages_release_notes_and_the_repository(client):

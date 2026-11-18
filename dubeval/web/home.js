@@ -31,7 +31,17 @@ const ICONS = {
   history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
   search: ["m21 21-4.34-4.34", "M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"],
   more: ["M5 12h.01", "M12 12h.01", "M19 12h.01"],
+  grid: ["M4 4h6v6H4z", "M14 4h6v6h-6z", "M4 14h6v6H4z", "M14 14h6v6h-6z"],
+  list: ["M4 5h4v4H4z", "M4 15h4v4H4z", "M12 7h8", "M12 17h8"],
+  check: ["m5 12 5 5 9-10"],
+  chevron: ["m6 9 6 6 6-6"],
 };
+
+// Grid (the default) or List: kept in the browser, like the language, so it belongs to the page's address.
+const VIEW_KEY = "dubeval.home.view";
+function savedView() {
+  try { return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "grid"; } catch { return "grid"; }
+}
 
 // A language's name in the page's language, from its code; the English name the report kept otherwise.
 function langName(code, fallback) {
@@ -136,20 +146,47 @@ export function renderHome(root) {
   searchInput.addEventListener("input", () => { query = searchInput.value.trim().toLowerCase(); paint(); });
   const grid = h("div", { class: "projects-grid" }, h("div", { class: "projects-empty" }, t("w.loading")));
   const menu = h("div", { class: "proj-menu", role: "menu", hidden: true });
+  let menuAnchor = null, view = savedView();
 
-  const closeMenu = () => { menu.hidden = true; menu.replaceChildren(); };
+  const closeMenu = () => { menu.hidden = true; menu.replaceChildren(); menuAnchor?.setAttribute("aria-expanded", "false"); menuAnchor = null; };
   const onDocClick = e => { if (!menu.contains(e.target)) closeMenu(); };
   const onKey = e => { if (e.key === "Escape") closeMenu(); };
   document.addEventListener("click", onDocClick);
   document.addEventListener("keydown", onKey);
 
+  // The view button shows the current view's icon; its menu lists Grid and List with a tick on the current one.
+  const viewBtn = h("button", { type: "button", class: "home-sbtn home-view", "aria-haspopup": "menu", "aria-expanded": "false",
+    "aria-label": t("w.home.view"), title: t("w.home.view"), onclick: e => {
+      e.stopPropagation();
+      if (menuAnchor === viewBtn) { closeMenu(); return; }
+      openMenu(viewBtn, [["grid", "w.home.grid"], ["list", "w.home.list"]].map(([v, key]) =>
+        [t(key), () => setView(v), view === v, ICONS[v]]));
+    } });
+  function setView(v) {
+    view = v;
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* the choice just isn't kept */ }
+    grid.classList.toggle("list", v === "list");
+    viewBtn.replaceChildren(icon(ICONS[v], 14), icon(ICONS.chevron, 12));
+  }
+  setView(view);
+
+  // items: [label, run] or [label, run, checked, icon] (a choice: a tick shows on the checked one).
   function openMenu(anchor, items) {
-    menu.replaceChildren(...items.map(([label, fn]) => h("button", { type: "button", role: "menuitem",
-      onclick: e => { e.stopPropagation(); closeMenu(); fn(); } }, label)));
+    closeMenu();
+    menu.replaceChildren(...items.map(([label, fn, checked, glyph]) => h("button", {
+      type: "button", role: checked === undefined ? "menuitem" : "menuitemradio",
+      ...(checked === undefined ? {} : { "aria-checked": String(checked), class: "menu-choice" }),
+      onclick: e => { e.stopPropagation(); closeMenu(); fn(); } },
+      ...(checked === undefined ? [label] : [h("span", { class: "menu-tick" }, checked ? icon(ICONS.check, 14) : null),
+        glyph ? icon(glyph, 14) : null, label]))));
+    menuAnchor = anchor;
+    anchor.setAttribute("aria-expanded", "true");
     menu.hidden = false;
-    const r = anchor.getBoundingClientRect();
-    menu.style.left = `${Math.min(r.left, window.innerWidth - 150)}px`;
-    menu.style.top = `${r.bottom + 4}px`;
+    // Under the button, or above it when the window ends first (a card on the last row); never past the right edge.
+    const r = anchor.getBoundingClientRect(), m = menu.getBoundingClientRect(), gap = 4, edge = 8;
+    const below = r.bottom + gap + m.height <= window.innerHeight - edge;
+    menu.style.left = `${Math.max(edge, Math.min(r.left, window.innerWidth - m.width - edge))}px`;
+    menu.style.top = `${below ? r.bottom + gap : Math.max(edge, r.top - gap - m.height)}px`;
     menu.querySelector("button")?.focus();
   }
 
@@ -279,7 +316,7 @@ export function renderHome(root) {
       toolCard(ICONS.one, t("w.help.evaluate"), t("w.home.one_desc"), "#/new"),
       toolCard(ICONS.compare, t("w.help.compare"), t("w.home.compare_desc"), "#/new/compare"),
       toolCard(ICONS.history, t("h.title"), t("w.home.history_desc"), "#/history")),
-    h("div", { class: "projects-head" }, h("h3", {}, t("w.nav.evaluations")), count, h("span", { class: "grow" }), searchBtn),
+    h("div", { class: "projects-head" }, h("h3", {}, t("w.nav.evaluations")), count, h("span", { class: "grow" }), searchBtn, viewBtn),
     searchBox, grid), menu);
   load();
   return () => {

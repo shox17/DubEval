@@ -42,6 +42,63 @@ source. Both are rendered from `build/icon.svg` (48 px and up) and `build/icon-s
 render them all again. `status.html` and the page's `index.html` carry a copy of `dubeval/web/icon.png` inside them (a
 test checks they match).
 
+## Build the macOS app (Apple Silicon)
+A Mac app can only be made on a Mac. The signed, notarized build is made by hand on a Mac that holds ESTsoft's
+Developer ID certificate in its login keychain and the notarization key saved under the name `dubeval-notary`
+(once: `xcrun notarytool store-credentials dubeval-notary --key AuthKey_<id>.p8 --key-id <id> --issuer <issuer>`;
+the certificate and key come from the company and never go in the repository):
+```bash
+python3 tools/build_desktop.py     # any Python 3.12+ with nothing installed: it downloads the app's own Python
+cd desktop && npm ci && APPLE_KEYCHAIN_PROFILE=dubeval-notary npm run dist:mac   # → dist/DubEval-<version>-arm64.dmg, -arm64-mac.zip
+```
+Run it in the Mac's own Terminal, not over SSH: the first signing asks to use the certificate's key (type the Mac's
+login password, then **Always Allow**), and an SSH session can't answer (`errSecInternalComponent`). Check the result
+with `codesign --verify --deep --strict --verbose=2 dist/mac-arm64/DubEval.app`, `spctl -a -vv` on the app (it should
+say `source=Notarized Developer ID`) and `xcrun stapler validate` on it.
+
+GitHub's Macs make an unsigned test build (**Actions → build-mac → Run workflow**, `.github/workflows/build-mac.yml`, or
+push a branch named `mac-build`) with `npm run dist:mac:adhoc`: signed ad-hoc, without the hardened runtime, which would
+refuse the bundled Python's libraries signed by their makers.
+- **Python:** python.org's Mac installer can't be moved into an app, so the bundle starts from a relocatable CPython
+  3.14 (python-build-standalone, which PersoDub uses too), pinned to one release and its SHA-256
+  (`MAC_PYTHON` in `tools/build_desktop.py`). The rest is the Windows recipe: `requirements.txt`, DubEval, no pip, no
+  test suites, the pure-Python packages in one zip, the same two models.
+- **Nothing is written inside the app.** A changed file breaks an app's signature, so the build compiles every
+  Python file ahead of time (`unchecked-hash`, valid whatever the file times become) and the app starts Python with
+  `-B`; the audio code's compiled cache (numba) goes to the data folder (`NUMBA_CACHE_DIR`) instead of being shipped,
+  because it is tied to the CPU it was made on. The first evaluation on a Mac is about 10 s slower for that.
+- **Signing:** ESTsoft's Developer ID (`build.mac.identity`, "Developer ID Application: ESTsoft corp. (WQL32M5H24)"),
+  the hardened runtime and Apple's notarization (`notarize`, credentials from `APPLE_KEYCHAIN_PROFILE`), as PersoDub's.
+  The hardened runtime allows only what `build/entitlements.mac.plist` lists: machine code written while running
+  (Electron's engine, the audio code's numba) and Python's ctypes callbacks; every library the app loads carries
+  ESTsoft's signature, so it needs no exception for other teams' libraries. electron-builder signs every non-text file
+  one by one, so the bundled Python and models are left out of that (`build.mac.signIgnore`: thousands of data files,
+  one of them read-only, stopped the first build), and `after-pack.js` signs their programs and libraries instead
+  (each Mach-O file, found by how it starts), each with the hardened runtime and a timestamp, the programs with the
+  entitlements. Everything is then sealed with the app.
+- **Updates** (since 0.1.7): as on Windows, from the release's `latest-mac.yml` and `.zip` (the `.dmg` is only the
+  download). Squirrel.Mac installs only an update signed with the same Developer ID, so every Mac release must be signed
+  and notarized with ESTsoft's. A copy from before 0.1.7 (ad-hoc test builds) doesn't look for updates: install 0.1.7
+  over it once. The `.dmg`'s name has no version (`dmg.artifactName`: `DubEval-Mac.dmg`), so
+  `releases/latest/download/DubEval-Mac.dmg` always gives the newest one.
+- **The window:** macOS's three buttons sit in the page's top strip (`trafficLightPosition`), and the app has the
+  standard app, Edit and Window menus: without an Edit menu, Cmd+C and Cmd+V do nothing.
+- **Not available on macOS:** the NVIDIA speed-up (`windows_only` in `dubeval/packs.py`); speech recognition runs on
+  the processor. The local translation checker runs on a Mac with Apple silicon (`local_judge.this_computer`).
+- **Built and checked on a real Mac** (2026-11-12, an M2 Pro on macOS 15.7, by hand with the two commands above):
+  the bundle builds in 90 s and the `.dmg` (579 MB) in 95 s; `codesign --verify --deep --strict` passes before and
+  after an evaluation; a 13 s clip evaluates in 12 s; the app starts its server in about a second and stops it when
+  closed. That build found three things the Windows build never meets, all fixed in `tools/build_desktop.py` and
+  `package.json`: a Mac program has no file extension, so `ffmpeg` was packed into the pure-Python zip (programs are
+  now known by how the file starts, `is_program`); a company network's security gateway re-signs model downloads, so
+  the model step uses the computer's own trusted certificates as the app does; and the signing step above.
+- **What the workflow checks on the Mac it builds on:** the signature (`codesign --verify --deep --strict`), one
+  whole evaluation with the app's own Python on a clip it speaks with `say`, that the evaluation changed nothing
+  inside the app, and that the app starts its server and stops it when closed. It publishes nothing: the `.dmg` is
+  the run's artifact for 14 days.
+- **Icon:** `build/icon-mac.png` (1024 px, the tile at 824 px as macOS icons are drawn), rendered from
+  `build/icon.svg`; electron-builder turns it into the app's `.icns`.
+
 ## How it works
 - **Starting:** a "Starting DubEval" page shows until the server prints `DubEval: http://127.0.0.1:<port>/?token_given=…`
   (up to 2 minutes; usually a few seconds). If Python is missing, the server exits or it takes too long, the
@@ -100,7 +157,10 @@ test checks they match).
    release page.
 6. Publish a GitHub release tagged `v<version>` in the repository from `build.publish` with **all three** files from
    `desktop/dist`: `DubEval-Setup.exe`, its `.blockmap` and `latest.yml` (`finish` prints the `gh release create`
-   command). Installed apps find it within 4 hours, or at once from Settings → About. Publish it as a normal release,
+   command), **and** the Mac's files from its `desktop/dist` (since 0.1.7: build them as in "Build the macOS app",
+   same version): `DubEval-Mac.dmg`, `DubEval-<version>-arm64-mac.zip`, its `.blockmap` and `latest-mac.yml`. A
+   release without `latest-mac.yml` leaves every Mac app's update check failing. Installed apps find it within 4
+   hours, or at once from Settings → About. Publish it as a normal release,
    never a draft or a **pre-release** (even for a beta): GitHub's `releases/latest/download/...` link and the app's
    update check both skip pre-releases. There is no `npm run release` any more: it published straight from the build,
    which would now be an unsigned installer.
@@ -125,6 +185,7 @@ timeline, and which of several dubs to deliver. Runs on your computer." and the 
 
 ## Not done yet (Phase 7)
 - Signing the app's own files (`DubEval.exe`, the uninstaller, the bundled Python): the portal signs the installer,
-  which is what SmartScreen checks. Signing them too would take a second trip to the portal during the build. The
-  macOS build.
+  which is what SmartScreen checks. Signing them too would take a second trip to the portal during the build.
+- macOS: an Intel build (Apple silicon only today), and a test of the Mac update path from one released version to
+  the next (the first Mac release is 0.1.7).
 - The desktop shell's few texts live in `status.html`; the web interface brings its own.

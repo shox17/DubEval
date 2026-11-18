@@ -2,7 +2,7 @@
 import pytest
 
 from dubeval.i18n import t
-from dubeval.intervals import build_intervals, loudness_jumps, merge_intervals, total_seconds
+from dubeval.intervals import build_intervals, group_moments, loudness_jumps, merge_intervals, total_seconds
 from dubeval.report import build_report
 from sample_results import JUDGED, make_results
 
@@ -18,6 +18,100 @@ def item(start, end, category="timing_mismatch", severity="check", description="
 def spans(intervals):
     """(start, end, category) of each interval."""
     return [(i["start"], i["end"], i["category"]) for i in intervals]
+
+
+# ---------------- moments ----------------
+def test_findings_about_the_same_moment_are_one_moment_led_by_the_one_that_says_most():
+    # A real dub: "missing speech" (44.3-45.4) and "the dub is silent" (44.3-45.5) were listed as two problems.
+    found = merge_intervals([item(44.3, 45.5), item(44.3, 45.4, "missing_speech", "poor"),
+                             item(50.0, 52.0, "unclear_speech"), item(60.0, 61.0)], 90)
+    moments = group_moments(found)
+    assert [(m["start"], m["end"], m["severity"]) for m in moments] == [(44.3, 45.5, "poor"), (50.0, 52.0, "check"),
+                                                                        (60.0, 61.0, "check")]
+    first = [found[i]["category"] for i in moments[0]["intervals"]]
+    assert first == ["missing_speech", "timing_mismatch"]                  # the named cause leads, the silence follows
+    assert [found[i]["moment"] for i in range(len(found))] == [0, 0, 1, 2]
+    same_level = group_moments(merge_intervals([item(10.0, 12.0), item(10.0, 12.2, "mistranslation")], 90))
+    assert same_level[0]["intervals"] == [1, 0]                            # at one level: by what it says
+
+
+def test_a_long_range_does_not_swallow_a_short_one_inside_it():
+    # A 9 s voice-quality window around a 1 s wording problem are two things to look at, not one.
+    found = merge_intervals([item(0.0, 9.0, "voice_quality"), item(4.2, 5.4, "translation_wording")], 90)
+    assert len(group_moments(found)) == 2
+
+
+def test_findings_about_one_line_are_one_moment():
+    # A line 16% too long that also runs 0.8 s into the next line: one card, though the two ranges only touch.
+    long = {**item(6.4, 14.4, "line_length"), "line": 2}
+    over = {**item(14.4, 15.2, "line_overrun"), "line": 2}
+    other = {**item(20.0, 24.0, "line_length"), "line": 3}
+    found = merge_intervals([long, over, other], 90)
+    moments = group_moments(found)
+    assert [(m["start"], m["end"]) for m in moments] == [(6.4, 15.2), (20.0, 24.0)]
+    assert [found[i]["category"] for i in moments[0]["intervals"]] == ["line_overrun", "line_length"]
+
+
+def test_a_timing_moment_quotes_the_words_and_never_the_judges_nothing():
+    r = make_results(translation_judge=JUDGED)
+    r["timing_alignment"]["mismatches"] = [{"start": 10.0, "end": 12.5, "kind": "original_only"},
+                                           {"start": 20.0, "end": 21.0, "kind": "dub_only"}]
+    r["speech_recognition"]["original_segments"] = [{"start": 9.5, "end": 12.6, "text": " My flight suit. "},
+                                                    {"start": 30.0, "end": 31.0, "text": "Later."}]
+    r["speech_recognition"]["dubbed_segments"] = [{"start": 19.8, "end": 21.2, "text": "어허허"}]
+    found = {i["category"]: i for i in build_intervals(r, tr, "en")["intervals"]}
+    silence, extra = found["long_silence"], found["timing_mismatch"]
+    assert silence["original"] == "My flight suit." and silence["dubbed"] is None
+    assert "“My flight suit.”" in silence["description"] and "“" not in silence["problem"]
+    assert extra["dubbed"] == "어허허" and extra["original"] is None
+    r["translation_judge"] = {**JUDGED, "issues": [{"type": "added", "severity": "major", "start_sec": 40.0,
+                                                    "original": "(nothing)", "dubbed": "오.", "ideal_translation": "(nothing)",
+                                                    "explanation": {"en": "Speech was added."}}]}
+    added = next(i for i in build_intervals(r, tr, "en")["intervals"] if i["category"] == "added_speech")
+    assert added["original"] is None and added["suggestion"] is None and "(nothing)" not in added["description"]
+
+
+@pytest.mark.parametrize("lang, said, shown", [
+    ("en", "The source is '(nothing)' but the translation provides a new sentence '좋았어'.",
+     "The source has no speech but the translation provides a new sentence '좋았어'."),
+    ("en", 'The dub says "오." ( \'(nothing)\' ) here.', 'The dub says "오." here.'),      # alone in brackets: dropped
+    ("en", "Compared with (nothing), the dub adds a greeting.", "Compared with no speech, the dub adds a greeting."),
+    ("ko", "원본은 “(nothing)”인데 더빙이 문장을 추가했습니다.", "원본은 말 없음인데 더빙이 문장을 추가했습니다."),
+    ("es", "El original es (nothing).", "El original no tiene habla."),
+    ("en", "Nothing was changed (nothing to fix).", "Nothing was changed (nothing to fix)."),   # ordinary words stay
+])
+def test_the_judges_placeholder_for_a_silent_track_is_put_into_words(lang, said, shown):
+    from dubeval.intervals import local_text
+    assert local_text({lang: said, "en": said}, lang) == shown
+
+
+def test_a_local_judges_english_sentence_keeps_english_words_in_a_korean_report():
+    from dubeval.intervals import local_text
+    said = "The source is '(nothing)' but the translation provides a new sentence."       # a plain string: English only
+    assert local_text(said, "ko") == "The source has no speech but the translation provides a new sentence."
+    assert local_text({"en": said}, "ko") == "The source has no speech but the translation provides a new sentence."
+
+
+@pytest.mark.parametrize("original, dubbed, lang, shown", [
+    ("(nothing)", "좋았어", "en", "The original has no speech here, but the dub adds a line."),
+    ("", "좋았어", "ko", "원본에는 이 부분에 말이 없는데, 더빙에 문장이 추가되었습니다."),
+    ("All right.", "(nothing)", "en", "The original says something here, but the dub has no speech."),
+    ("All right.", "", "es", "El original dice algo aquí, pero el doblaje no tiene habla."),
+])
+def test_a_line_with_one_silent_side_is_said_in_dubevals_own_words(original, dubbed, lang, shown):
+    said = "The source is '(nothing)' but the translation provides a new sentence '좋았어'."
+    kind = "added" if original in ("", "(nothing)") else "missing"
+    r = make_results(translation_judge={**JUDGED, "issues": [{"type": kind, "severity": "minor", "start_sec": 40.0,
+                                                              "original": original, "dubbed": dubbed,
+                                                              "explanation": said}]})
+    found = build_intervals(r, lambda key, **p: t(key, lang, **p), lang)["intervals"]
+    item = next(i for i in found if i["category"] in ("added_speech", "missing_speech"))
+    assert item["problem"].endswith(shown) and "(nothing)" not in item["description"]
+    # a sentence that doesn't lean on the placeholder is the judge's own
+    r["translation_judge"]["issues"][0]["explanation"] = "The dub adds a cheer that isn't in the original."
+    found = build_intervals(r, lambda key, **p: t(key, lang, **p), lang)["intervals"]
+    assert any(i["problem"].endswith("The dub adds a cheer that isn't in the original.") for i in found)
+
 
 
 # ---------------- merging, clipping, rounding ----------------

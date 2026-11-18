@@ -3,7 +3,7 @@
 // name | size | state | button; the other tabs are "label | control" rows. Keys are written once and never shown back;
 // models download with progress, stop and resume.
 import { api, confirmAlert, fill, h, loadInfo, state, t } from "./app.js";
-import { checkForUpdates, evaluationRunning, restartToUpdate, updatesAvailable, watchUpdatesFor } from "./shell.js";
+import { checkForUpdates, evaluationRunning, restartToUpdate, updatesAvailable, updatesByHand, watchUpdatesFor } from "./shell.js";
 
 const TABS = ["keys", "models", "storage", "privacy", "about"];
 const POLL_MS = 1000;
@@ -92,7 +92,7 @@ function modelsTab(panel, timers, alive) {
     timers.add(timer);
   }
 
-  // One row: name | size | state and what the model is for | Download, Stop or Remove.
+  // One row: name | size | state and what the model is for | Download, Stop, Remove or (outdated) Remove and Update.
   function modelRow(m, error) {
     const act = async (method, path) => {
       try { await api(path, { method }); } catch (e) { alert(e.message); }
@@ -102,6 +102,10 @@ function modelsTab(panel, timers, alive) {
     const line = h("span", { class: "settings-hint" });
     const bar = h("progress", { max: "1", value: "0", hidden: !m.job });
     let status = null, button = null;
+    const remove = () => h("button", { type: "button", class: "btn", onclick: async () => {
+      if (await confirmAlert({ title: t("w.dl.remove_confirm", { name: m.name }), keep: t("w.cancel"), confirm: t("w.dl.remove") }))
+        act("DELETE", `/api/packs/${m.id}`);
+    } }, t("w.dl.remove"));
     if (m.kind === "builtin") {
       status = m.state === "auto" ? h("span", { class: "settings-hint" }, t("w.mod.auto")) : ready();
     } else if (!m.available) {
@@ -111,10 +115,11 @@ function modelsTab(panel, timers, alive) {
       button = h("button", { type: "button", class: "btn", onclick: () => act("POST", `/api/jobs/${m.job}/cancel`) }, t("w.dl.stop"));
     } else if (m.state === "installed") {
       status = ready();
-      button = h("button", { type: "button", class: "btn", onclick: async () => {
-        if (await confirmAlert({ title: t("w.dl.remove_confirm", { name: m.name }), keep: t("w.cancel"), confirm: t("w.dl.remove") }))
-          act("DELETE", `/api/packs/${m.id}`);
-      } }, t("w.dl.remove"));
+      button = remove();
+    } else if (m.state === "outdated") {            // an earlier version's files: update them, or take them away
+      status = h("span", { class: "settings-hint" }, t("w.dl.state.outdated"));
+      button = h("span", { class: "model-actions" }, remove(),
+        h("button", { type: "button", class: "btn primary", onclick: () => act("POST", `/api/packs/${m.id}/install`) }, t("w.dl.update")));
     } else {
       status = h("span", { class: "settings-hint" }, t(m.state === "partial" ? "w.dl.state.partial" : "w.dl.state.absent"));
       button = h("button", { type: "button", class: "btn primary", onclick: () => act("POST", `/api/packs/${m.id}/install`) },
@@ -237,6 +242,7 @@ function aboutTab(panel, view) {
 // About → Updates: a "Check for updates" button, "Restart to update" once an update is ready, and what the check found
 // (desktop app only).
 function updatesControl() {
+  if (updatesByHand()) return [h("span", { class: "settings-hint" }, t("w.upd.by_hand"))];
   if (!updatesAvailable()) return [h("span", { class: "settings-hint" }, t("w.upd.desktop_only"))];
   const status = h("span", { class: "settings-hint" }, t("w.upd.auto"));
   let ready = false, evaluating = false, last = null;

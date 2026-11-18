@@ -41,8 +41,8 @@ def _common(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--lang", choices=LANGS, default="ko", help="Report language (default ko)")
     ap.add_argument("--original", help="The original video (file or URL), used when a share link has none")
     ap.add_argument("--whisper-model", default=DEFAULT_WHISPER_MODEL, help=f"Speech model (default {DEFAULT_WHISPER_MODEL})")
-    ap.add_argument("--no-lipsync", action="store_true", help="Skip lip movement even for a lip-synced dub (faster). By default it is measured "
-                         "automatically when the dub is lip-synced")
+    ap.add_argument("--no-lipsync", action="store_true", help="Skip the lip-sync check even for a lip-synced dub (faster). By default it runs "
+                         "when the dub is lip-synced and the lip-sync download is installed")
     ap.add_argument("--no-translation-check", action="store_true", help="Skip the translation check (by default it runs automatically when GEMINI_API_KEY or ANTHROPIC_API_KEY is set)")
     ap.add_argument("--lock-model", action="store_true", help="Use only the translation checker's first AI model, never "
                     "a backup: differences between dubs then can't come from the model. If it's busy, the translation "
@@ -83,7 +83,7 @@ def parse_evaluate_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--dub-subtitles", metavar="FILE", help="Subtitles of the dub (.srt or .vtt)")
     ap.add_argument("--source-lang", help="The original's language code (for example en); detected when not given")
     ap.add_argument("--target-lang", help="The dub's language code (for example ko); detected when not given")
-    ap.add_argument("--lipsync", action="store_true", help="Also measure lip movement (slow; informational only)")
+    ap.add_argument("--lipsync", action="store_true", help="Also check lip sync (needs the lip-sync download from Settings → Models; about 30 s more)")
     ap.add_argument("--allow-different-videos", action="store_true", help="Evaluate even when the two files look "
                     "like different videos (by default the run stops)")
     ap.add_argument("--dub-type", choices=["ai_clone", "ai_stock", "human"], help="How the dub's voices were made: "

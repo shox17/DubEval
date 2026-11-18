@@ -4,9 +4,11 @@ build_intervals(results, tr, lang) collects issues from the speech timing, disto
 language, voice clarity and translation checks, then merges overlapping or adjacent ranges of the same
 category (gap < 0.5 s), clips them to the video length, rounds to 0.1 s and sorts them by start time.
 Issues the translation check flags as probable speech-recognition errors are returned separately and never
-count. Pure: no file writes, no network. Thresholds for intervals live here, next to the code that uses them.
+count. group_moments() then puts the findings about one moment together (two checks often flag the same second).
+Pure: no file writes, no network. Thresholds for intervals live here, next to the code that uses them.
 """
 import math
+import re
 from typing import Callable, Optional
 
 import numpy as np
@@ -38,11 +40,26 @@ VOICE_SIG_DROP = (0.6, 2.5)          # dub speech score below the original's in 
 VOICE_OVRL_DROP = (0.5, 1.5)         # ...or its overall score (clean real dubs: at most 0.25 below). Poor was 1.0 /
                                      # 0.9: on 19 graded dubs only two reached it, both graded Good or Check by the
                                      # person (drops up to 2.23 / 1.24), and both Poor votes on it were false alarms
+# Audiobox Aesthetics (voice quality with its download, 1-10 scales), set on 2026-11-13 from 20 real dubs: over 329
+# undamaged stretches the dub fell at most 0.83 below the original and 0.8 below its own usual, and its second score
+# (content enjoyment) at most 1.0 below its usual; of 8 s of damage put into each dub these catch a robotic voice on
+# 20 of 20, a muffled one on 17, a clipped one on 17 (docs/validation.md). Poor is a first guess: nobody has labelled one.
+VOICE_PQ_DROP = (1.0, 2.5)           # production quality this far below the original's in a stretch, or this far below
+#                                      how the dub usually compares with the original: Check / Poor
+VOICE_CE_DROP = 1.2                  # content enjoyment this far below the dub's usual: Check (robotic, clipped)
+VOICE_KNOWN = 0.60                   # the original's own lines this alike (line against line): the model knows this
+#                                      video's speakers, so a low dub similarity means another voice (10 real dubs,
+#                                      2026-11-13: 0.72-0.85 where it did, 0.12-0.51 on a film clip and 2-3 line videos)
 VOICE_CHANGE_DROP = 0.2              # a line this far below the dub's typical voice similarity...
 VOICE_CHANGE_MAX = 0.65              # ...and below this (similar voices of two people reach ~0.55)...
 VOICE_CHANGE_MEDIAN = 0.45           # ...in a dub that otherwise clones its speakers: another voice on that line
 LINE_MATCH_SEC = 1.0                 # a translation issue belongs to the original line starting this close to it
 JUDGE_DEFAULT_SEC = 2.0              # length of a translation issue when no transcript line contains it
+MOMENT_OVERLAP = 0.5                 # two findings are one moment when they share this much of their combined time
+                                     # (or are about the same line): on 20 graded dubs, 9 listed a moment twice
+QUOTE_MIN_SEC = 0.2                  # a transcript line is quoted for a moment it shares at least this long with
+QUOTE_MAX_CHARS = 240                # longer quotes are cut: the moment's card shows the lines in full
+NOTHING = ("", "(nothing)")          # what the translation judge writes for "no speech": not a quote
 
 # Category id -> text key of its label. Ids are stable (JSON); labels follow the report language.
 CATEGORIES = {
@@ -69,50 +86,122 @@ CATEGORIES = {
 JUDGE_CATEGORY = {"missing": "missing_speech", "added": "added_speech", "mistranslation": "mistranslation",
                   "name_or_number": "names_numbers", "wording": "translation_wording"}
 SEVERITY_RANK = {"check": 1, "poor": 2}
+# Which finding speaks for a moment that several checks flagged: the one that says most about what is wrong. The
+# checks that read the words come first; "one track speaks and the other doesn't" last, since a named cause beats it.
+LEAD_ORDER = ("missing_speech", "added_speech", "mistranslation", "names_numbers", "translation_wording",
+              "meaning_drift", "wrong_language", "missing_in_dub", "voice_change", "line_overrun", "line_length",
+              "long_silence", "unclear_speech", "voice_quality", "noise", "distortion", "loudness_jump", "sound_sync",
+              "timing_mismatch")
+# What a finding says, in parts (the screen shows them apart; "description" is all of them in one text).
+PARTS = ("problem", "original", "dubbed", "suggestion", "doubt", "line")
+
+
+# The judge is shown "(nothing)" where a track is silent (translation_judge: the lines it reads) and repeats it in its
+# own sentences: alone in brackets after a quote, or in quotes as if the track had said it.
+_NOTHING_ASIDE = re.compile(r"\s*\(\s*['\"“‘]?\(nothing\)['\"”’]?\s*\)", re.IGNORECASE)
+_NOTHING = re.compile(r"['\"“”‘’`]?\(nothing\)['\"“”‘’`]?", re.IGNORECASE)
+
+
+# "The source is '(nothing)'" reads better as "The source has no speech": the verbs a judge puts before it
+_NOTHING_AFTER_VERB = {"en": r"\b(?:is|was|says|said|reads|shows|contains|has)\s+",
+                       "es": r"\b(?:es|era|está|dice|contiene|tiene)\s+", "pt": r"\b(?:é|era|está|diz|contém|tem)\s+"}
 
 
 def local_text(value, lang: str) -> str:
-    """Text in lang from a {lang: text} dict, falling back to English; plain strings pass through."""
-    if isinstance(value, dict):
-        return value.get(lang) or value.get("en") or ""
-    return str(value or "")
+    """Text in lang from a {lang: text} dict, falling back to English; plain strings pass through. The judge's
+    placeholder for a silent track, "(nothing)", is put into words (r.judge.nothing, r.judge.has_nothing): a reader
+    took it for a quote. The words follow the language the text is in (a local judge answers in English only)."""
+    here = lang if isinstance(value, dict) and value.get(lang) else "en"
+    text = (value.get(lang) or value.get("en") or "") if isinstance(value, dict) else str(value or "")
+    if "(nothing)" in text.lower():
+        from dubeval.i18n import t
+        text = _NOTHING_ASIDE.sub("", text)
+        if here in _NOTHING_AFTER_VERB:
+            text = re.sub(_NOTHING_AFTER_VERB[here] + _NOTHING.pattern, t("r.judge.has_nothing", here), text,
+                          flags=re.IGNORECASE)
+        text = _NOTHING.sub(t("r.judge.nothing", here), text)
+    return text
 
 
-def _item(tr: Tr, start: float, end: float, category: str, severity: str, check: str, description: str) -> dict:
-    """One problem interval before merging."""
+def judge_text(value, lang: str, original: Optional[str], dubbed: Optional[str]) -> str:
+    """The judge's sentence about one line, in lang. When it leans on the "(nothing)" placeholder and one side of the
+    line really has no speech, DubEval says it in its own words (the judge's read "The source is '(nothing)' but...");
+    otherwise the judge's sentence, with the placeholder put into words (local_text)."""
+    raw = (value.get(lang) or value.get("en") or "") if isinstance(value, dict) else str(value or "")
+    if "(nothing)" in raw.lower():
+        from dubeval.i18n import t
+        silent_original, silent_dub = (original or "").strip() in NOTHING, (dubbed or "").strip() in NOTHING
+        if silent_original and not silent_dub:
+            return t("r.judge.added_line", lang)
+        if silent_dub and not silent_original:
+            return t("r.judge.left_out_line", lang)
+    return local_text(value, lang)
+
+
+def _item(tr: Tr, start: float, end: float, category: str, severity: str, check: str, problem: str,
+          original: Optional[str] = None, dubbed: Optional[str] = None, suggestion: Optional[str] = None,
+          doubt: Optional[str] = None, line: Optional[int] = None) -> dict:
+    """One problem interval before merging. problem: what is wrong, in a sentence; original / dubbed: what each track
+    says there; suggestion: a better translation; doubt: "asr" (probably misheard) or "asr_or_real" (can't tell);
+    line: the line it is about. description is all of it in one text, for the reports that print one."""
+    original, dubbed, suggestion = (None if (x or "").strip() in NOTHING else x.strip()
+                                    for x in (original, dubbed, suggestion))
+    quote = " → ".join(f"“{q}”" for q in (original, dubbed) if q)
+    description = " ".join(x for x in (
+        problem, tr("r.todo.maybe_asr_or_real") if doubt == "asr_or_real" else tr("r.todo.maybe_asr") if doubt else "",
+        quote, tr("r.todo.suggested", text=suggestion) if suggestion else "") if x)
     return {"start": float(start), "end": float(end), "category": category,
             "category_label": tr(CATEGORIES[category]), "severity": severity, "check": check,
-            "check_label": tr(f"r.m.{check}"), "description": description}
+            "check_label": tr(f"r.m.{check}"), "description": description, "problem": problem, "original": original,
+            "dubbed": dubbed, "suggestion": suggestion, "doubt": doubt, "line": line}
 
 
-def _long_silence(tr: Tr, start: float, end: float, seconds: float) -> dict:
+def _said(segments: Optional[list], start: float, end: float) -> Optional[str]:
+    """What a track says during a range: its transcript lines there, so a moment shows the words and not only times."""
+    text = " ".join(s["text"].strip() for s in segments or []
+                    if min(s["end"], end) - max(s["start"], start) >= min(QUOTE_MIN_SEC, (end - start) / 2))
+    return (text[:QUOTE_MAX_CHARS].rstrip() + "…" if len(text) > QUOTE_MAX_CHARS else text) or None
+
+
+def _texts(segments: Optional[list], indexes: Optional[list]) -> Optional[str]:
+    """The text of the transcript lines with these indexes (a matched line's own)."""
+    segments = segments or []
+    return " ".join(segments[i]["text"].strip() for i in indexes or [] if 0 <= i < len(segments)) or None
+
+
+def _long_silence(tr: Tr, start: float, end: float, seconds: float, sr: dict) -> dict:
     """The original speaks for this many seconds and the dub is silent."""
     return _item(tr, start, end, "long_silence", "poor" if seconds >= LONG_SILENCE_SEC[1] else "check",
-                 "speech_overlap", tr("r.int.long_silence", sec=f"{seconds:.1f}"))
+                 "speech_overlap", tr("r.int.long_silence", sec=f"{seconds:.1f}"),
+                 original=_said(sr.get("original_segments"), start, end))
 
 
-def _voice_gaps(tr: Tr, ta: dict) -> list[dict]:
+def _voice_gaps(tr: Tr, ta: dict, sr: dict) -> list[dict]:
     """Long silences found by the voice detector alone (evaluate.voice_gaps), for a dub whose words can't be read."""
-    return [_long_silence(tr, g["start"], g["end"], g["original_sec"]) for g in ta.get("voice_gaps") or []
+    return [_long_silence(tr, g["start"], g["end"], g["original_sec"], sr) for g in ta.get("voice_gaps") or []
             if g["original_sec"] >= LONG_SILENCE_SEC[0]]
 
 
-def _timing(tr: Tr, ta: dict) -> list[dict]:
-    """Stretches where only one track speaks: long silences in the dub, or timing mismatches."""
+def _timing(tr: Tr, ta: dict, sr: dict) -> list[dict]:
+    """Stretches where only one track speaks: long silences in the dub, or timing mismatches. Each quotes the words
+    of the track that speaks: "a line may be missing" didn't say which."""
     out = []
     for m in ta.get("mismatches") or []:
         length = m["end"] - m["start"]
         if m["kind"] == "original_only" and length >= LONG_SILENCE_SEC[0]:
-            out.append(_long_silence(tr, m["start"], m["end"], length))
+            out.append(_long_silence(tr, m["start"], m["end"], length, sr))
         elif length >= TIMING_MIN_SEC:
+            side = "original" if m["kind"] == "original_only" else "dubbed"
             out.append(_item(tr, m["start"], m["end"], "timing_mismatch", "check", "speech_overlap",
-                             tr(f"r.todo.{m['kind']}")))
+                             tr(f"r.todo.{m['kind']}"), **{side: _said(sr.get(f"{side}_segments"), m["start"], m["end"])}))
     return out
 
 
-def _line_items(tr: Tr, sa: Optional[dict]) -> list[dict]:
+def _line_items(tr: Tr, sa: Optional[dict], sr: dict) -> list[dict]:
     """Lines whose length differs from the original's beyond the band, and lines running into the next one."""
     from dubeval.report import graded_lines, line_off
+    words = lambda ln: {"original": _texts(sr.get("original_segments"), ln.get("original")),
+                        "dubbed": _texts(sr.get("dubbed_segments"), ln.get("dub")), "line": ln["n"]}
     out = []
     for ln in graded_lines(sa):
         pct = ln["diff_pct"]
@@ -121,12 +210,12 @@ def _line_items(tr: Tr, sa: Optional[dict]) -> list[dict]:
             key = "r.int.line_long" if pct > 0 else "r.int.line_short"
             out.append(_item(tr, ln["start"], ln["end"], "line_length", sev, "line_length",
                              tr(key, n=ln["n"], d=f"{ln['dub_sec']:.1f}", o=f"{ln['original_sec']:.1f}",
-                                pct=f"{abs(pct):.0f}")))
+                                pct=f"{abs(pct):.0f}"), **words(ln)))
     for ln in (sa or {}).get("lines") or []:
         if ln["overrun_sec"] > 0:
             sev = "poor" if ln["overrun_sec"] >= LINE_OVERRUN_POOR_SEC else "check"
             out.append(_item(tr, ln["end"], ln["end"] + ln["overrun_sec"], "line_overrun", sev, "line_overrun",
-                             tr("r.int.line_overrun", n=ln["n"], sec=f"{ln['overrun_sec']:.1f}")))
+                             tr("r.int.line_overrun", n=ln["n"], sec=f"{ln['overrun_sec']:.1f}"), **words(ln)))
     return out
 
 
@@ -135,7 +224,7 @@ def _numbers(tr: Tr, nc: Optional[dict]) -> list[dict]:
     if not (nc or {}).get("measured"):
         return []
     return [_item(tr, ln["start"], ln["end"], "names_numbers", "check", "numbers",
-                  tr("r.int.number", n=ln["n"], orig=", ".join(ln["original"]), dub=", ".join(ln["dub"])))
+                  tr("r.int.number", n=ln["n"], orig=", ".join(ln["original"]), dub=", ".join(ln["dub"])), line=ln["n"])
             for ln in nc["lines"]]
 
 
@@ -146,7 +235,8 @@ def _screen_items(tr: Tr, ms: Optional[dict], judged: bool) -> list[dict]:
     if judged:
         return []
     return [_item(tr, ln["start"], ln["end"], "meaning_drift", "check", "meaning_screen",
-                  tr("r.int.meaning_drift", n=ln["n"], sim=f"{ln['similarity']:.2f}")) for ln in screen_low_lines(ms)]
+                  tr("r.int.meaning_drift", n=ln["n"], sim=f"{ln['similarity']:.2f}"), line=ln["n"])
+            for ln in screen_low_lines(ms)]
 
 
 def _missing_parts(tr: Tr, pr: Optional[dict]) -> list[dict]:
@@ -273,11 +363,30 @@ def voice_window_level(w: dict) -> str:
     return "good"
 
 
+def voice_window_levels(vq: dict) -> list[str]:
+    """good / check / poor for every voice-quality window of a measured result, by the model that scored it."""
+    windows = vq.get("windows") or []
+    if vq.get("scorer") != "audiobox":
+        return [voice_window_level(w) for w in windows]
+    # Audiobox: against the original in the same stretch, and against how this dub usually compares with it (a
+    # damaged stretch stands out even in a dub that scores above its original everywhere else)
+    pq = [w["dub"] - w["original"] for w in windows]
+    ce = [w["dub_ce"] - w["original_ce"] for w in windows]
+    usual_pq, usual_ce = float(np.median(pq)), float(np.median(ce))
+    levels = []
+    for d_pq, d_ce in zip(pq, ce):
+        fall = max(-d_pq, usual_pq - d_pq)
+        levels.append("poor" if fall >= VOICE_PQ_DROP[1] else
+                      "check" if fall >= VOICE_PQ_DROP[0] or usual_ce - d_ce >= VOICE_CE_DROP else "good")
+    return levels
+
+
 def _voice(tr: Tr, vq: Optional[dict]) -> list[dict]:
-    """Windows where the dub's voice sounds clearly worse (robotic, distorted) than the original's."""
+    """Windows where the dub's voice sounds clearly worse (robotic, distorted, muffled) than the original's."""
     out = []
-    for w in (vq or {}).get("windows") or [] if (vq or {}).get("measured") else []:
-        level = voice_window_level(w)
+    if not (vq or {}).get("measured"):
+        return out
+    for w, level in zip(vq.get("windows") or [], voice_window_levels(vq)):
         if level != "good":
             out.append(_item(tr, w["start"], w["end"], "voice_quality", level, "voice_quality",
                              tr("r.int.voice_quality", dub=f"{w['dub']:.1f}", orig=f"{w['original']:.1f}")))
@@ -288,6 +397,8 @@ def _voice_change(tr: Tr, vs: Optional[dict]) -> list[dict]:
     """Lines whose dub voice doesn't match the original speaker while the rest of the dub does (a wrong voice)."""
     if not (vs or {}).get("measured") or vs["median"] < VOICE_CHANGE_MEDIAN:
         return []
+    if vs.get("original_self") is not None and vs["original_self"] < VOICE_KNOWN:
+        return []                                # the model doesn't know this video's speakers: a line proves nothing
     return [_item(tr, l["start"], l["end"], "voice_change", "check", "voice_similarity",
                   tr("r.int.voice_change", sim=f"{max(0.0, l['similarity']) * 100:.0f}%",
                      median=f"{vs['median'] * 100:.0f}%"))
@@ -330,25 +441,50 @@ def _translation(tr: Tr, tj: Optional[dict], sr: dict, lang: str,
         maybe = bool(i.get("may_be_recognition_error"))
         # Very low meaning: a mishearing or a real error, the judge can't tell; a person listens (Check, never Poor).
         doubtful = maybe and i.get("criterion") == "semantic_accuracy" and (i.get("score") or 10) <= RUBRIC_POOR
-        quote = " → ".join(q for q in (f"“{i['original']}”" if i.get("original") else "",
-                                       f"“{i['dubbed']}”" if i.get("dubbed") else "") if q)
         kind = i.get("error_type")                 # the rubric's error type, with its suggested translation
-        desc = (tr(f"r.tcat.{kind}") + ": " if kind and kind != "no_error" else "") \
-            + local_text(i.get("explanation"), lang) \
-            + (" " + tr("r.todo.maybe_asr_or_real") if doubtful else " " + tr("r.todo.maybe_asr") if maybe else "") \
-            + (f" {quote}" if quote else "") \
-            + (" " + tr("r.todo.suggested", text=i["ideal_translation"]) if i.get("ideal_translation") else "")
+        problem = (tr(f"r.tcat.{kind}") + ": " if kind and kind != "no_error" else "") \
+            + judge_text(i.get("explanation"), lang, i.get("original"), i.get("dubbed"))
         start = float(i.get("start_sec") or 0.0)
         end = _line_end(sr.get("original_segments"), start)
         if i.get("line") in spans:
             start, end = spans[i["line"]]
         severity = "check" if doubtful else "poor" if i.get("severity") == "major" else "check"
-        item = _item(tr, start, end, category, severity, "translation_check", desc.strip())
+        item = _item(tr, start, end, category, severity, "translation_check", problem.strip(),
+                     original=i.get("original"), dubbed=i.get("dubbed"), suggestion=i.get("ideal_translation"),
+                     doubt="asr_or_real" if doubtful else "asr" if maybe else None,
+                     line=i.get("line") if i.get("line") in spans else None)
         if maybe and not doubtful:
             asr.append({**item, "asr": True})
         else:
             counted.append(item)
-    return counted, asr
+    return counted, asr + _heard_again(tr, tj, spans)
+
+
+def _heard_again(tr: Tr, tj: dict, spans: dict) -> list[dict]:
+    """The lines a second listen cleared (translation_judge.with_second_listen), for the list of probable recognition
+    errors: what the line was first heard as and marked down for, and what it reads on the second listen. Listed so a
+    person can check the second reading by ear; never counted."""
+    from dubeval.translation_judge import ERROR_KIND
+    out = []
+    for j in tj.get("lines") or []:
+        note = j.get("heard_again") or {}
+        if not note.get("used"):
+            continue
+        first = note["first"]
+        side = "dub" if _letters(first["dub"]) != _letters(note["dub"]) else "original"
+        category = JUDGE_CATEGORY.get(ERROR_KIND.get(first["error_type"]) or "mistranslation") or "mistranslation"
+        start, end = spans.get(j["line"]) or (j["start"], j["end"])
+        problem = tr(f"r.int.heard_again_{side}" if first[side] else f"r.int.heard_nothing_{side}",
+                     first=first[side], second=note[side])
+        out.append({**_item(tr, start, end, category, "check", "translation_check", problem,
+                            original=note["original"], dubbed=note["dub"], doubt="asr",
+                            line=j["line"] if j["line"] in spans else None), "asr": True})
+    return out
+
+
+def _letters(text: Optional[str]) -> str:
+    """A reading's letters and digits only, in lower case: two readings with the same ones say the same words."""
+    return "".join(ch for ch in (text or "").lower() if ch.isalnum())
 
 
 def merge_intervals(items: list[dict], length: Optional[float], gap: float = MERGE_GAP_SEC) -> list[dict]:
@@ -364,7 +500,7 @@ def merge_intervals(items: list[dict], length: Optional[float], gap: float = MER
             last["merged"] += 1
             if SEVERITY_RANK[item["severity"]] > SEVERITY_RANK[last["severity"]]:
                 last.update(severity=item["severity"], description=item["description"], check=item["check"],
-                            check_label=item["check_label"])
+                            check_label=item["check_label"], **{k: item.get(k) for k in PARTS})
         else:
             merged.append({**item, "merged": 1})
     out = []
@@ -372,6 +508,35 @@ def merge_intervals(items: list[dict], length: Optional[float], gap: float = MER
         start, end = _clip(m["start"], m["end"], length)
         out.append({**m, "start": start, "end": end})
     return sorted(out, key=lambda x: (x["start"], x["end"], x["category"]))
+
+
+def group_moments(intervals: list[dict]) -> list[dict]:
+    """The moments a person looks at: the intervals (in time order, as merge_intervals returns them) put together when
+    they are about the same moment, i.e. they share MOMENT_OVERLAP of their combined time or are about the same line
+    (a line too long that also runs into the next). Each moment {"start", "end", "severity" (its worst), "intervals"
+    (indexes, the one that speaks for it first: LEAD_ORDER)}; every interval gets its "moment" index."""
+    def same(a: dict, b: dict) -> bool:
+        if a.get("line") is not None and a.get("line") == b.get("line"):
+            return True
+        shared = min(a["end"], b["end"]) - max(a["start"], b["start"])
+        combined = max(a["end"], b["end"]) - min(a["start"], b["start"])
+        return combined > 0 and shared / combined >= MOMENT_OVERLAP
+    groups: list[list[int]] = []
+    for i, iv in enumerate(intervals):
+        home = next((g for g in groups if any(same(iv, intervals[j]) for j in g)), None)
+        if home is None:
+            groups.append([i])
+        else:
+            home.append(i)
+    lead = lambda i: (-SEVERITY_RANK[intervals[i]["severity"]], LEAD_ORDER.index(intervals[i]["category"])
+                      if intervals[i]["category"] in LEAD_ORDER else len(LEAD_ORDER), i)
+    moments = sorted(({"start": min(intervals[i]["start"] for i in g), "end": max(intervals[i]["end"] for i in g),
+                       "severity": max((intervals[i]["severity"] for i in g), key=SEVERITY_RANK.get),
+                       "intervals": sorted(g, key=lead)} for g in groups), key=lambda m: (m["start"], m["end"]))
+    for n, m in enumerate(moments):
+        for i in m["intervals"]:
+            intervals[i]["moment"] = n
+    return moments
 
 
 def _clip(start: float, end: float, length: Optional[float]) -> tuple[float, float]:
@@ -435,14 +600,14 @@ def build_intervals(r: dict, tr: Tr, lang: str, clipping_poor: bool = False, dub
             # original's language heard there is still worth reporting (the original voice left in).
             languages = [i for i in languages if source and names.get(source) and names[source] in i["description"]]
         counted += _screen_items(tr, r.get("meaning_screen"), bool(tj.get("measured")) or music) \
-            + _numbers(tr, r.get("numbers")) + _timing(tr, r.get("timing_alignment") or {}) + languages \
-            + _clarity(tr, sr) + ([] if music else _line_items(tr, r.get("segment_alignment")))
+            + _numbers(tr, r.get("numbers")) + _timing(tr, r.get("timing_alignment") or {}, sr) + languages \
+            + _clarity(tr, sr) + ([] if music else _line_items(tr, r.get("segment_alignment"), sr))
     else:
         # The original's language left in the dub is still worth reporting; other languages are recognition noise.
         # Silences need no words: the voice detector finds them.
         counted += [i for i in _language(tr, sr, expected, source, names)
                     if source and names.get(source) and names[source] in i["description"]] \
-            + _voice_gaps(tr, r.get("timing_alignment") or {})
+            + _voice_gaps(tr, r.get("timing_alignment") or {}, {"original_segments": sr.get("original_segments")})
     length = video_length(r)
     intervals = merge_intervals(counted, length)
     asr = sorted(({**a, **dict(zip(("start", "end"), _clip(a["start"], a["end"], length)))} for a in asr),

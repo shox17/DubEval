@@ -433,7 +433,7 @@ def test_every_chunk_keeps_the_model_that_judged_it(gemini_key):
     assert [(c["model"], len(c["lines"]), c["requested"]) for c in r["chunks"]] == [
         ("model-a", 20, "gemini-3.5-flash"), ("model-b", 5, "gemini-3.5-flash")]
     rows = {m["id"]: m for sec in build_report(make_results(translation_judge=r), "en")["sections"] for m in sec["metrics"]}
-    assert "model-a + model-b" in rows["meaning"]["thresholds"]               # the report names both
+    assert "model-a + model-b" in rows["translation_check"]["thresholds"]     # the report names both
     # One model: named once.
     s = FakeGemini(gemini_ok(payload, "model-a"), gemini_ok(payload, "model-a"))
     r = judge_translation(orig, dub, "en", "ko", session=s, sleep=lambda x: None, lines=lines)
@@ -506,3 +506,218 @@ def test_the_lock_can_be_chosen_on_the_start_page_the_api_and_the_command_line(m
     monkeypatch.delenv("DUBEVAL_JUDGE_PIN", raising=False)
     monkeypatch.setattr(cli, "_run_evaluate", lambda *a: 0)
     assert cli._run(evaluate, None) == 0 and translation_judge.judge_pinned()
+
+
+# ---------------- the second listen ----------------
+TWO_ORIG = [{"start": 0.0, "end": 2.0, "text": "Get the goal in the background."},
+            {"start": 3.0, "end": 5.0, "text": "I'm the man who's keeping it."}]
+TWO_DUB = [{"start": 0.0, "end": 2.0, "text": "대경 잡으려고."}, {"start": 3.0, "end": 5.0, "text": "나는 떠납니다."}]
+TWO_LINES = [{"n": 1, "start": 0.0, "end": 2.0, "original": TWO_ORIG[0]["text"], "dub": TWO_DUB[0]["text"]},
+             {"n": 2, "start": 3.0, "end": 5.0, "original": TWO_ORIG[1]["text"], "dub": TWO_DUB[1]["text"]}]
+JUDGE_ARGS = (TWO_ORIG, TWO_DUB, "en", "ko")
+
+
+def two_flagged():
+    """A check with both lines marked down for meaning."""
+    answer = {"lines": [judged(1, semantic=3, error_type="mistranslation", reason="Says something else."),
+                        judged(2, semantic=2, error_type="mistranslation", reason="Says he is leaving.")]}
+    return judge_translation(TWO_ORIG, TWO_DUB, "en", "ko", client=FakeClient(answer), lines=TWO_LINES)
+
+
+def second(n, **scores):
+    """One line's second judgement, as judge_again returns it."""
+    return {**translation_judge._result({"lines": [judged(n, **scores)]}, "m", "claude")["lines"][0], "model": "m"}
+
+
+def test_a_result_names_its_judge_and_the_lines_worth_a_second_listen():
+    first = two_flagged()
+    assert first["provider"] == "claude" and translation_judge.flagged(first) == [1, 2]
+    assert translation_judge.flagged(judge_translation(ORIG, DUB, "en", "ko", client=FakeClient(GOOD))) == []
+
+
+def test_the_judge_reads_only_the_changed_lines_again_with_their_new_words():
+    first = two_flagged()
+    now = [{**TWO_LINES[0], "dub": "배경 잡으려고."}, TWO_LINES[1]]
+    client = FakeClient({"lines": [judged(1)]})
+    again = translation_judge.judge_again(first, [1], *JUDGE_ARGS, lines=now, client=client)
+    asked = client.request["messages"][0]["content"]
+    assert "<evaluate>1</evaluate>" in asked and "배경 잡으려고." in asked and "나는 떠납니다." in asked
+    assert again[1]["scores"]["semantic_accuracy"] == 9 and list(again) == [1]
+    # A judge that fails, or leaves the line out, gives no second judgement at all.
+    failing = FakeClient(error=RuntimeError("down"))
+    assert translation_judge.judge_again(first, [1], *JUDGE_ARGS, lines=now, client=failing) is None
+    skipped = FakeClient({"lines": [judged(2)]})
+    assert translation_judge.judge_again(first, [1], *JUDGE_ARGS, lines=now, client=skipped) is None
+
+
+def test_a_line_counts_only_if_it_reads_as_a_problem_both_times():
+    first = two_flagged()
+    heard = {1: {"original": TWO_ORIG[0]["text"], "dub": "배경 잡으려고.", "changed": True},
+             2: {"original": TWO_ORIG[1]["text"], "dub": "나는 떠나요.", "changed": True}}
+    again = {1: second(1), 2: second(2, semantic=3, reason="Still leaving.")}
+    r = translation_judge.with_second_listen(first, TWO_LINES, heard, again, "faster-whisper:base")
+    one, two = r["lines"]
+    assert one["scores"]["semantic_accuracy"] == 9 and one["heard_again"]["used"]
+    assert one["heard_again"]["first"]["scores"]["semantic_accuracy"] == 3 and one["heard_again"]["dub"] == "배경 잡으려고."
+    assert two["scores"]["semantic_accuracy"] == 2 and not two["heard_again"]["used"]      # low both times: it stands
+    assert [i["line"] for i in r["issues"]] == [2] and r["meaning_score"] == 5.5
+    assert r["second_listen"] == {"measured": True, "heard": 2, "changed": 2, "cleared": 1,
+                                  "recognizer": "faster-whisper:base"}
+    assert first["meaning_score"] == 2.5 and "heard_again" not in first["lines"][0]         # the first result is untouched
+    said = translation_judge.said(r, TWO_LINES)
+    assert said[0]["dub"] == "배경 잡으려고." and said[1]["dub"] == "나는 떠납니다."
+
+
+def test_a_second_reading_that_only_softens_a_problem_changes_nothing():
+    first = two_flagged()
+    heard = {1: {"original": TWO_ORIG[0]["text"], "dub": "배경 잡으려.", "changed": True}}
+    r = translation_judge.with_second_listen(first, TWO_LINES, heard, {1: second(1, semantic=6, reason="Vague.")}, "x")
+    assert r["lines"][0]["scores"]["semantic_accuracy"] == 3 and r["second_listen"]["cleared"] == 0
+    # Heard the same both times: nothing to judge again, and the line stands.
+    same = {1: {"original": TWO_ORIG[0]["text"], "dub": TWO_DUB[0]["text"], "changed": False}}
+    r = translation_judge.with_second_listen(first, TWO_LINES, same, {}, "x")
+    assert r["issues"] == first["issues"] and r["second_listen"]["changed"] == 0
+
+
+def flagged_results():
+    """Results whose check marked both lines down, as pipeline.check_translation leaves them."""
+    from sample_results import make_results
+    r = make_results()
+    r["translation_judge"] = two_flagged()
+    return r
+
+
+def listen(results, audio="sound", cache=None, key="key"):
+    """pipeline.listen_again on the two test lines."""
+    from dubeval import pipeline
+    pipeline.listen_again(results, audio, JUDGE_ARGS, TWO_LINES, None, None, False, lambda *a, **k: None, cache, key)
+    return results["translation_judge"]
+
+
+def test_flagged_lines_are_heard_again_only_when_asked_and_judged_on_the_new_words(monkeypatch):
+    from dubeval import asr, pipeline
+    calls = {"heard": 0, "judged": []}
+
+    def hear(results, audio, lines, wanted, model):
+        calls["heard"] += 1
+        return {1: {"original": TWO_ORIG[0]["text"], "dub": "배경 잡으려고.", "changed": True},
+                2: {"original": TWO_ORIG[1]["text"], "dub": TWO_DUB[1]["text"], "changed": False}}
+
+    def again(first, numbers, *args, lines=None, **kw):
+        calls["judged"].append((numbers, lines[0]["dub"]))
+        return {1: second(1)}
+    monkeypatch.setattr(pipeline, "hear_lines", hear)
+    monkeypatch.setattr(translation_judge, "judge_again", again)
+    monkeypatch.setattr(asr, "load_model", lambda name, cpu=False: (name, cpu))
+    cache = {}
+    assert "second_listen" not in listen(flagged_results(), cache=cache) and not calls["heard"]   # off unless asked for
+    monkeypatch.setenv("DUBEVAL_SECOND_LISTEN", "base")
+    tj = listen(flagged_results(), cache=cache)
+    assert calls["judged"] == [([1], "배경 잡으려고.")]                    # only the line whose words changed
+    assert tj["second_listen"]["cleared"] == 1 and len(tj["issues"]) == 1
+    tj = listen(flagged_results(), cache=cache)                           # the same check again: from the cache
+    assert calls["heard"] == 1 and tj["second_listen"]["cleared"] == 1
+    # Without the sound, or switched off, the check stays as the judge gave it.
+    assert "second_listen" not in listen(flagged_results(), audio=None, cache={})
+    monkeypatch.setenv("DUBEVAL_SECOND_LISTEN", "off")
+    assert "second_listen" not in listen(flagged_results()) and calls["heard"] == 1
+
+
+def test_a_judge_that_fails_the_second_time_leaves_the_check_as_it_was(monkeypatch):
+    from dubeval import asr, pipeline
+    monkeypatch.setattr(pipeline, "hear_lines", lambda *a: {
+        1: {"original": "x", "dub": "y", "changed": True}, 2: {"original": "x", "dub": "y", "changed": True}})
+    monkeypatch.setattr(translation_judge, "judge_again", lambda *a, **k: None)
+    monkeypatch.setattr(asr, "load_model", lambda name, cpu=False: name)
+    monkeypatch.setenv("DUBEVAL_SECOND_LISTEN", "base")
+    cache = {}
+    tj = listen(flagged_results(), cache=cache)
+    assert tj["second_listen"] == {"measured": False} and len(tj["issues"]) == 2
+    assert cache == {}                                                    # asked again on the next run
+
+
+def test_the_local_judge_keeps_the_graphics_card_while_lines_are_heard_again(monkeypatch):
+    from dubeval import asr, pipeline
+    loaded = []
+    monkeypatch.setenv("DUBEVAL_SECOND_LISTEN", "base")
+    monkeypatch.setattr(asr, "load_model", lambda name, cpu=False: loaded.append((name, cpu)))
+    monkeypatch.setattr(pipeline, "hear_lines", lambda *a: {
+        n: {"original": TWO_LINES[n - 1]["original"], "dub": TWO_LINES[n - 1]["dub"], "changed": False} for n in (1, 2)})
+    for provider in ("ollama", "gemini"):
+        r = flagged_results()
+        r["translation_judge"]["provider"] = provider
+        listen(r)
+    assert loaded == [("base", True), ("base", False)]
+
+
+def test_a_line_is_heard_again_on_its_own_and_music_alone_says_nothing(monkeypatch):
+    import numpy as np
+    from dubeval import asr, evaluate
+    seen = []
+
+    def transcribe(clip, model, language=None, check=None):
+        seen.append((len(clip), language))
+        return {"segments": [{"text": "배경 잡으려고.", "no_speech_prob": 0.1, "avg_logprob": -0.2},
+                             {"text": "구독", "no_speech_prob": 0.9, "avg_logprob": -1.5}]}
+    monkeypatch.setattr(evaluate, "transcribe", transcribe)
+    monkeypatch.setattr(asr, "voice_activity", lambda clip, fine=False: [[0.1, 1.0]])
+    y = np.zeros(10 * evaluate.SAMPLE_RATE, dtype=np.float32)
+    assert evaluate.hear_again(y, 2.0, 4.0, "model", "ko") == "배경 잡으려고."      # the invented line is dropped
+    assert seen == [(int((2.0 + 2 * evaluate.HEAR_AGAIN_PAD_SEC) * evaluate.SAMPLE_RATE), "ko")]
+    monkeypatch.setattr(asr, "voice_activity", lambda clip, fine=False: [])
+    assert evaluate.hear_again(y, 2.0, 4.0, "model", "ko") == "" and len(seen) == 1   # no voice: not even recognized
+
+
+def test_both_sides_of_a_flagged_line_are_heard_again_and_silence_keeps_the_first_words(monkeypatch):
+    import numpy as np
+    from dubeval import evaluate, pipeline
+    from sample_results import make_results
+    heard = iter(["Get the goal in the background!", "배경 잡으려고.", "", ""])
+    monkeypatch.setattr(evaluate, "hear_again", lambda y, start, end, model, language: next(heard))
+    y = np.zeros(8 * evaluate.SAMPLE_RATE, dtype=np.float32)
+    out = pipeline.hear_lines(make_results(), (y, y), TWO_LINES, [1, 2], "model")
+    assert out[1] == {"original": "Get the goal in the background!", "dub": "배경 잡으려고.", "changed": True}
+    assert out[2] == {"original": TWO_LINES[1]["original"], "dub": TWO_LINES[1]["dub"], "changed": False}
+
+
+def cleared_results():
+    """Results after a second listen cleared line 1 (heard as another word at first) and left line 2 standing."""
+    r = flagged_results()
+    heard = {1: {"original": TWO_ORIG[0]["text"], "dub": "배경 잡으려고.", "changed": True},
+             2: {"original": TWO_ORIG[1]["text"], "dub": TWO_DUB[1]["text"], "changed": False}}
+    r["translation_judge"] = translation_judge.with_second_listen(r["translation_judge"], TWO_LINES, heard,
+                                                                  {1: second(1)}, "faster-whisper:base")
+    return r
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_the_report_counts_a_cleared_line_apart_and_lists_it_as_possibly_misheard(lang):
+    from dubeval.report import build_report
+    rep = build_report(cleared_results(), lang)
+    row = next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "translation_check")
+    assert row["level"] == "check" and row["parts"][0]["low"] == 1          # line 2 alone counts
+    [listed] = rep["possible_asr_errors"]
+    assert "대경 잡으려고." in listed["description"] and "배경 잡으려고." in listed["description"]
+    assert listed["dubbed"] == "배경 잡으려고." and listed["doubt"] == "asr"
+    assert all(i["dubbed"] != "배경 잡으려고." for i in rep["problem_intervals"])
+    if lang == "en":
+        assert "1 line was marked down at first but reads fine when heard again" in row["message"]
+        assert "heard a second time" in row["thresholds"]
+
+
+def test_a_check_without_a_second_listen_reads_as_before():
+    from dubeval.report import build_report
+    rep = build_report(flagged_results(), "en")
+    row = next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "translation_check")
+    assert "heard again" not in row["message"] and "second time" not in row["thresholds"]
+    assert rep["possible_asr_errors"] == []
+
+
+def test_a_line_that_looked_left_out_says_what_the_second_listen_heard():
+    from dubeval.report import build_report
+    r = flagged_results()
+    lines = [TWO_LINES[0], {**TWO_LINES[1], "dub": ""}]
+    heard = {2: {"original": TWO_ORIG[1]["text"], "dub": "내가 그걸 가질 사람이야.", "changed": True}}
+    r["translation_judge"] = translation_judge.with_second_listen(r["translation_judge"], lines, heard, {2: second(2)}, "x")
+    [listed] = build_report(r, "en")["possible_asr_errors"]
+    assert listed["problem"].startswith("No dub speech was heard here at first") and "내가 그걸 가질 사람이야." in listed["problem"]

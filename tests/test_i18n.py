@@ -12,6 +12,30 @@ def placeholders(text: str) -> set:
     return {name for _, name, _, _ in string.Formatter().parse(text) if name}
 
 
+# A level has one name in each language. The old second names, as a regular expression that leaves alone the same
+# word used as a verb ("Check the key", "Verificar a tradução", "Revisar un doblaje"), and the texts that keep them:
+# "Check" as the name of a measure, and "needs checking in person" in Korean.
+RETIRED_LEVEL_WORDS = {
+    "en": r"Check(?! (the|that|your|both|one|for|it))",
+    "ko": r"(?<!직접 )확인 필요|나쁨",
+    "pt": r"Verificar(?! (os|uma|a tradução|o) ?)",
+    "es": r"Revisar(?! (un|cada|los|la|el) )|Mal",
+}
+OTHER_MEANING = {"f.check", "w.exp.col.check", "c.table.check", "r.pair.unsure"}
+
+
+@pytest.mark.parametrize("lang", UI_LANGUAGES)
+def test_each_level_has_one_name(lang):
+    """One report said 확인 필요 and 검토 필요 for one level, and 미흡 and 나쁨 for another: readers took them for
+    four levels. The name on a row is the verdict's name."""
+    import re
+    for level in ("good", "check", "poor"):
+        assert TEXT[f"badge.{level}"][lang] == TEXT[f"verdict.{level}"][lang]
+    assert TEXT["lab.c_check"][lang] == TEXT["verdict.check"][lang] and TEXT["lab.c_poor"][lang] == TEXT["verdict.poor"][lang]
+    old = re.compile(RETIRED_LEVEL_WORDS[lang])
+    assert [key for key, entry in TEXT.items() if key not in OTHER_MEANING and old.search(entry[lang])] == []
+
+
 @pytest.mark.parametrize("key", sorted(TEXT))
 def test_every_text_has_all_languages_and_matching_placeholders(key):
     entry = TEXT[key]

@@ -1,4 +1,46 @@
 {
+  "0.1.7": {
+    "en": [
+      "DubEval for Mac (Apple silicon) is here: signed by ESTsoft Corp. and checked by Apple, so it opens like any other app, and it updates itself from now on.",
+      "Voice quality: with the voice-quality download, a newer model grades the voice. It stays steady over background music, where the old one swung.",
+      "Voice similarity now says same voice, another voice, or can't tell. When it can't recognise the original's own speakers, it says so instead of grading.",
+      "The large speech model is used whenever it is downloaded, even without a graphics card: slower, but far more accurate. When the speech model reads a language poorly, the report says so under the verdict.",
+      "The translation check is now one row with its five scores. If the checker chosen on the start page has no credit left or its key is rejected, the next one with a key checks the translation, and the report says which.",
+      "The local translation checker download is now Gemma 4 12B, which caught every mistake planted in our tests, and it runs on Macs with Apple silicon too. If you have the old one, Settings → Models offers Update.",
+      "Lips are checked only with the lip-sync download: the rough estimate used without it was unreliable and has been removed.",
+      "Reports put problems first, and checks that didn't run are grouped by reason with what to do. The start page shows a picture and the length of a chosen file, and videos that fade in from black no longer get a black picture."
+    ],
+    "ko": [
+      "Mac(Apple 실리콘)용 DubEval이 나왔습니다: ESTsoft Corp.의 서명과 Apple의 확인을 거쳐 다른 앱처럼 바로 열리고, 이제부터 스스로 업데이트됩니다.",
+      "음성 품질: 음성 품질 다운로드가 있으면 새 모델이 목소리를 평가합니다. 이전 모델이 흔들리던 배경 음악 위에서도 안정적입니다.",
+      "음성 유사도는 이제 같은 목소리, 다른 목소리, 판단할 수 없음 중 하나로 알려 줍니다. 원본 화자들의 목소리를 구별하지 못하면 평가하지 않고 그렇다고 알려 줍니다.",
+      "큰 음성 인식 모델을 다운로드했다면 그래픽 카드가 없어도 항상 그 모델을 씁니다: 느리지만 훨씬 정확합니다. 음성 인식 모델이 잘 읽지 못하는 언어라면 보고서의 판정 아래에 그렇게 적힙니다.",
+      "번역 검사는 이제 다섯 가지 점수를 담은 한 줄로 표시됩니다. 시작 화면에서 고른 검사기의 크레딧이 없거나 키가 거부되면 키가 있는 다음 검사기가 번역을 검사하고, 어느 검사기였는지 보고서에 적힙니다.",
+      "로컬 번역 검사기 다운로드가 Gemma 4 12B로 바뀌었습니다. 시험에서 일부러 넣은 실수를 모두 찾아냈고, Apple 실리콘 Mac에서도 동작합니다. 이전 버전이 있다면 설정 → 모델에서 업데이트할 수 있습니다.",
+      "입 모양은 립싱크 다운로드가 있을 때만 검사합니다: 다운로드 없이 쓰던 대략적인 추정은 믿을 수 없어 없앴습니다.",
+      "보고서가 문제를 먼저 보여 주고, 실행되지 않은 검사는 이유별로 모아 해야 할 일과 함께 보여 줍니다. 시작 화면은 고른 파일의 그림과 길이를 보여 주고, 검은 화면에서 서서히 나타나는 영상도 이제 검은 그림이 되지 않습니다."
+    ],
+    "pt": [
+      "Chegou o DubEval para Mac (Apple silicon): assinado pela ESTsoft Corp. e verificado pela Apple, abre como qualquer outro app e, a partir de agora, se atualiza sozinho.",
+      "Qualidade de voz: com o download de qualidade de voz, um modelo mais novo avalia a voz. Ele se mantém estável com música de fundo, onde o antigo oscilava.",
+      "A semelhança de voz agora diz mesma voz, outra voz ou não dá para dizer. Quando não consegue reconhecer os próprios falantes do original, diz isso em vez de dar uma nota.",
+      "O modelo de fala grande é usado sempre que estiver baixado, mesmo sem placa de vídeo: mais lento, mas muito mais preciso. Quando o modelo de fala lê mal um idioma, o relatório diz isso abaixo do resultado.",
+      "A verificação da tradução agora é uma linha com suas cinco notas. Se o verificador escolhido na página inicial estiver sem créditos ou tiver a chave recusada, o próximo com uma chave verifica a tradução, e o relatório diz qual foi.",
+      "O download do verificador de tradução local agora é o Gemma 4 12B, que encontrou todos os erros colocados nos nossos testes, e ele também funciona em Macs com Apple silicon. Se você tem o antigo, Configurações → Modelos oferece Atualizar.",
+      "Os lábios só são verificados com o download de sincronia labial: a estimativa aproximada usada sem ele não era confiável e foi removida.",
+      "Os relatórios mostram os problemas primeiro, e as verificações que não rodaram ficam agrupadas por motivo, com o que fazer. A página inicial mostra uma imagem e a duração do arquivo escolhido, e vídeos que começam no preto não ficam mais com uma imagem preta."
+    ],
+    "es": [
+      "Llega DubEval para Mac (Apple silicon): firmado por ESTsoft Corp. y revisado por Apple, se abre como cualquier otra app y, a partir de ahora, se actualiza solo.",
+      "Calidad de voz: con la descarga de calidad de voz, un modelo más nuevo evalúa la voz. Se mantiene estable con música de fondo, donde el anterior oscilaba.",
+      "La similitud de voz ahora dice misma voz, otra voz o no se puede saber. Cuando no logra reconocer a los propios hablantes del original, lo indica en lugar de calificar.",
+      "El modelo de voz grande se usa siempre que esté descargado, incluso sin tarjeta gráfica: más lento, pero mucho más preciso. Cuando el modelo de voz lee mal un idioma, el informe lo indica debajo del resultado.",
+      "La comprobación de la traducción ahora es una sola fila con sus cinco puntuaciones. Si el comprobador elegido en la página de inicio se queda sin créditos o su clave es rechazada, el siguiente con una clave comprueba la traducción, y el informe dice cuál fue.",
+      "La descarga del comprobador de traducción local ahora es Gemma 4 12B, que encontró todos los errores colocados en nuestras pruebas, y también funciona en Macs con Apple silicon. Si tienes el anterior, Ajustes → Modelos ofrece Actualizar.",
+      "Los labios solo se comprueban con la descarga de sincronía labial: la estimación aproximada que se usaba sin ella no era fiable y se ha eliminado.",
+      "Los informes muestran primero los problemas, y las comprobaciones que no se ejecutaron se agrupan por motivo, con qué hacer. La página de inicio muestra una imagen y la duración del archivo elegido, y los videos que empiezan en negro ya no reciben una imagen negra."
+    ]
+  },
   "0.1.6": {
     "en": [
       "Help improve DubEval, only if you say yes: small usage stats show which steps people use and where evaluations fail. Never your videos, titles, file names, links or error messages. Change your answer anytime in Settings → Privacy.",

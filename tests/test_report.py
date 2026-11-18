@@ -34,6 +34,32 @@ def test_one_poor_metric_makes_the_verdict_poor():
     assert rep["overall"]["level"] == "poor" and "1 serious problem" in rep["overall"]["headline"]
 
 
+def test_the_headline_names_what_is_wrong_and_keeps_how_sure_apart():
+    # "1 serious problem" sent the reader hunting through 26 rows for it; the name and its first moment say where.
+    rep = build_report(make_results(acoustic_metrics={"dubbed_duration_sec": 34.0}))
+    o = rep["overall"]
+    assert o["summary"].startswith("1 serious problem to fix before publishing: Length match")
+    music = build_report(make_results(acoustic_metrics={"rms_ratio": 2.5},
+                                      timing_alignment={"original_speech": [[0.0, 6.0], [10.0, 14.0]]}))["overall"]
+    assert "isn't sure of it: Loudness match" in music["summary"] and "35%" not in music["summary"]
+    assert len(music["sure"]) == 2 and "35%" in music["sure"][0]          # the reason, then "Listen to the dub yourself."
+    assert music["headline"] == " ".join([music["summary"], *music["sure"]])
+    from dubeval.report import _headline
+    from dubeval.i18n import t
+    en = lambda key, **p: t(key, "en", **p)
+    rows = [{"id": "loudness_match", "label": "Loudness match", "level": "check"},
+            {"id": "meaning", "label": "Meaning preserved", "level": "check"},
+            {"id": "speech_overlap", "label": "Speech timing", "level": "check"}]
+    moments = [{"check": "speech_overlap", "start": 75.2, "end": 77.0},           # 1.8 s
+               {"check": "translation_check", "start": 12.9, "end": 19.8},        # a translation moment is the meaning row's
+               {"check": "translation_check", "start": 4.0, "end": 5.0}]
+    assert _headline(en, "check", rows, moments) ==         "3 items need review: Meaning preserved (from 0:04), Speech timing (from 1:15), Loudness match."   # most flagged time first
+    many = [{"id": f"m{i}", "label": f"M{i}", "level": "check"} for i in range(5)]
+    for lang in ("en", "ko", "pt", "es"):
+        text = _headline(lambda key, **p: t(key, lang, **p), "check", many, [])
+        assert "M0, M1, M2" in text and "M3" not in text and "{" not in text, lang     # three names, then "and 2 more"
+
+
 # Good within 3 dB, Check within 6, Poor beyond (a dub 5.1 dB off was graded Good by a person).
 @pytest.mark.parametrize("ratio, level", [(1.0, "good"), (0.75, "good"), (0.6, "check"), (0.4, "poor"),
                                           (1.3, "good"), (1.6, "check"), (2.5, "poor")])
@@ -75,7 +101,7 @@ def test_missing_judge_is_not_measured_with_a_reason_and_the_dub_is_never_good()
     assert "script_accuracy" not in ids          # an optional extra (CLI --script), not a gap
     assert "turned off" in ids["translation_check"]
     assert metric(rep, "translation_check")["value"] is None
-    assert rep["overall"]["counts"]["not_measured"] == 1            # one translation row, not three
+    assert rep["overall"]["counts"]["not_measured"] == 2            # one translation row (not three), and lip sync
     assert rep["overall"]["level"] == "check" and rep["overall"]["unsure"] == ["translation_unchecked"]
     assert "translation wasn't checked" in rep["overall"]["headline"]   # a required check that didn't run
 
@@ -123,11 +149,27 @@ def test_broken_dub_file_is_poor():
 
 def test_lipsync_never_counts_toward_verdict():
     rep = build_report(make_results(translation_judge=JUDGED))
-    assert metric(rep, "lip_movement")["level"] == "info"
-    skipped = make_results(lipsync_metrics={"measured": False, "valid": False, "reason": "skipped (turned off for this run)"})
+    assert metric(rep, "lip_sync")["level"] == "not_measured" and rep["overall"]["level"] == "good"
+    skipped = make_results(lipsync_metrics={"measured": False, "sync": None, "reason_key": "r.lips.skipped"})
     skipped["pipeline"]["share"]["is_lipsync"] = False
-    row = metric(build_report(skipped), "lip_movement")
+    row = metric(build_report(skipped), "lip_sync")
     assert row["level"] == "not_measured" and "isn't lip-synced" in row["message"]
+
+
+def test_a_lip_check_that_didnt_run_isnt_called_experimental():
+    # "Lip movement (experimental)" headed a section where nothing had run, on a PC with the real check installed.
+    section = lambda rep: next(s for s in rep["sections"] if s["id"] == "lipsync")
+    off = make_results(lipsync_metrics={"measured": False, "valid": False, "reason": "skipped (turned off for this run)",
+                                        "reason_key": "r.lips.skipped"})
+    off["pipeline"]["share"]["is_lipsync"] = None
+    for lang in ("en", "ko", "pt", "es"):
+        s = section(build_report(off, lang))
+        assert "xperiment" not in s["title"] and "실험" not in s["title"] and "note" not in s
+        assert s["metrics"][0]["label"] == s["title"] and "{" not in s["metrics"][0]["message"]
+    s = section(build_report(off))
+    assert s["title"] == "Lip sync" and "turn it on under More options" in s["metrics"][0]["message"]
+    assert "experimental" not in render_text(build_report(off)).lower() and "experimental" not in render_html(build_report(off))
+    assert "xperimental" not in str(build_report(make_results(translation_judge=JUDGED)))   # the estimate is gone
 
 
 def test_script_score_appears_when_a_script_was_given():
@@ -140,13 +182,52 @@ def test_renderers_show_verdict_sections_and_things_to_check():
     r = make_results()
     rep = build_report(r)
     text = render_text(rep)
-    assert "OVERALL:  ✅  GOOD" in text and "3. TIMING ALIGNMENT" in text and "00:19.4–00:20.4" in text
+    assert "OVERALL:  ✅  GOOD" in text and "PASSED (" in text and "00:19.4–00:20.4" in text
     assert "Perso #100001" in text
     assert "NOT MEASURED" in render_text(build_report(make_results(translation_judge=JUDGE_OFF)))
     page = render_html(rep, r, "original.mp4", "dubbed_ko.mp4")
     assert page.startswith("<!doctype html>") and "prefers-color-scheme:dark" in page
     assert "<video" in page and "Speech timeline" in page and "Things to check" in page
     assert "안녕하세요" in page                                      # evidence transcripts
+
+
+def test_reports_put_problems_first_and_what_passed_in_a_line_each():
+    # A 7 s clip printed 1,700 words, most of them about what passed, with the one Poor row in section 5.
+    r = make_results(acoustic_metrics={"dubbed_duration_sec": 34.0})         # the length is Poor
+    rep = build_report(r)
+    text = render_text(rep)
+    order = [text.index(x) for x in ("OVERALL", "THINGS TO CHECK", "MEASURES THAT NEED ATTENTION", "PASSED (", "Method:")]
+    assert order == sorted(order)
+    attention, passed = text[order[2]:order[3]], text[order[3]:order[4]]
+    poor, good = metric(rep, "length_match"), metric(rep, "loudness_match")
+    assert poor["label"] in attention and poor["thresholds"][:40] in " ".join(attention.split())   # in full, with its grading
+    assert good["label"] in passed and good["message"][:40] not in " ".join(text.split())          # a line: name and value
+    assert "The HTML report and the app explain each one" in " ".join(passed.split())
+    page = render_html(rep, r)
+    assert page.index("Things to check") < page.index("Measures that need attention") < page.index("Passed (")
+    import html
+    assert html.escape(good["message"]) in page and html.escape(good["thresholds"]) in page   # folded, never dropped
+    assert "<script" not in page                                             # folds are <details>: saved reports run no script
+    for lang in ("ko", "pt", "es"):
+        assert "{" not in render_text(build_report(r, lang)) and "{" not in render_html(build_report(r, lang), r).split("</style>")[1]
+
+
+def test_checks_that_didnt_run_are_put_together_with_what_to_do():
+    # An Uzbek dub heard as Kazakh repeated one sentence in 12 rows.
+    from test_speech_problems import uzbek_heard_as_kazakh
+    rep = build_report(uzbek_heard_as_kazakh())
+    groups = rep["skipped"]
+    assert sum(len(g["ids"]) for g in groups) == len(rep["not_measured"])
+    big = groups[0]
+    assert big["banner"] and len(big["ids"]) >= 8 and {"language", "clarity", "speech_overlap"} <= set(big["ids"])
+    assert "heard Kazakh" in big["reason"] and big["action"].startswith("What to do: add the dub's subtitle file")
+    assert big["title"] == f"{len(big['ids'])} checks didn't run"
+    assert all(not g["banner"] and g["action"] is None for g in groups[1:] if len(g["ids"]) < 3)
+    text = " ".join(render_text(rep).split())
+    assert text.count("heard Kazakh") == 1 and "What to do: add the dub's subtitle file" in text
+    for lang in ("ko", "pt", "es"):
+        other = build_report(uzbek_heard_as_kazakh(), lang)["skipped"][0]
+        assert "{" not in other["title"] + other["reason"] + other["action"]
 
 
 def test_html_escapes_untrusted_text():
@@ -364,17 +445,90 @@ def rubric_result(*lines):
     return tj._rubric_result([tj._result({"lines": answer}, "gemini-3.6-flash", "Gemini")], spoken)
 
 
+def test_a_moment_is_poor_only_when_its_measure_is():
+    # 7 of 20 graded dubs showed a Poor moment in a dub with no Poor measure: a verdict that seemed to contradict itself.
+    one = build_report(make_results(translation_judge=rubric_result((9, 9, False), (3, 9, False), (9, 9, False))))
+    assert metric(one, "translation_check")["level"] == "check"
+    assert [i["severity"] for i in one["problem_intervals"] if i["check"] == "translation_check"] == ["check"]
+    three = build_report(make_results(translation_judge=rubric_result((3, 9, False), (2, 9, False), (4, 9, False))))
+    assert metric(three, "translation_check")["level"] == "poor"
+    assert "poor" in [i["severity"] for i in three["problem_intervals"] if i["check"] == "translation_check"]
+    assert all(m["severity"] == max((three["problem_intervals"][i]["severity"] for i in m["intervals"]),
+                                    key=["check", "poor"].index) for m in three["moments"])
+
+
+def test_things_to_check_list_each_moment_once_in_parts_and_the_misheard_apart():
+    judged = rubric_result((9, 9, False), (3, 9, False), (9, 5, True))
+    rep = build_report(make_results(translation_judge=judged))
+    things = rep["things_to_check"]
+    moments = [x for x in things if x["kind"] == "moment"]
+    assert len(moments) == len(rep["moments"]) <= len(rep["problem_intervals"])
+    assert sorted(i for m in rep["moments"] for i in m["intervals"]) == list(range(len(rep["problem_intervals"])))
+    wrong = next(x for x in moments if x["interval"]["category"] == "mistranslation")
+    assert wrong["problem"].startswith("Meaning distorted") and "“" not in wrong["problem"]     # the parts are apart...
+    assert wrong["original"] == "line 2" and wrong["dubbed"] == "줄 2" and wrong["suggestion"] == "더 나은 번역"
+    assert "“line 2” → “줄 2”" in wrong["message"] and "더 나은 번역" in wrong["message"]            # ...and whole in one text
+    misheard = [x for x in things if x["kind"] == "misheard"]
+    assert len(misheard) == len(rep["possible_asr_errors"]) == 1 and misheard[0]["doubt"] == "asr" \
+        and misheard[0]["interval"] is None
+    text = render_text(rep)
+    assert "POSSIBLY MISHEARD (NOT COUNTED)" in text and "Suggested translation: “더 나은 번역”" in text
+    assert text.index("POSSIBLY MISHEARD") > text.index("Meaning distorted")
+    for lang in ("ko", "pt", "es"):
+        assert "{" not in render_text(build_report(make_results(translation_judge=judged), lang))
+
+
 def translation_rows(r, lang="en"):
-    return {m["id"]: m for s in build_report(r, lang)["sections"] for m in s["metrics"]}
+    """Every row by id, and the scores inside the translation check's row by theirs (meaning, naturalness, ...)."""
+    rows = {m["id"]: m for s in build_report(r, lang)["sections"] for m in s["metrics"]}
+    return rows | {p["id"]: p for m in rows.values() for p in m.get("parts") or []}
 
 
 @pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
 def test_rubric_rows_show_every_criterion_with_its_average(lang):
-    rows = translation_rows(make_results(translation_judge=rubric_result((9, 9, False), (8, 9, False))), lang)
+    r = make_results(translation_judge=rubric_result((9, 9, False), (8, 9, False)))
+    rows = translation_rows(r, lang)
     for mid in ("meaning", "naturalness", "context_fit", "terminology", "localization"):
-        assert rows[mid]["level"] == "good" and "/ 10" in rows[mid]["display"]
-        assert "{" not in rows[mid]["message"] + rows[mid]["thresholds"] + rows[mid]["label"]
+        assert rows[mid]["level"] == "good" and "/ 10" in rows[mid]["display"] and "{" not in rows[mid]["label"]
     assert rows["meaning"]["value"] == 8.5 and "completeness" not in rows
+    # One row, with the five scores inside it: five rows said one thing (the last four had one level on 11 of 16 dubs).
+    section = next(s for s in build_report(r, lang)["sections"] if s["id"] == "translation")
+    assert [m["id"] for m in section["metrics"]] == ["translation_check"]
+    row = section["metrics"][0]
+    assert row["level"] == "good" and row["value"] == 8.5 and [p["id"] for p in row["parts"]] == [
+        "meaning", "naturalness", "context_fit", "terminology", "localization"]
+    assert "{" not in row["message"] + row["thresholds"] + row["label"] + row["display"]
+    # A row that passed is one line in the text report; the HTML report folds its explanation and its scores.
+    assert row["display"] in render_text(build_report(r, lang))
+    assert all(p["label"] in render_html(build_report(r, lang)) for p in row["parts"])
+
+
+def test_the_translation_row_takes_the_worst_of_its_scores_and_says_which():
+    row = lambda *lines: translation_rows(make_results(translation_judge=rubric_result(*lines)))["translation_check"]
+    good, wording, lost, serious = (9, 9, False), (9, 5, False), (6, 9, False), (3, 9, False)
+    only_wording = row(good, good, wording)
+    assert only_wording["level"] == "check" and only_wording["display"] == "1 of 3 lines flagged · meaning 9.0 / 10"
+    assert "Every line keeps the original's meaning" in only_wording["message"]
+    assert "The meaning is kept" in only_wording["message"]
+    # Each score's two numbers are apart and named: "5.2 / 10" beside "(5)" in one sentence read as one number.
+    wording_score = next(p for p in only_wording["parts"] if p["id"] == "naturalness")
+    assert (wording_score["display"], wording_score["low"], wording_score["low_display"]) == ("7.7 / 10", 1, "1 of 3")
+    assert "(1)" not in only_wording["message"]
+    printed = " ".join(render_text(build_report(make_results(translation_judge=rubric_result(good, good, wording)))).split())
+    assert "Natural wording: Average of all lines 7.7 / 10 · Lines scoring 6 or lower: 1 of 3" in printed
+    some = row(good, lost, wording)
+    assert some["level"] == "check" and "Lines that lose or change the original's meaning: 1 of 3" in some["message"]
+    assert some["display"].startswith("2 of 3 lines flagged")
+    assert row(serious, serious, serious)["level"] == "poor" and "redone" in row(serious, serious, serious)["message"]
+    assert row(good, good)["display"] == "meaning 9.0 / 10"
+    # Only a line that may be misheard: neither "every line keeps the meaning" nor "some meaning is lost" is true.
+    unsure = row(good, good, (2, 9, True))
+    assert unsure["level"] == "check" and "No line clearly loses" in unsure["message"]
+    assert "Every line keeps" not in unsure["message"] and "Some meaning is lost" not in unsure["message"]
+    for lang in ("ko", "pt", "es"):
+        for lines in ((good, good, wording), (good, lost, wording), (good, good, (2, 9, True))):
+            shown = translation_rows(make_results(translation_judge=rubric_result(*lines)), lang)["translation_check"]
+            assert "{" not in shown["message"] + shown["display"] + shown["thresholds"]
 
 
 def test_meaning_is_poor_with_three_serious_lines_or_most_lines_and_check_with_one_or_two():
@@ -393,14 +547,16 @@ def test_meaning_is_poor_with_three_serious_lines_or_most_lines_and_check_with_o
 def test_the_other_criteria_reach_check_at_most():
     rows = translation_rows(make_results(translation_judge=rubric_result((9, 1, False))))
     assert rows["naturalness"]["level"] == "check" and rows["meaning"]["level"] == "good"
+    assert rows["translation_check"]["level"] == "check"                # the row follows its worst score
 
 
 def test_a_possibly_misheard_line_is_check_at_most_and_only_when_very_low():
     rows = translation_rows(make_results(translation_judge=rubric_result((9, 9, False), (5, 9, True))))
-    assert rows["meaning"]["level"] == "good" and "recognition error" in rows["meaning"]["message"]
+    assert rows["meaning"]["level"] == "good" and "recognition error" in rows["translation_check"]["message"]
     for many in (1, 4):                    # very low but maybe misheard: a person listens (Check), never Poor
         rows = translation_rows(make_results(translation_judge=rubric_result((9, 9, False), *[(2, 9, True)] * many)))
-        assert rows["meaning"]["level"] == "check" and "listen" in rows["meaning"]["message"]
+        assert rows["meaning"]["level"] == "check" and "listen" in rows["translation_check"]["message"]
+        assert rows["translation_check"]["level"] == "check"
 
 
 def test_a_very_low_possibly_misheard_line_is_a_moment_to_listen_to():
@@ -414,7 +570,8 @@ def test_a_rubric_problem_is_a_timed_interval_with_its_type_and_suggested_transl
     rep = build_report(make_results(translation_judge=rubric_result((9, 9, False), (4, 9, False), (9, 5, False))), "en")
     wrong = [i for i in rep["problem_intervals"] if i["category"] == "mistranslation"]
     wording = [i for i in rep["problem_intervals"] if i["category"] == "translation_wording"]
-    assert wrong and wrong[0]["severity"] == "poor" and "Meaning distorted" in wrong[0]["description"]
+    # One line scoring 4 leaves Meaning at Needs review, so its moment is Needs review too (see the test below).
+    assert wrong and wrong[0]["severity"] == "check" and "Meaning distorted" in wrong[0]["description"]
     assert "Suggested translation: “더 나은 번역”" in wrong[0]["description"]
     assert wording and wording[0]["severity"] == "check" and "Word choice" in wording[0]["description"]
 
@@ -481,6 +638,15 @@ def test_a_backup_judge_model_is_noted_without_changing_the_level():
     assert noted[0] == plain[0] and noted[1] == ["judge_fallback"] and "gemini-3.1-flash-lite" in noted[2]
 
 
+@pytest.mark.parametrize("why, said", [("r.judge.no_credit", "no credit left"), ("r.judge.bad_key", "rejected the API key")])
+def test_a_judge_that_handed_over_is_noted_without_changing_the_level(why, said):
+    judged = {**JUDGED, "model": "gemini-3.5-flash", "handed_over": {"from": "claude", "name": "Claude", "reason_key": why}}
+    plain = _verdict(make_results(translation_judge=JUDGED))
+    noted = _verdict(make_results(translation_judge=judged))
+    assert noted[0] == plain[0] and noted[1] == ["judge_handover"]
+    assert "Claude" in noted[2] and "gemini-3.5-flash" in noted[2] and said in noted[2]
+
+
 def test_a_stretch_heard_in_part_is_not_added_twice(monkeypatch):
     from dubeval import evaluate
     stt = {"text": "hello", "language": "en", "segments": [seg(4.0, 7.0, text="hello")]}
@@ -531,3 +697,42 @@ def test_line_length_is_poor_only_when_most_lines_are_off(off, level):
               "original": [i], "dub": [i], **(far if i < off else fit)} for i in range(10)]
     sa = {"groups": [], "unmatched_original": [], "unmatched_dub": [], "lines": lines}
     assert line_rows(build_report(make_results(segment_alignment=sa), "en"))["line_length"]["level"] == level
+
+
+# ---------------- languages the speech model reads badly ----------------
+def sure_lines(lang="en", **metadata):
+    """The "not sure" sentences of the sample report with its metadata changed."""
+    return build_report(make_results(metadata=metadata), lang)["overall"]
+
+
+def test_a_language_the_model_reads_badly_gets_a_note_and_changes_no_level():
+    weak = sure_lines(target_language="uz", whisper_model="large-v3-turbo")
+    fine = sure_lines(target_language="ko", whisper_model="large-v3-turbo")
+    assert "weak_dub" in weak["unsure"] and "weak_dub" not in fine["unsure"]
+    note = next(s for s in weak["sure"] if "Uzbek" in s)
+    assert "large-v3-turbo" in note and "82%" in note and "rough" in note
+    assert "weak_tip" not in weak["unsure"]                      # the large model is what read it badly
+
+
+def test_the_note_points_to_the_large_model_when_it_reads_the_language_well():
+    weak = sure_lines(target_language="ja", whisper_model="base")
+    assert weak["unsure"][-2:] == ["weak_dub", "weak_tip"]
+    assert "Japanese" in weak["sure"][-1] and "5%" in weak["sure"][-1] and "Settings → Models" in weak["sure"][-1]
+    # Thai is weak with both models: the note, without the pointer.
+    assert "weak_tip" not in sure_lines(target_language="th", whisper_model="base")["unsure"]
+
+
+def test_the_original_language_is_noted_too_and_unmeasured_ones_say_nothing():
+    both = sure_lines(target_language="ja", detected_source_language="fr", whisper_model="base")
+    assert both["unsure"].count("weak_tip") == 2 and {"weak_dub", "weak_original"} <= set(both["unsure"])
+    assert any("the original is in French" in s for s in both["sure"])
+    for quiet in (dict(target_language="ko", whisper_model="small"),          # a model that wasn't measured
+                  dict(target_language="yo", whisper_model="large-v3-turbo"),  # a language that wasn't
+                  dict(target_language="es-MX", whisper_model="base")):        # read well (the base code counts)
+        assert not [k for k in sure_lines(**quiet)["unsure"] if k.startswith("weak")]
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_the_weak_language_notes_exist_in_every_report_language(lang):
+    weak = sure_lines(lang, target_language="ja", detected_source_language="fr", whisper_model="base")
+    assert sum("base" in s for s in weak["sure"]) == 2 and sum("21%" in s or "11%" in s for s in weak["sure"]) == 2

@@ -82,3 +82,28 @@ def test_a_web_page_that_cant_be_read_is_explained(monkeypatch):
 def test_a_missing_file_is_explained(tmp_path):
     with pytest.raises(ValueError, match="no video at this path"):
         preview.preview(str(tmp_path / "missing.mp4"))
+
+
+def test_the_moments_tried_for_a_picture():
+    assert preview.frame_times(60.0) == [6.0, 15.0, 30.0, 1.0]
+    assert preview.frame_times(600.0)[0] == 20.0                 # past the opening, not a minute in
+    assert preview.frame_times(1.0) == [0.1, 0.25, 0.5]           # a very short video: no duplicates
+    assert preview.frame_times(None) == [1.0, 5.0]
+
+
+def test_a_video_that_fades_in_gets_a_picture_that_is_not_black(tmp_path):
+    """A clip black for its first 3 s, then bright: a frame a second in would be black."""
+    import base64
+    import subprocess
+    from dubeval.inputs import FFMPEG_EXE
+    clip = tmp_path / "fade.mp4"
+    subprocess.run([FFMPEG_EXE, "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=white:s=160x90:d=10",
+                    "-vf", "fade=in:st=0:d=0.1:color=black,fade=in:st=3:d=0.1", "-pix_fmt", "yuv420p", str(clip)],
+                   check=True, timeout=60)
+    uri = preview._frame(str(clip), 10.0)
+    level = preview._brightness(base64.b64decode(uri.split(",", 1)[1]))
+    assert level is not None and level >= preview.DARK_LEVEL
+    black = tmp_path / "black.mp4"
+    subprocess.run([FFMPEG_EXE, "-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=black:s=160x90:d=4",
+                    "-pix_fmt", "yuv420p", str(black)], check=True, timeout=60)
+    assert preview._frame(str(black), 4.0).startswith("data:image/jpeg")   # all black: still a picture, never none

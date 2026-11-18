@@ -86,18 +86,25 @@ def lines(*spans):
     return [{"start": s, "end": e, "text": "x"} for s, e in spans]
 
 
-def test_lines_are_compared_at_the_same_moment_and_noisy_ones_skipped():
+def test_lines_are_compared_at_the_same_moment():
     orig = np.concatenate([tone(150, 3), tone(250, 3), tone(150, 3)])
     dub = np.concatenate([tone(150, 3), tone(400, 3), tone(150, 3)])
-    quiet_bg = lambda audio: 4.0
-    r = speaker.voice_similarity(orig, dub, lines((0, 3), (3, 6), (6, 9), (8.5, 9.0)), quiet_bg, FakeSession())
+    r = speaker.voice_similarity(orig, dub, lines((0, 3), (3, 6), (6, 9), (8.5, 9.0)), FakeSession())
     assert r["measured"] and [l["start"] for l in r["lines"]] == [0, 3, 6]          # the 0.5 s line is skipped
     assert r["lines"][0]["similarity"] > 0.99 and r["lines"][1]["similarity"] < 0.2
-    loud_bg = lambda audio: 2.0
-    noisy = speaker.voice_similarity(orig, dub, lines((0, 3), (3, 6)), loud_bg, FakeSession())
-    assert not noisy["measured"] and noisy["reason_key"] == "r.vs.noisy" and noisy["skipped_noisy"] == 2
-    few = speaker.voice_similarity(orig, dub, lines((0, 3)), quiet_bg, FakeSession())
-    assert few["reason_key"] == "r.vs.few_lines"
+    few = speaker.voice_similarity(orig, dub, lines((0, 3)), FakeSession())
+    assert few["reason_key"] == "r.vs.few_lines" and few["original_self"] is None
+
+
+def test_the_original_speakers_are_matched_with_themselves():
+    # One speaker with three lines and another with two: every line has another line of the same voice.
+    known = np.concatenate([tone(150, 3), tone(250, 3), tone(150, 3), tone(250, 3), tone(150, 3)])
+    spans = lines((0, 3), (3, 6), (6, 9), (9, 12), (12, 15))
+    assert speaker.voice_similarity(known, known, spans, FakeSession())["original_self"] > 0.99
+    # Every line sounds like nobody else in the video (music, several people at once): the model knows no speaker.
+    unknown = np.concatenate([tone(f, 3) for f in (150, 250, 400, 600, 900)])
+    r = speaker.voice_similarity(unknown, known, spans, FakeSession())
+    assert r["measured"] and r["original_self"] < 0.2
 
 
 def test_both_stretches_of_a_line_go_through_the_model_together():
@@ -120,17 +127,36 @@ def test_onnx_sessions_sleep_between_runs():
 
 
 # ---------------- grading and intervals ----------------
-def vs_result(*sims) -> dict:
-    """A measured voice-similarity result with these per-line similarities."""
+def vs_result(*sims, own=0.8) -> dict:
+    """A measured voice-similarity result with these per-line similarities; own = the original's lines among
+    themselves (None: a result saved before that was measured)."""
     ls = [{"start": i * 5.0, "end": i * 5.0 + 3.0, "similarity": s} for i, s in enumerate(sims)]
-    return {"measured": True, "reason_key": None, "median": float(np.median(sims)), "lines": ls, "skipped_noisy": 0}
+    return {"measured": True, "reason_key": None, "median": float(np.median(sims)), "lines": ls, "original_self": own}
 
 
-@pytest.mark.parametrize("sims, level", [((0.8, 0.85, 0.82), "good"), ((0.5, 0.52, 0.49), "good"),
-                                         ((0.15, 0.2, 0.3), "check")])
-def test_similarity_is_good_or_check_never_poor(sims, level):
+@pytest.mark.parametrize("sims, level, says", [
+    ((0.8, 0.85, 0.82), "good", "original speaker's voice"), ((0.41, 0.45, 0.6), "good", "original speaker's voice"),
+    ((0.33, 0.35, 0.36), "check", "only partly"), ((0.15, 0.2, 0.3), "check", "different voice"),
+    ((0.05, 0.02, 0.08), "check", "different voice"),                  # never Poor: a new voice can be chosen
+])
+def test_similarity_says_same_voice_partly_or_different_never_poor(sims, level, says):
     row = metric(build_report(make_results(voice_similarity=vs_result(*sims))), "voice_similarity")
-    assert row["level"] == level and row["thresholds"] and "lines" in row["display"]
+    assert row["level"] == level and says in row["message"] and row["thresholds"] and "lines" in row["display"]
+    if level == "check":
+        assert "80% alike" in row["message"]              # why the number can be trusted: the original's own lines
+
+
+def test_a_low_similarity_is_not_graded_when_the_model_cannot_follow_the_original():
+    # A film clip: the original's own lines are 45% alike, so 24% for the dub proves nothing about its voice.
+    row = metric(build_report(make_results(voice_similarity=vs_result(0.2, 0.24, 0.3, own=0.45))), "voice_similarity")
+    assert row["level"] == "not_measured" and "Can't tell" in row["message"]
+    assert "24%" in row["message"] and "45%" in row["message"] and "60%" in row["message"]
+    # A match that high is itself the proof (two different people never reached it): it is graded all the same.
+    row = metric(build_report(make_results(voice_similarity=vs_result(0.44, 0.46, 0.5, own=0.45))), "voice_similarity")
+    assert row["level"] == "good"
+    # A result saved before the original was matched with itself keeps a grade.
+    row = metric(build_report(make_results(voice_similarity=vs_result(0.2, 0.24, 0.3, own=None))), "voice_similarity")
+    assert row["level"] == "check" and "different voice" in row["message"]
 
 
 def test_not_measured_reasons_are_explained():
@@ -151,6 +177,9 @@ def test_a_line_with_another_voice_becomes_an_interval(sims, flagged):
                      voice_similarity=vs_result(*sims))
     out = build_intervals(r, lambda key, **p: t(key, "en", **p), "en")["intervals"]
     assert [i["start"] for i in out if i["category"] == "voice_change"] == flagged
+    r["voice_similarity"]["original_self"] = 0.45        # the model can't follow this video's speakers: no line counts
+    out = build_intervals(r, lambda key, **p: t(key, "en", **p), "en")["intervals"]
+    assert not [i for i in out if i["category"] == "voice_change"]
 
 
 def test_the_speaker_model_shipped_with_the_app_needs_no_download(monkeypatch, tmp_path):

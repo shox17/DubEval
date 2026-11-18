@@ -72,6 +72,8 @@ function init({ getWindow, isOwnPage, log }) {
     if (updater && state.phase === "ready") updater.quitAndInstall(false, true);
   }));
   if (!app.isPackaged) return;
+  // macOS (since 0.1.7): the release's latest-mac.yml and .zip; Squirrel.Mac installs only an update signed with the
+  // same Apple Developer ID as the running app (ESTsoft's), so every Mac release must be signed and notarized with it.
 
   ({ autoUpdater: updater } = require("electron-updater"));
   updater.autoDownload = true;

@@ -8,8 +8,9 @@ every other line as context.
 
 Judges, chosen by DUBEVAL_JUDGE (auto | claude | gemini | openai | ollama | off). "auto" takes the first one available:
 Claude (ANTHROPIC_API_KEY or an `ant auth login` profile), then Gemini (GEMINI_API_KEY), then ChatGPT (OPENAI_API_KEY), then a local model through
-Ollama (DUBEVAL_OLLAMA_URL, default http://127.0.0.1:11434, model DUBEVAL_OLLAMA_MODEL, default qwen3:8b), which
-keeps everything on this computer. Every dub in a benchmark should be judged by the same judge; the report names
+Ollama (DUBEVAL_OLLAMA_URL, default http://127.0.0.1:11434, model DUBEVAL_OLLAMA_MODEL, default local_judge.MODEL), which
+keeps everything on this computer. In auto, and for the judge the app's start page chose, a rejected key or an account
+without credit hands over to the next judge, and the result says so. Every dub in a benchmark should be judged by the same judge; the report names
 it. Without a judge, or on any failure, the result is "not measured" with the reason, never a failed run.
 """
 import os
@@ -20,6 +21,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import requests
+
+from dubeval import local_judge
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +38,7 @@ OPENAI_API = "https://api.openai.com/v1/chat/completions"
 # Tried in order: a model the key can't use (404, model_not_found) hands over to the next.
 OPENAI_MODELS = [os.getenv("DUBEVAL_OPENAI_MODEL", "gpt-5-mini"), "gpt-5", "gpt-4.1-mini"]
 OLLAMA_URL = (os.getenv("DUBEVAL_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/")
-OLLAMA_MODEL = os.getenv("DUBEVAL_OLLAMA_MODEL", "qwen3:8b")
+OLLAMA_MODEL = os.getenv("DUBEVAL_OLLAMA_MODEL") or local_judge.MODEL
 OLLAMA_TIMEOUT_SEC = int(os.getenv("DUBEVAL_OLLAMA_TIMEOUT", "600"))
 JUDGES = ("claude", "gemini", "openai", "ollama")
 DUB_TYPES = ("ai_clone", "ai_stock", "human")
@@ -390,14 +393,22 @@ def judge_translation(original_segments: list[dict], dubbed_segments: list[dict]
                       target_lang: str, client=None, session=None,
                       sleep: Callable[[float], None] = time.sleep, lines: Optional[list[dict]] = None,
                       dub_type: Optional[str] = None, provider: Optional[str] = None,
-                      description: Optional[str] = None, lock: bool = False) -> dict:
+                      description: Optional[str] = None, lock: bool = False,
+                      on_switch: Optional[Callable[[str], None]] = None) -> dict:
     """Scores every line against the rubric with the chosen judge, CHUNK_LINES lines per request.
 
     lines: the speech line by line (pipeline.judge_lines); dub_type: ai_clone | ai_stock | human (human dubs may
-    adapt freely); description: the video's title; lock: only the judge's first model, never a backup. client: an
-    Anthropic client (forces Claude); session: a requests-like session (forces Gemini, or Ollama with
-    provider="ollama"). Both are for tests. A request that fails, or lines still unanswered after asking again, make
-    the whole check "not measured", with the reason: half a translation check would mislead.
+    adapt freely); description: the video's title; lock: only the judge's first model, never a backup. provider: the
+    judge the app's start page chose, tried first (see handover below). client: an Anthropic client (forces Claude);
+    session: a requests-like session (forces Gemini, or Ollama with provider="ollama"). Both are for tests. A request
+    that fails, or lines still unanswered after asking again, make the whole check "not measured", with the reason:
+    half a translation check would mislead.
+
+    A judge whose key is rejected or whose account has no credit (ACCOUNT_PROBLEMS) hands over to the next usable one,
+    in auto mode and for the start page's choice (it preselects the first judge with a key, and the person's other
+    saved keys are there to be used); the result says so in "handed_over". A judge named with --judge
+    (DUBEVAL_JUDGE) never hands over. on_switch(name) runs before handing over (the pipeline frees the graphics card
+    for the local judge).
     """
     if not any(s.get("text") for s in original_segments) or not any(s.get("text") for s in dubbed_segments):
         return not_measured("r.judge.no_speech")
@@ -406,22 +417,28 @@ def judge_translation(original_segments: list[dict], dubbed_segments: list[dict]
     prompt_for = lambda numbers: build_prompt(original_segments, dubbed_segments, source_lang, target_lang, lines,
                                               dub_type, description, numbers)
     prompts = [prompt_for(numbers) for numbers in chunks]
-    if client is not None or provider or session is not None:
+    if client is not None or session is not None:
         ask = (lambda p, prefer=None: _judge_claude(p, client, lock)) if client is not None else \
             (lambda p, prefer=None: _run_judge(provider or "gemini", p, session, sleep, prefer, lock))
         parts = [ask(prompts[0])]
         parts += [ask(p, parts[0].get("model_id")) for p in prompts[1:]]
-        return _rubric_result(_ask_again(_asked(chunks, parts), ask, prompt_for), lines)
-    chosen = judge_provider()
+        return _by(_rubric_result(_ask_again(_asked(chunks, parts), ask, prompt_for), lines),
+                   "claude" if client is not None else provider or "gemini")
+    chosen = provider or judge_provider()
     if chosen is None:
         return not_measured("r.judge.no_key")
-    parts = [_run_judge(chosen, prompts[0], None, sleep, lock=lock)]
-    if (os.getenv("DUBEVAL_JUDGE") or "auto").strip().lower() == "auto":
-        # In auto mode a judge whose key is rejected or whose account has no credit hands over to the next one.
-        for nxt in available_judges()[available_judges().index(chosen) + 1:]:
+    parts, handed = [_run_judge(chosen, prompts[0], None, sleep, lock=lock)], None
+    if provider or (os.getenv("DUBEVAL_JUDGE") or "auto").strip().lower() == "auto":
+        usable = available_judges()
+        rest = [j for j in usable if j != chosen] if provider else usable[usable.index(chosen) + 1:]
+        for nxt in rest:
             if parts[0].get("reason_key") not in ACCOUNT_PROBLEMS:
                 break
             log.info("Translation judge %s unusable (%s); trying %s", chosen, parts[0].get("reason_key"), nxt)
+            handed = handed or {"from": chosen, "name": (parts[0].get("reason_params") or {}).get("model") or chosen,
+                                "reason_key": parts[0].get("reason_key")}
+            if on_switch is not None:
+                on_switch(nxt)
             chosen, parts = nxt, [_run_judge(nxt, prompts[0], None, sleep, lock=lock)]
     ask = lambda p, prefer=None: _run_judge(chosen, p, None, sleep, prefer, lock)
     if parts[0].get("measured") and len(prompts) > 1:
@@ -431,7 +448,87 @@ def judge_translation(original_segments: list[dict], dubbed_segments: list[dict]
         prefer = parts[0].get("model_id")
         with ThreadPoolExecutor(PARALLEL_REQUESTS) as pool:
             parts += list(pool.map(lambda p: ask(p, prefer), prompts[1:]))
-    return _rubric_result(_ask_again(_asked(chunks, parts), ask, prompt_for), lines)
+    return _by(_rubric_result(_ask_again(_asked(chunks, parts), ask, prompt_for), lines), chosen, handed)
+
+
+def _by(result: dict, provider: str, handed: Optional[dict] = None) -> dict:
+    """A measured result with the judge that gave it (it may have handed over: handed names the judge that couldn't,
+    and why), so a second request asks the same one."""
+    if not result.get("measured"):
+        return result
+    return {**result, "provider": provider, **({"handed_over": handed} if handed else {})}
+
+
+def flagged(result: dict) -> list[int]:
+    """The numbers of the judged lines with a score at or below report.RUBRIC_FLAG: the lines worth a second listen."""
+    from dubeval.report import RUBRIC_FLAG
+    return [j["line"] for j in result.get("lines") or [] if min(j["scores"].values()) <= RUBRIC_FLAG]
+
+
+def judge_again(first: dict, numbers: list[int], original_segments: list[dict], dubbed_segments: list[dict],
+                source_lang: str, target_lang: str, lines: list[dict], dub_type: Optional[str] = None,
+                description: Optional[str] = None, lock: bool = False, client=None, session=None,
+                sleep: Callable[[float], None] = time.sleep) -> Optional[dict]:
+    """The lines `numbers` judged once more by the judge and model that gave `first`, with `lines` as they read now
+    (a second listen changed their words): {line number: its judgement} with every asked line in it, or None when the
+    judge fails or leaves a line out. client and session are for tests."""
+    provider = first.get("provider") or judge_provider()
+    if provider is None:
+        return None
+    prefer = ((first.get("chunks") or [{}])[0]).get("requested")
+    prompt_for = lambda asked: build_prompt(original_segments, dubbed_segments, source_lang, target_lang, lines,
+                                            dub_type, description, asked)
+    ask = (lambda p, model=None: _judge_claude(p, client, lock)) if client is not None else \
+        (lambda p, model=None: _run_judge(provider, p, session, sleep, model or prefer, lock))
+    chunks = [numbers[i:i + CHUNK_LINES] for i in range(0, len(numbers), CHUNK_LINES)]
+    parts = _ask_again(_asked(chunks, [ask(prompt_for(chunk)) for chunk in chunks]), ask, prompt_for)
+    if any(not p.get("measured") for p in parts):
+        return None
+    judged = {j["line"]: {**j, "model": p["model"]} for p in parts for j in p["lines"] if j["line"] in p["asked"]}
+    return judged if all(n in judged for n in numbers) else None
+
+
+JUDGEMENT = ("scores", "reasons", "ideal_translation", "error_type", "may_be_recognition_error")
+
+
+def with_second_listen(first: dict, lines: list[dict], heard: dict, again: dict, recognizer: str) -> dict:
+    """The result after a second listen. heard: {line number: {"original", "dub": the words heard the second time,
+    "changed": whether they differ from the first reading}}; again: {line number: its judgement on those words}
+    (judge_again). A line takes its second judgement when that one keeps the meaning (above report.RUBRIC_FLAG) and its
+    lowest score beats the first's: a line counts as a problem only when it reads as one both times it is heard. Such a
+    line keeps its first judgement in "heard_again", and its issue, the averages and the counts follow the second."""
+    from dubeval.report import RUBRIC_FLAG
+    by_n, out_lines, cleared = {ln["n"]: dict(ln) for ln in lines}, [], 0
+    for j in first["lines"]:
+        n = j["line"]
+        if n not in heard:
+            out_lines.append(j)
+            continue
+        second = again.get(n)
+        better = bool(second) and second["scores"]["semantic_accuracy"] > RUBRIC_FLAG \
+            and min(second["scores"].values()) > min(j["scores"].values())
+        note = {**heard[n], "used": better}
+        if better:
+            cleared += 1
+            was = {"original": by_n[n].get("original") or "", "dub": by_n[n].get("dub") or "", **{k: j[k] for k in JUDGEMENT}}
+            by_n[n].update(original=heard[n]["original"], dub=heard[n]["dub"])
+            j = {**j, **{k: second[k] for k in JUDGEMENT}, "heard_again": {**note, "first": was}}
+        else:
+            j = {**j, "heard_again": note}
+        out_lines.append(j)
+    models = list(dict.fromkeys(list(first.get("models") or []) + [j["model"] for j in again.values()]))
+    return {**first, **_summed(out_lines, by_n), "model": " + ".join(models), "models": models,
+            "second_listen": {"measured": True, "heard": len(heard),
+                              "changed": sum(1 for h in heard.values() if h["changed"]), "cleared": cleared,
+                              "recognizer": recognizer}}
+
+
+def said(result: dict, lines: list[dict]) -> list[dict]:
+    """lines (pipeline.judge_lines) with the words each line was judged on: the second listen's, where its judgement
+    was taken."""
+    used = {j["line"]: j["heard_again"] for j in result.get("lines") or [] if (j.get("heard_again") or {}).get("used")}
+    return [{**ln, "original": used[ln["n"]]["original"], "dub": used[ln["n"]]["dub"]} if ln["n"] in used else ln
+            for ln in lines]
 
 
 def _asked(chunks: list[list[int]], parts: list[dict]) -> list[dict]:
@@ -458,7 +555,6 @@ def _rubric_result(parts: list[dict], lines: list[dict]) -> dict:
     at or below report.RUBRIC_FLAG (major when its meaning score is at or below report.RUBRIC_POOR). The first failed
     chunk's result is returned as it is. Only the lines a request asked about count, and every line must have an
     answer: a grade from some of the lines would look complete."""
-    from dubeval.report import RUBRIC_FLAG, RUBRIC_POOR
     failed = next((p for p in parts if not p.get("measured")), None)
     if failed is not None:
         return failed
@@ -470,10 +566,23 @@ def _rubric_result(parts: list[dict], lines: list[dict]) -> dict:
         log.warning("Translation judge evaluated %d of %d lines: not graded", len(judged), len(by_n))
         return not_measured("r.judge.incomplete", model=parts[0].get("model") or "", done=len(judged),
                             total=len(by_n))
-    out_lines, issues = [], []
-    for n, ln in by_n.items():
-        j = judged[n]
-        out_lines.append({**j, "start": ln["start"], "end": ln["end"]})
+    out_lines = [{**judged[n], "start": ln["start"], "end": ln["end"]} for n, ln in by_n.items()]
+    models = list(dict.fromkeys(p["model"] for p in parts))
+    return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": " + ".join(models),
+            "models": models, "coverage": {"evaluated": len(out_lines), "total": len(by_n)},
+            "chunks": [{"lines": p.get("asked") or [j["line"] for j in p["lines"]], "model": p["model"],
+                        "requested": p.get("model_id"), "fallback": bool(p.get("fallback"))} for p in parts],
+            "rubric": 1, "scale": 10, "summary": None, **_summed(out_lines, by_n),
+            "fallback": any(p.get("fallback") for p in parts)}
+
+
+def _summed(out_lines: list[dict], by_n: dict) -> dict:
+    """What follows from the judged lines: the averages and an issue for every line with a low score. by_n: each
+    line's times and the words it was judged on, by number."""
+    from dubeval.report import RUBRIC_FLAG, RUBRIC_POOR
+    issues = []
+    for j in out_lines:
+        n, ln = j["line"], by_n[j["line"]]
         low = [c for c in CRITERIA if j["scores"][c] <= RUBRIC_FLAG]
         if not low:
             continue
@@ -490,14 +599,8 @@ def _rubric_result(parts: list[dict], lines: list[dict]) -> dict:
 
     def mean(c):
         return round(sum(j["scores"][c] for j in out_lines) / len(out_lines), 1)
-    models = list(dict.fromkeys(p["model"] for p in parts))
-    return {"measured": True, "reason": "", "reason_key": None, "reason_params": {}, "model": " + ".join(models),
-            "models": models, "coverage": {"evaluated": len(out_lines), "total": len(by_n)},
-            "chunks": [{"lines": p.get("asked") or [j["line"] for j in p["lines"]], "model": p["model"],
-                        "requested": p.get("model_id"), "fallback": bool(p.get("fallback"))} for p in parts],
-            "rubric": 1, "scale": 10, "meaning_score": mean("semantic_accuracy"),
-            "criteria": {c: mean(c) for c in CRITERIA}, "summary": None, "lines": out_lines,
-            "issues": issues[:MAX_ISSUES], "fallback": any(p.get("fallback") for p in parts)}
+    return {"meaning_score": mean("semantic_accuracy"), "criteria": {c: mean(c) for c in CRITERIA},
+            "lines": out_lines, "issues": issues[:MAX_ISSUES]}
 
 
 ACCOUNT_PROBLEMS = ("r.judge.bad_key", "r.judge.no_credit")
@@ -747,6 +850,11 @@ LOCAL_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(_FOUR_LANGUAGES, "- Write every reas
 
 
 LOCAL_ANSWER_TOKENS = 6144                # room for the answer: up to CHUNK_LINES lines with five scores and reasons
+# How much of the model goes on the graphics card, tried in order: Ollama's own choice, about half its layers, none.
+# With part of an 8 GB card already in use, Ollama put 36 of Gemma 4 12B's 49 layers on it and the runner crashed
+# (HTTP 500, "connection forcibly closed") on every request; with 30 or 20 layers, or on the processor alone, the same
+# request was answered (81 s, 105 s and 186 s against 72 s with the whole card, 2026-11-13).
+LOCAL_GPU_LAYERS = (None, 24, 0)
 
 
 def _tokens(text: str) -> int:
@@ -767,20 +875,28 @@ def _judge_ollama(prompt: str, session) -> dict:
             "options": {"temperature": 0, "seed": 0, "num_ctx": num_ctx},
             "messages": [{"role": "system", "content": LOCAL_SYSTEM_PROMPT}, {"role": "user", "content": prompt}]}
     url = None
-    try:
-        url = ollama_url()
-        if url is None:
-            return not_measured("r.judge.local_down", model=OLLAMA_MODEL, url="DubEval (logs/ollama.log)")
-        resp = session.post(f"{url}/api/chat", json=body, timeout=OLLAMA_TIMEOUT_SEC)
-    except requests.Timeout:
-        log.warning("Local judge took longer than %s s", OLLAMA_TIMEOUT_SEC)
-        return not_measured("r.judge.local_slow", model=OLLAMA_MODEL, sec=OLLAMA_TIMEOUT_SEC)
-    except requests.RequestException as e:
-        log.warning("Local judge request failed: %s", e.__class__.__name__)
-        return not_measured("r.judge.local_down", model=OLLAMA_MODEL, url=url)
-    if resp.status_code == 404:
-        return not_measured("r.judge.no_local_model", model=OLLAMA_MODEL)
-    if resp.status_code != 200:
+    for layers in LOCAL_GPU_LAYERS:
+        asked = body if layers is None else {**body, "options": {**body["options"], "num_gpu": layers}}
+        try:
+            url = ollama_url()
+            if url is None:
+                return not_measured("r.judge.local_down", model=OLLAMA_MODEL, url="DubEval (logs/ollama.log)")
+            resp = session.post(f"{url}/api/chat", json=asked, timeout=OLLAMA_TIMEOUT_SEC)
+        except requests.Timeout:
+            log.warning("Local judge took longer than %s s", OLLAMA_TIMEOUT_SEC)
+            return not_measured("r.judge.local_slow", model=OLLAMA_MODEL, sec=OLLAMA_TIMEOUT_SEC)
+        except requests.RequestException as e:
+            log.warning("Local judge request failed: %s", e.__class__.__name__)
+            return not_measured("r.judge.local_down", model=OLLAMA_MODEL, url=url)
+        if resp.status_code == 404:
+            return not_measured("r.judge.no_local_model", model=OLLAMA_MODEL)
+        if resp.status_code == 200:
+            break
+        # Ollama's own words; a crashed runner (the model didn't fit the card as Ollama split it) is tried again smaller
+        log.warning("Local judge answered HTTP %s with %s: %s", resp.status_code,
+                    "its own split" if layers is None else f"{layers} layers on the graphics card",
+                    (getattr(resp, "text", "") or "")[:300])
+    else:
         return not_measured("r.judge.error", model=f"Ollama ({OLLAMA_MODEL})")
     data = resp.json()
     if data.get("done_reason") == "length":

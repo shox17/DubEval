@@ -31,6 +31,9 @@ class Metric(_Model):
     display: Optional[str] = Field(None, description="The value as shown to a person")
     message: str = Field(description="What was found, what it means for a viewer, what to do")
     thresholds: Optional[str] = Field(None, description="How the level is graded")
+    parts: Optional[list[dict]] = Field(
+        None, description="The scores inside this measure (the translation check's five criteria), each "
+                          "{id, label, level, value, display, low}")
 
 
 class Section(_Model):
@@ -53,6 +56,22 @@ class Interval(_Model):
     description: str
     merged: int = Field(1, description="How many findings were merged into this range")
     dub: Optional[str] = Field(None, description="Which dub (A, B, ...) in a comparison")
+    problem: Optional[str] = Field(None, description="What is wrong, in a sentence (description holds every part)")
+    original: Optional[str] = Field(None, description="What the original says there")
+    dubbed: Optional[str] = Field(None, description="What the dub says there")
+    suggestion: Optional[str] = Field(None, description="A better translation, when the translation check gave one")
+    doubt: Optional[Literal["asr", "asr_or_real"]] = Field(
+        None, description="asr: probably misheard by speech recognition; asr_or_real: misheard or a real error")
+    line: Optional[int] = Field(None, description="The line it is about, when it is about one")
+    moment: Optional[int] = Field(None, description="Index of its moment in the report's moments")
+
+
+class Moment(_Model):
+    """The findings about one moment, together: what a person looks at once."""
+    start: float
+    end: float
+    severity: Literal["check", "poor"] = Field(description="The worst of its findings")
+    intervals: list[int] = Field(description="Indexes into problem_intervals; the first speaks for the moment")
 
 
 class Counts(_Model):
@@ -67,7 +86,9 @@ class Overall(_Model):
     """The verdict: any Poor → poor; otherwise any Check → check; otherwise good."""
     level: Verdict
     label: str
-    headline: str
+    headline: str                         # summary and sure in one text
+    summary: Optional[str] = None         # the verdict's reasons by name (the measures, with their first moment)
+    sure: list[str] = []                  # what DubEval isn't sure of, one sentence each
     counts: Counts
 
 
@@ -103,6 +124,9 @@ class Report(_Model):
     sections: list[Section]
     problem_intervals: list[Interval]
     possible_asr_errors: list[dict] = Field(description="Issues that are probably misheard words, not dub errors")
+    moments: list[Moment] = Field(default_factory=list, description="problem_intervals grouped by moment")
+    skipped: list[dict] = Field(default_factory=list, description="not_measured grouped by reason, each {title, reason, "
+                                                                  "action, labels, ids, banner}")
     problem_seconds: float = Field(description="Seconds of the video covered by problem intervals")
     things_to_check: list[dict]
     not_measured: list[NotMeasured]

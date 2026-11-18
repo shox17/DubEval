@@ -56,6 +56,19 @@ DNSMOS P.835 model (dubeval/models/dnsmos_sig_bak_ovr.onnx)
   non-intrusive perceptual objective speech quality metric to evaluate noise
   suppressors", ICASSP 2022.
 
+Audiobox Aesthetics (optional: the voice-quality model for speech over music)
+  https://github.com/facebookresearch/audiobox-aesthetics, Copyright (c) Meta
+  Platforms, Inc. and affiliates. Licensed under the Creative Commons
+  Attribution 4.0 International License (CC BY 4.0); its WavLM code comes from
+  Microsoft's unilm (MIT License). The graph in
+  dubeval/models/audiobox_aesthetics.onnx is exported from that code
+  (tools/build_audiobox_onnx.py: one stretch at a time, nothing padded) and
+  holds no weights. The weights (model.safetensors) are not shipped with
+  DubEval: downloaded on request (Settings → Models) from
+  https://huggingface.co/facebook/audiobox-aesthetics, unchanged.
+  Reference: A. Tjandra et al., "Meta Audiobox Aesthetics: Unified Automatic
+  Quality Assessment for Speech, Music, and Sound", 2025.
+
 MediaPipe Face Landmarker model (dubeval/models/face_landmarker.task)
   Google MediaPipe
   https://developers.google.com/mediapipe
@@ -96,10 +109,10 @@ NVIDIA cuBLAS (optional: speech recognition on an NVIDIA GPU)
   Downloaded on request from NVIDIA's nvidia-cublas-cu12 package on PyPI; not
   shipped with DubEval. Governed by NVIDIA's license for that package.
 
-Qwen3 and Ollama (optional: the local translation judge)
-  https://huggingface.co/Qwen, https://ollama.com. Qwen3 models: Apache License
-  2.0; Ollama: MIT License (its libraries' licenses come with it in
-  lib/ollama). Not shipped with DubEval: downloaded on request (Settings →
+Gemma 4 and Ollama (optional: the local translation judge)
+  https://ai.google.dev/gemma, https://ollama.com. Gemma 4 (Google): Apache
+  License 2.0, its text comes with the model; Ollama: MIT License (its libraries' licenses come with it in
+  lib/ollama on Windows, beside the programs on a Mac). Not shipped with DubEval: downloaded on request (Settings →
   Models) from Ollama's GitHub release and model registry, unchanged.
 
 LatentSync StableSyncNet (optional: the lip-sync check)

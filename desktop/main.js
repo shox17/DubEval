@@ -36,12 +36,16 @@ function findPython() {
   return candidates.find(p => fs.existsSync(p)) || null;
 }
 
-// The folder holding a shipped Python (resources/python/python.exe → resources), or null for a development .venv.
+// The folder holding a shipped Python (Windows: resources/python/python.exe, macOS: Resources/python/bin/python3
+// → resources), or null for a development .venv.
 function bundleOf(python) {
-  const home = path.dirname(python);
+  let home = path.dirname(python);
+  if (path.basename(home) === "bin") home = path.dirname(home);
   const root = path.basename(home) === "python" ? path.dirname(home) : null;
   return root && fs.existsSync(path.join(root, "build.json")) ? root : null;
 }
+
+const MAC = process.platform === "darwin";
 
 const SHOW_WITHIN_MS = 3000;  // the window appears by then even if its first page never draws (a crashed page, say)
 const languageFile = () => path.join(app.getPath("userData"), "language.txt");
@@ -87,6 +91,12 @@ function startServer() {
       fs.mkdirSync(data, { recursive: true });
       options = { cwd: data, env: { ...process.env, DUBEVAL_DATA: data, DUBEVAL_BUNDLED_MODELS: path.join(bundle, "models") } };
       serve.unshift("-I", "-u", "-X", "utf8");
+      if (MAC) {
+        // Nothing may change inside the signed app: no compiled Python files (-B; the build ships them, see
+        // tools/build_desktop.py) and the audio code's compiled cache goes to the app's data folder.
+        serve.unshift("-B");
+        options.env.NUMBA_CACHE_DIR = path.join(app.getPath("userData"), "cache", "numba");
+      }
     } else {
       options = { cwd: REPO, env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONUTF8: "1" } };
     }
@@ -144,8 +154,10 @@ function createWindow() {
     backgroundColor: "#0e131b",
     // No white Windows title bar (as in PersoDub): the page's dark top strip is the title bar and the window buttons
     // are drawn over its right end in the same colours. 36 px = the strip's height (.topbar in the page's CSS).
+    // On macOS the three window buttons sit at the strip's left end, centred in its 36 px.
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: "#0e131b", symbolColor: "#e6e8eb", height: 36 },
+    ...(MAC ? { trafficLightPosition: { x: 14, y: 11 } }
+      : { titleBarOverlay: { color: "#0e131b", symbolColor: "#e6e8eb", height: 36 } }),
     ...(fs.existsSync(DEV_ICON) ? { icon: DEV_ICON } : {}),   // packaged: the icon stamped into DubEval.exe
     // preload.js gives the page window.dubevalShell (updates only); it stays sandboxed, with no Node.
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true,
@@ -198,7 +210,10 @@ if (!app.requestSingleInstanceLock()) {
     if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
   });
   app.whenReady().then(() => {
-    if (app.isPackaged) Menu.setApplicationMenu(null);
+    // No menu bar on Windows. macOS always shows one, and its Edit menu is what makes Cmd+C, Cmd+V and Cmd+A work in
+    // the page's text boxes, so it gets the standard three: the app's own (About, Hide, Quit), Edit and Window.
+    if (MAC) Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" }]));
+    else if (app.isPackaged) Menu.setApplicationMenu(null);
     ipcMain.on("language", (event, code) => {
       const from = event.senderFrame && event.senderFrame.url;
       if (!origin || !from || new URL(from).origin !== origin || !LANGUAGES.includes(code)) return;

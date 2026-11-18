@@ -32,6 +32,7 @@ MAX_DRAFT_BYTES = 512 * 1024                 # the fields and a small picture; a
 MAX_THUMB_BYTES = 400 * 1024
 CARD_VERSION = 3                             # bump when a card gains or changes a field
 THUMB = "thumb.jpg"
+THUMB_REDONE = "thumb.redone"      # a black thumb.jpg was made again once: don't try on every look
 NO_SUCH_EVALUATION = "That evaluation is gone. It may have been deleted."
 NO_SUCH_DRAFT = "That draft is gone. It may have been deleted or started."
 DRAFT_TOO_BIG = "This draft is too big to keep."
@@ -145,11 +146,17 @@ def evaluations() -> list[dict]:
 
 
 def thumbnail(run_id: str) -> Optional[Path]:
-    """The run's picture, made once from its dub (else its original) when it has none; None if it can't be made."""
+    """The run's picture, made once from its dub (else its original) when it has none; None if it can't be made. A black
+    picture saved before preview._frame skipped dark frames is made again, once (THUMB_REDONE marks it)."""
     folder = run_folder(run_id)
     path = folder / THUMB
     if path.is_file():
-        return path
+        if (folder / THUMB_REDONE).exists() or not _dark(path):
+            return path
+        try:
+            (folder / THUMB_REDONE).touch()
+        except OSError:
+            return path
     c = card(folder) or {}
     from dubeval.preview import _frame
     for video in c.get("inputs") or []:
@@ -157,7 +164,17 @@ def thumbnail(run_id: str) -> Optional[Path]:
             uri = _frame(video, c.get("duration_sec"))
             if uri and save_thumbnail(path, uri):
                 return path
-    return None
+    return path if path.is_file() else None
+
+
+def _dark(path: Path) -> bool:
+    """Whether a saved picture is black (preview.DARK_LEVEL)."""
+    from dubeval.preview import DARK_LEVEL, _brightness
+    try:
+        level = _brightness(path.read_bytes())
+    except OSError:
+        return False
+    return level is not None and level < DARK_LEVEL
 
 
 def save_thumbnail(path: Path, data_uri: Optional[str]) -> bool:

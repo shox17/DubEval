@@ -35,7 +35,7 @@ in the dub wins. **Correction:** shifts of 0.1 s or more are corrected by moving
 timeline (one shift), or by laying it part by part (a differently cut dub; missing parts stay silent), so every time
 in the report is the original's.
 
-| Measure | Good | Check | Poor |
+| Measure | Good | Needs review | Poor |
 |---|---|---|---|
 | Same video (matching frames at the best shift, or coverage) | ≥ 60% | 25–60% | < 25% (the run stops unless `--allow-different-videos`) |
 | Time shift | information only | | |
@@ -51,9 +51,9 @@ compared), so that much of the gap is never counted: a long film whose sound is 
 measured on files under 15 s (a 7 s clip showed a stray 0.9 s match) or when the soundtracks match below 0.2 there
 (the dub replaced the background), nor on a recut dub.
 Validation: a dub's sound moved 1 s late was found at exactly +1.0 s in all 12 of 16 tune dubs where it was measured,
-with every control within 0.24 s. A Check or Poor result is also a whole-dub "sound out of sync" problem interval.
+with every control within 0.24 s. A Needs review or Poor result is also a whole-dub "sound out of sync" problem interval.
 
-Each missing part of at least 1 s is a "missing from the dub" problem interval: Check, Poor from 5 s (shorter slivers,
+Each missing part of at least 1 s is a "missing from the dub" problem interval: Needs review, Poor from 5 s (shorter slivers,
 such as files differing in length by a frame, are never listed: `intervals.SLIVER_SEC`).
 
 **Verified** on synthetic clips (aligned, shifted 2 s, 5 s cut out, unrelated) and on real PersoDub dubs: a dub
@@ -94,7 +94,7 @@ Share links don't include a script, so this is scored only when you pass one on 
 - **ASR error:** Whisper mishears proper nouns (`인하대학교` → `이나데아크`).
 - **Real dubbing errors.**
 
-The highlighted diff under **What was said** shows which is which. For meaning rather than wording, use the translation check (§5). The default speech model is **automatic**: Whisper `large-v3-turbo` when it is downloaded (Settings → Models) and the computer has an NVIDIA GPU, otherwise `base`. On 4 PersoDub EN→KO dubs scored against their exact dub scripts (2026-10-26), `large-v3-turbo` made a quarter to half fewer errors than `base` on natural Korean speech (8.3% and 2.9% of characters against 11.1% and 7.1%) at the same speed on a GPU; on lines mixing English words into Korean every recognizer did badly. SenseVoice-Small, NVIDIA Parakeet (English) and Whisper `large-v3` did no better, and all five heard "new cases" where the speaker meant "new tastes", which is why the translation check marks possible mishearings. `base` (fast, 145 MB): It mishears a few more words than `small`, which mostly shows up as extra "possible recognition error" items; for reporting-grade transcripts set `WHISPER_MODEL=small` or `medium`.
+The highlighted diff under **What was said** shows which is which. For meaning rather than wording, use the translation check (§5). The default speech model is **automatic**: Whisper `large-v3-turbo` when it is downloaded (Settings → Models), otherwise `base`. Since 2026-11-15 a graphics card isn't needed for that: on a processor the large model takes 16-18 s per minute of sound against 5 for `base` on one 2025 laptop, and reads far more languages well (`docs/validation.md`). On 4 PersoDub EN→KO dubs scored against their exact dub scripts (2026-10-26), `large-v3-turbo` made a quarter to half fewer errors than `base` on natural Korean speech (8.3% and 2.9% of characters against 11.1% and 7.1%) at the same speed on a GPU; on lines mixing English words into Korean every recognizer did badly. SenseVoice-Small, NVIDIA Parakeet (English) and Whisper `large-v3` did no better, and all five heard "new cases" where the speaker meant "new tastes", which is why the translation check marks possible mishearings. `base` (fast, 145 MB): It mishears a few more words than `small`, which mostly shows up as extra "possible recognition error" items; for reporting-grade transcripts set `WHISPER_MODEL=small` or `medium`.
 
 ### Speech rate
 Words per second (chars/s for ko/ja/zh/th) over *speaking time*, where speaking time is duration × (1 − silence ratio). Units differ between languages, so compare the dub against other dubs in the same language, not against the original.
@@ -103,14 +103,13 @@ Words per second (chars/s for ko/ja/zh/th) over *speaking time*, where speaking 
 The dBFS of each 0.25 s window, for both tracks. Peaks and gaps should line up. A shifted or stretched pattern shows timing drift that the single duration number hides.
 
 ## Score bands (audio and script)
-| Measure | ✓ Good | ! Check | ✗ Poor |
+| Measure | ✓ Good | ! Needs review | ✗ Poor |
 |---|---|---|---|
 | Length match: \|Δduration\| / original | ≤ 5% | ≤ 15% | above that |
 | Matches your script: accuracy | ≥ 80% | ≥ 50% | below |
 | Loudness match: dub vs original | within ±3 dB | within ±6 dB | beyond |
 | Extra silence in the dub | ≤ 5 pts | ≤ 15 pts | above |
 | Lip sync (with the download): moments that line up | ≥ 90% | between | ≤ 30% |
-| Lip movement (without it) | always informational ||| 
 
 The script-free measures and their bands are in §4 and §5. The script bands are lenient on purpose, because paraphrases count as errors (§2).
 The loudness band was 2 / 4 dB until 2026-11-01: a person graded a dub 5.1 dB off the original Good, and no dub they
@@ -120,9 +119,9 @@ graded Poor was more than 1.7 dB off.
 
 Measured automatically when the shared dub is lip-synced (`isLipSync`); skipped otherwise, and the report says why.
 With the `lip_sync` download installed, the lip-sync check below runs and **counts in the verdict**: the share of
-checked moments that line up is Good from 90%, Poor at 30% or less, Check between (`LIP_SYNC_PCT` in `report.py`,
+checked moments that line up is Good from 90%, Poor at 30% or less, Needs review between (`LIP_SYNC_PCT` in `report.py`,
 the owner's decision of 2026-11-10; the check was tested on one real dub, so these bands aren't calibrated yet).
-Not measured never counts. Without the download, the lip-movement estimate after it runs, information only.
+Not measured never counts. Without the download the lips aren't checked.
 
 ### The lip-sync check (`dubeval/lip_sync.py`, the `lip_sync` download)
 1. **Model:** StableSyncNet from ByteDance's LatentSync 1.5 (`stable_syncnet.pt`, 1.6 GB, CreativeML OpenRAIL++-M),
@@ -158,28 +157,15 @@ Not measured never counts. Without the download, the lip-movement estimate after
 original were measured as 0.20 and 0.48 s. A delay beyond the search (±0.6 s; 1 s was tried) shows as lips that
 don't line up, with no offset: the sound-sync check (§1, ±2 s) is the one that measures those.
 
-### Without the download: lip movement (`analyze_lipsync`), experimental
+### The lip-movement estimate (removed 2026-11-13)
 
-1. Frames are sampled at about 15 fps (sequential decode) over the first 60 s. MediaPipe runs in VIDEO mode.
-2. Per frame, the Mouth Aspect Ratio is `|lm13 − lm14| / |lm61 − lm291|`. Frames without a face are excluded rather than filled in.
-3. Speech RMS is computed on a 10 ms grid and interpolated at each frame's timestamp, so it doesn't drift.
-4. **Score:** the Pearson r at zero lag (`pearson_correlation`).
-5. Diagnostic: the best r within ±200 ms (`best_lag_correlation`, `best_lag_ms`). Taking a maximum over 21 lags turns pure noise into r ≈ +0.1, so this is **never** used as the score.
-6. The result is `valid: false` with a `reason` if there are fewer than 20 frames, faces appear in fewer than 50% of frames, or the mouth never moves.
-
-`sync_quality` bands: `strong` ≥ 0.4 · `moderate` ≥ 0.2 · `weak` ≥ 0.05 · `none` below that.
-
-### Known limitation: this heuristic does not work on the sample video
-| Video | r (zero lag) | Face coverage |
-|---|---|---|
-| Original, which is in sync by definition | **−0.20** | 56% |
-| Perso Korean lip-sync dub | −0.03 | 56% |
-
-The original should score clearly positive, and it doesn't. The causes, found by investigation:
-- **Voice-over B-roll.** The speaker is on screen but not talking (typing, walking) while narration plays. Those frames anti-correlate mouth opening with loudness.
-- **Weak signal even on the talking-head part.** On the first 5.5 s (99% face coverage), every variant tried gave |r| < 0.2 and random best lags: inner vs. outer lips, face-height normalization, speech-band (300–3400 Hz) energy, and smoothing.
-
-**Treat the lip movement row as informational.** Compare it only against `original_pearson` on the same video, never as an absolute. The lip-sync check above replaces it when its download is installed.
+Until 2026-11-13, a dub checked without the download got a rough estimate in its place: how far the mouth was open
+(MediaPipe face landmarks) against how loud the sound was, as one correlation. It was removed. On the sample video the
+in-sync original scored −0.20 (56% face coverage) and the lip-synced dub −0.03, and on the first 5.5 s (99% face) every
+variant tried stayed under 0.2: the number said nothing about sync, and a section headed "experimental" sat in every
+report. Without the download the lips are now simply not checked: the row says so and where to get the download
+(`r.lips.no_download`), and a result saved with the old estimate says it was removed instead of showing its number.
+MediaPipe's face landmarker stays bundled: the lip-sync check uses it to find and align the face.
 
 ## 4. Script-free measures
 Share links carry no script, so these measure the dub against the original directly.
@@ -203,15 +189,15 @@ its own, with 0.3 s either side, and its new lines are added (a line at least ha
 already has is that line again, and isn't added twice). On that dub, speech-timing overlap went from 21% to 69%.
 
 ### Dub language (`detect_language`)
-Whisper's language identification on the first 30 s of the dub. **Good** when it matches the target and Whisper is ≥ 50% sure, **Check** when it matches but Whisper is unsure, **Poor** when it's a different language. Catches the worst failure (wrong language, or the original voice left in).
+Whisper's language identification on the first 30 s of the dub. **Good** when it matches the target and Whisper is ≥ 50% sure, **Needs review** when it matches but Whisper is unsure, **Poor** when it's a different language. Catches the worst failure (wrong language, or the original voice left in).
 
 ### Voice clarity (`speech_clarity`)
-Share of speech time in Whisper segments with `avg_logprob ≥ −1.0` (Whisper's own threshold for trusting a decode). Segments Whisper itself treats as silence (`no_speech_prob > 0.6` and `avg_logprob < −1.0`) are ignored, as are lines the voice detector hears no speech in (above); faster-whisper's large-v3-turbo reports `no_speech_prob` 0 for every line, so on it only the voice detector removes them. Good ≥ 90%, Check ≥ 70%. The unclear segments are listed with timestamps under *Things to check*. It's an intelligibility proxy that needs no script; ASR weaknesses on names and accents also lower it.
+Share of speech time in Whisper segments with `avg_logprob ≥ −1.0` (Whisper's own threshold for trusting a decode). Segments Whisper itself treats as silence (`no_speech_prob > 0.6` and `avg_logprob < −1.0`) are ignored, as are lines the voice detector hears no speech in (above); faster-whisper's large-v3-turbo reports `no_speech_prob` 0 for every line, so on it only the voice detector removes them. Good ≥ 90%, Needs review ≥ 70%. The unclear segments are listed with timestamps under *Things to check*. It's an intelligibility proxy that needs no script; ASR weaknesses on names and accents also lower it.
 
 ### Voice quality (`voice_quality.py`)
 Does the dub's voice sound clean, or robotic and distorted? Microsoft's **DNSMOS P.835** (bundled ONNX model, CC BY 4.0) predicts listener scores (1–5) for the speech signal (SIG), the background (BAK) and the overall sound (OVRL) on ~9 s windows, every 2 s (widened on long videos to at most 120 windows). Only windows where **both tracks speak at least 3 s** are scored, on both tracks at the same moment, with the dub's window first brought to the original window's volume (the gain stops at full scale, so it never clips). A dub keeps the original's music and effects, so the comparison isolates the dub's own sound; absolute scores would mostly measure the music.
 
-A window is **Check** when the dub's SIG is ≥ 0.6 below the original's or its OVRL is ≥ 0.5 below, **Poor** from 2.5 / 1.5 (1.0 / 0.9 until 2026-11-01: on the graded dubs, windows up to 2.2 / 1.2 below came from dubs a person graded Good or Needs review, and both reviewer votes on Poor windows were false alarms). The worst window sets the level, and flagged windows become `voice_quality` problem intervals. A stretch where the original itself scores below 1.6 isn't held against the dub: scores that low jump with any small change. Not measured when the two tracks never speak together long enough, or when the original averages below 1.6 over the video (too noisy to serve as reference).
+A window is **Needs review** when the dub's SIG is ≥ 0.6 below the original's or its OVRL is ≥ 0.5 below, **Poor** from 2.5 / 1.5 (1.0 / 0.9 until 2026-11-01: on the graded dubs, windows up to 2.2 / 1.2 below came from dubs a person graded Good or Needs review, and both reviewer votes on Poor windows were false alarms). The worst window sets the level, and flagged windows become `voice_quality` problem intervals. A stretch where the original itself scores below 1.6 isn't held against the dub: scores that low jump with any small change. Not measured when the two tracks never speak together long enough, or when the original averages below 1.6 over the video (too noisy to serve as reference).
 
 **Why the same volume:** the model's scores move with volume alone, and volume has its own checks. A copy only 3 dB quieter moved a window by up to 1.14 on SIG and 0.64 on OVRL (95% of windows within 0.45 / 0.28), against 0.51 / 0.24 (0.16 / 0.13) at matched volume. Real damage isn't blunted: a simulated robotic voice drops the scores by the same amount either way, 0.66 SIG / 0.55 OVRL on average across 17 dubs (`docs/validation.md`).
 
@@ -225,7 +211,7 @@ fills them. So DubEval follows the spectrum's floor above 1 kHz (the geometric m
 is, each as a median over 1.5 s, every 0.25 s, against that track's usual level. It takes the dub's rise minus the
 original's at the same moment, so a noisy scene in both cancels out.
 
-**Check** when the floor rises at least 12 dB and the flatness at least 2 dB for at least 1.5 s (a louder passage rises
+**Needs review** when the floor rises at least 12 dB and the flatness at least 2 dB for at least 1.5 s (a louder passage rises
 without getting flatter); otherwise **Good**, never Poor. Each stretch becomes a `noise` problem interval, except where the
 sound clips, which is reported as distortion. On the tune dubs, planted bursts rose 15-39 dB; the highest rise on any clean
 copy was 12.3 dB, and it never met both conditions for that long. Results: `docs/validation.md`.
@@ -234,12 +220,29 @@ copy was 12.3 dB, and it never met both conditions for that long. Results: `docs
 level). It was tested on noise made for the test; no real dub has shown any yet. This isn't done with DNSMOS because it
 scores 9 s windows, and normal dubs dip as much as a 4 s burst.
 
+**With the voice-quality download: Audiobox Aesthetics.** DNSMOS was made for clean speech: over music its scores swing
+by 2 points within one dub, an original with loud music scores too low to be a reference (8 of the 20 test dubs), and
+it misses a muffled voice. With the download from Settings → Models (415 MB), Meta's **Audiobox Aesthetics** scores
+the same stretches instead (`voice_quality.scorer()`). It was trained on listeners' ratings of speech, music and sound
+together; its **production quality** (PQ, 1–10) is the score that grades, and its content-enjoyment score (CE) is a
+second signal. A stretch is **Needs review** when the dub's PQ is 1.0 or more below the original's there, or 1.0 or
+more below how this dub usually compares with the original (the median over its stretches), or its CE is 1.2 or more
+below its usual; **Poor** from 2.5 on PQ (`VOICE_PQ_DROP`, `VOICE_CE_DROP` in `intervals.py`). There is no "too noisy"
+floor. Set on 2026-11-13 from the 20 test dubs (`validation.md`): over 329 undamaged stretches the dub was never more
+than 0.83 below the original or 0.8 below its own usual, and of 8 s of damage put into each dub the rule caught a
+robotic voice on 20 of 20, a muffled one on 17, a clipped one on 17, with no undamaged stretch flagged. Poor is a
+first guess: no real dub has reached it and nobody has labelled one. DubEval ships only the model's graph
+(`models/audiobox_aesthetics.onnx`, 0.6 MB, `tools/build_audiobox_onnx.py`); the weights are Meta's own
+`model.safetensors`, read where the download put it (the scores match PyTorch to 5 decimal places). It takes about
+0.25 s per stretch on a laptop processor, about 20 s per minute of video (DNSMOS: 0.05 s per stretch). Every stretch
+still gets DNSMOS's background score, which tells a replaced background (`report.sure_of`).
+
 ### Voice similarity (`speaker.py`)
-Does the dub voice still sound like the original speaker? **WeSpeaker ResNet34-LM** (trained on VoxCeleb2's 5,994 speakers; ONNX, CC BY 4.0; 26.5 MB, downloaded once, pinned to a Hugging Face commit and SHA-256) turns speech into a 256-number voice fingerprint from 80-band Kaldi filterbanks (computed with numpy). Each original line of ≥ 2 s is compared with the dub **at the same moment** (Perso keeps the timing), which follows every character in a multi-speaker video without speaker detection. The level uses the median similarity: **Good ≥ 50%, otherwise Check** (never Poor: a new voice can be a deliberate choice).
+Does the dub voice still sound like the original speaker? **WeSpeaker ResNet34-LM** (trained on VoxCeleb2's 5,994 speakers; ONNX, CC BY 4.0; 26.5 MB, downloaded once, pinned to a Hugging Face commit and SHA-256) turns speech into a 256-number voice fingerprint from 80-band Kaldi filterbanks (computed with numpy). Each original line of ≥ 2 s is compared with the dub **at the same moment** (Perso keeps the timing), which follows every character in a multi-speaker video without speaker detection. The level uses the median similarity: **40% or more is the same voice (Good), under 30% another voice, between them partly alike (both Needs review)**; never Poor, since a new voice can be a deliberate choice.
 
-**Only lines with a quiet background count** (the original line's DNSMOS background score ≥ 3.0). On a real film with music, even two lines of the same actor scored below 0.45, so the comparison would be noise; such videos show "not measured" with the reason. On clean speech (synthetic voices): the same voice scored 0.80–0.87 even across languages (English original, Spanish dub), different voices median 0.13, max 0.57.
+**How the number is trusted.** Some videos fool the model: on a film clip even the original's own lines were only 45% alike. So the measure also matches the original with itself: each original line against the other original line that sounds most like it (`original_self`, the median). A result under 40% is graded only when that is 60% or more (`VOICE_KNOWN`); otherwise the row says it can't tell on this video, with both numbers. A result of 40% or more is graded either way: two different people never scored that high. Bands (`VOICE_SAME`, `VOICE_DIFFERENT`) were set on 2026-11-13 from 10 real dubs and 363 line pairs taken from different videos (`validation.md`): cloned dubs scored 0.45–0.61, dubs with another voice 0.08–0.24, two different people under 0.25 in 99% of pairs (0.34 at most), and originals the model follows 0.72–0.85 against themselves. Until then only lines with a quiet background counted (DNSMOS background ≥ 3.0), which left 16 of 20 test dubs unmeasured, though the scores with the music in were the same as with the voice separated out.
 
-**Different-voice intervals:** a line ≥ 0.2 below the dub's median similarity and below 0.65, in a dub whose median is ≥ 0.45 (it clones its speakers otherwise), is flagged `voice_change`: that line probably got another character's voice. Tested: a similar female voice swapped onto one line (0.55 vs median 0.81) and a female voice on a male line (0.20) were both flagged; a good clone and a stock voice throughout flagged nothing.
+**Different-voice intervals:** a line ≥ 0.2 below the dub's median similarity and below 0.65, in a dub whose median is ≥ 0.45 (it clones its speakers otherwise), is flagged `voice_change`: that line probably got another character's voice. Not on a video whose own speakers the model can't match (`original_self` under 60%). Tested: a similar female voice swapped onto one line (0.55 vs median 0.81) and a female voice on a male line (0.20) were both flagged; a good clone and a stock voice throughout flagged nothing.
 
 ### Speech timing (`speech_intervals`, `timing_alignment`)
 1. Speech stretches come from Whisper word timings, merging gaps shorter than 0.3 s and dropping segments Whisper treats as silence. Word timings follow speech, not the music bed, which defeats energy-based voice detection on this kind of video.
@@ -248,7 +251,7 @@ Does the dub voice still sound like the original speaker? **WeSpeaker ResNet34-L
    half of it (`MISMATCH_SILENT_VOICED_MAX`) and the "speaking" one at least 30% (`MISMATCH_SPEAKING_VOICED_MIN`). Word
    timings shift with any change anywhere in the file, while the detector only looks at that moment. The overlap score
    stays on the words, so this changes the listed moments, not the verdict.
-3. Bands: Good ≥ 75%, Check ≥ 55%. **Calibration:** the real Perso EN→KO lip-sync dub of the sample scores **81%**, with two short dub-only spots. Languages differ in rhythm, so 100% isn't expected; these bands are a starting point from one sample and should be tuned on more dubs.
+3. Bands: Good ≥ 75%, Needs review ≥ 55%. **Calibration:** the real Perso EN→KO lip-sync dub of the sample scores **81%**, with two short dub-only spots. Languages differ in rhythm, so 100% isn't expected; these bands are a starting point from one sample and should be tuned on more dubs.
 4. It depends on correct transcription: a dub in the wrong language gets distorted word timings (the language check flags that case separately).
 
 ### Line by line (`match_segments`, `line_timing`)
@@ -263,27 +266,27 @@ or merges sentences). Each line is measured from the first spoken word to the la
 - **Lines running over:** a dub line still speaking more than 0.5 s after the original's next line has started
   (the lines overlap, or the next one starts late).
 
-| Measure | Good | Check | Poor |
+| Measure | Good | Needs review | Poor |
 |---|---|---|---|
 | Line length (share of graded lines not off) | ≥ 90% | 50–90% | < 50%, and at least 3 lines off |
 | Lines running over (share of lines) | none | up to 10%, or fewer than 3 lines | > 10% and at least 3 lines |
 
-Problem intervals: a line that is off (more than 15% and at least 0.6 s) is Check, Poor beyond 30%; a line
-running over is Check, Poor from 1 s. Each names the line number and both lengths.
+Problem intervals: a line that is off (more than 15% and at least 0.6 s) is Needs review, Poor beyond 30%; a line
+running over is Needs review, Poor from 1 s. Each names the line number and both lengths.
 
 **Verified** on real PersoDub dubs: an untouched EN→KO dub had 12 of 13 lines fit; the same dub with its audio
-slowed by 20% was Poor on line length and overruns; a 7 s clip with one line off out of two is Check, not Poor.
+slowed by 20% was Poor on line length and overruns; a 7 s clip with one line off out of two is Needs review, not Poor.
 The bands are first guesses (still to be calibrated on labelled dubs). Lines near the recognizer's segment
 boundaries can tip either way when the audio is shifted.
 
 ### Distortion (`clipping_pct`)
-Share of dub samples at |x| ≥ 0.999. Good ≤ 0.01%, Check ≤ 0.1%.
+Share of dub samples at |x| ≥ 0.999. Good ≤ 0.01%, Needs review ≤ 0.1%.
 
 ### Speaking pace bands
-The dub language comes from the share link's metadata (base code, so `es-MX` uses the `es` rule). Chars/s for Korean (Good ≤ 7.5, Check ≤ 9), Japanese (≤ 8.5, ≤ 10.5), Chinese (≤ 6, ≤ 7.5); words/s for English (≤ 3.2, ≤ 3.8) and Spanish (≤ 3.5, ≤ 4.2). Any other language has no rule: the row is **not measured**, with the reason and the measured pace, and never counts toward the verdict. Rules of thumb for "the translation is too long for the time slot"; the sample dub runs at 5.8 chars/s.
+The dub language comes from the share link's metadata (base code, so `es-MX` uses the `es` rule). Chars/s for Korean (Good ≤ 7.5, Needs review ≤ 9), Japanese (≤ 8.5, ≤ 10.5), Chinese (≤ 6, ≤ 7.5); words/s for English (≤ 3.2, ≤ 3.8) and Spanish (≤ 3.5, ≤ 4.2). Any other language has no rule: the row is **not measured**, with the reason and the measured pace, and never counts toward the verdict. Rules of thumb for "the translation is too long for the time slot"; the sample dub runs at 5.8 chars/s.
 
 ### Video integrity (`video_integrity`)
-Resolution, frame rate, frame count and audio stream of both files (OpenCV + ffmpeg stream list). Poor if the dub can't be read or has no audio, Check if resolution or frame rate changed.
+Resolution, frame rate, frame count and audio stream of both files (OpenCV + ffmpeg stream list). Poor if the dub can't be read or has no audio, Needs review if resolution or frame rate changed.
 
 ## 5. Meaning: the offline screen and the translation check
 
@@ -305,7 +308,7 @@ The pack is downloaded from the app's Downloads page (Xenova/bge-m3's int8 expor
 with either no line moved across the 0.60 band. Each line is embedded on its own: the exported graph mishandles padding, which shifted padded lines by up to
 0.02. The two never share cached results (`meaning.model_name()`). Recheck the comparison when the test set grows.
 
-| | Good | Check |
+| | Good | Needs review |
 |---|---|---|
 | Meaning similarity (no judge ran) | no line below 0.60 | any line below 0.60 (never Poor: the judge decides) |
 
@@ -313,7 +316,7 @@ The band comes from real EN→KO PersoDub lines: correct translations had a medi
 the same lines shuffled (wrong pairs) had a median of 0.49 with 75% below 0.56. On the Francis dub the lowest line
 (0.57) was the one where the dub said 영화 (movies) instead of 영어 (English). When no judge ran, the row is graded
 and low lines become "meaning may differ" problem intervals. When a judge ran, the row is information only and
-adds no intervals: the judge reads the same lines more precisely, and the screen's Check was one of the most common
+adds no intervals: the judge reads the same lines more precisely, and the screen's Needs review was one of the most common
 false alarms on the known-problem runs. On a mostly-music video with no judge (`little_speech`), it isn't graded and lists no
 intervals. On real dubs, 6 of its 8 flags were lines Gemini also scored 6 or lower, but it finds only 6 of Gemini's 25 low
 lines (`docs/validation.md`), so it's a rough check, not a stand-in for the judge. It can be fooled by misheard words, like the judge. Optional: `pip install "dubeval[meaning]"`; `DUBEVAL_MEANING_SCREEN=off` turns it
@@ -331,7 +334,7 @@ It flags a number replaced by another, and nothing else, because languages say o
 their significant digits, and a number only one side says isn't flagged. The cost: it misses a number wrong only by its
 zeros (5 and 50) and an added number. The translation check reads those.
 
-| | Good | Check |
+| | Good | Needs review |
 |---|---|---|
 | Numbers | every compared line keeps its numbers | a line says a number its original doesn't (never Poor: a recognizer can mishear a digit) |
 
@@ -354,6 +357,17 @@ every score (in the JSON schema the judge answers with):
 | `terminology_consistency` | Consistent terms | the same terms, names and expressions translated the same way |
 | `localization_appropriateness` | Localization | register, idiom and culture right for the audience |
 
+**One row in the report** (`report._rubric`). The five criteria were five rows that said one thing: on 16 judged
+dubs the four after meaning had the same level 11 times, in near-identical sentences. The report now has one
+**Translation check** row. Its level is the worst of the five (so the verdict is what it was: meaning alone can be Poor,
+the others reach Needs review at most), its value is the meaning average, and the five scores are inside it (`parts`:
+each with its average, its level and how many lines scored 6 or lower). It says, in order: how many lines lose or change
+the meaning ("3 of 5"), the lines to listen to because they may be misheard, and what to do. Under it, a small table
+gives each score's two numbers under their own headings, "Average of all lines" and "Lines scoring 6 or lower": written
+together in a sentence ("Localization 5.2 / 10" and "Localization (5)") they were taken for one number. `summary.csv` keeps a level and a value column for each of the five. The offline meaning
+similarity has no row when a check ran (it was information only there). On the 20 graded dubs the median report went
+from 26 rows to 21.5, the rows marked Needs review from 69 to 40, and no verdict changed.
+
 For each line it also gives a reason for every score of 7 or lower (in four languages), an ideal translation when any
 score is 7 or lower, one of 23 error types (omission, meaning distorted, context misread, content not in the original,
 word-for-word translation, idiom misread, formality, tone, pronoun, possessive, gender/number, terms, technical term,
@@ -370,7 +384,7 @@ The video's title goes along as its description.
 
 **The judge** (`--judge`, or `DUBEVAL_JUDGE`): `auto` (default) takes the first available of **Claude**
 (`claude-opus-5-5`, structured JSON output, medium effort, server-side refusal fallback; `ANTHROPIC_API_KEY`),
-**Gemini** (`GEMINI_API_KEY`), and a **local model through Ollama** (`qwen3:8b` by default, `DUBEVAL_OLLAMA_URL`,
+**Gemini** (`GEMINI_API_KEY`), and a **local model through Ollama** (Gemma 4 12B, `gemma4:12b-it-q4_K_M`, by default; `DUBEVAL_OLLAMA_URL`,
 `DUBEVAL_OLLAMA_MODEL`; nothing leaves the computer). Use the same judge for every dub you compare; the report
 names it. Gemini's models are fixed names tried in order (`gemini-3.5-flash`, `gemini-3.8-flash`,
 `gemini-3.1-flash-lite`; never a "latest" alias). Google can still serve a newer version under a name (`gemini-3.5-flash`
@@ -380,8 +394,9 @@ which lines (`translation_judge.chunks`, `models`), and the report names every o
 judged by different models says so in its caution. **Locking the model** (the start page's More options, `--lock-model`,
 the API's `lock_model`, or `DUBEVAL_JUDGE_PIN=1`) uses only the first model, with no server-side fallback on Claude: a busy
 model makes the check not measured instead of handing over to a backup. Use it for comparisons and calibration runs,
-so differences come from the dubs, though not entirely: reviews by one model still move, and a verdict can flip (`docs/validation.md`). In automatic mode, an account problem (no credit, a rejected key) still hands over
-to the next service; name the checker to rule that out. On a free Gemini key (20 requests a day per model when last seen) a locked run of many dubs can use up
+so differences come from the dubs, though not entirely: reviews by one model still move, and a verdict can flip (`docs/validation.md`). In automatic mode, and for the checker
+chosen on the app's start page, an account problem (no credit, a rejected key) still hands over to the next service with
+a key, and the report says which one couldn't check and why; name the checker with `--judge` to rule that out. On a free Gemini key (20 requests a day per model when last seen) a locked run of many dubs can use up
 that model's day; the report then says so, and the run has to wait for the daily reset or use a key with billing. Before a local judge runs, the speech recognizer and the sentence model are unloaded so the judge fits
 in the GPU (a model that spills onto the CPU takes many minutes); its context is sized to the prompt.
 
@@ -389,15 +404,17 @@ in the GPU (a model that spills onto the CPU takes many minutes); its context is
 intended localization; `ai_clone` and `ai_stock` are held to a close translation. Human and stock-voice dubs also
 skip voice similarity (another voice is expected).
 
-**Local judge, measured:** on the Francis EN→KO dub, `qwen3:8b` (English-only answers, ~50 s on an 8 GB laptop
-GPU) reported missing content in 11 of 13 lines, nearly all wrongly, which made the verdict Poor. Treat its issues
-as rough until it's checked against more labelled dubs; use Claude for reliable reviews.
+**Local judge, measured:** Gemma 4 12B (English-only answers) caught 28 of 28 mistakes planted in real dub
+transcripts and flagged none of 11 harmless rewordings, on Windows and on a Mac (`validation.md`). It takes about
+11 s a line on an 8 GB laptop graphics card and 7 s on an M2 Pro, and needs about 7 GB of graphics memory; without
+that it runs on the processor, much slower. It hasn't been compared with a reviewer's labels yet. It replaced Qwen3
+8B (2026-11-13), which found 4 of 23 planted mistakes and reported missing content in 11 of 13 lines of a good dub.
 
 Bands (`RUBRIC_FLAG` 6, `RUBRIC_POOR` 4, `RUBRIC_POOR_LINES` 3 in `report.py`): each row shows the average over the
 lines and how many lines scored 6 or lower. **Meaning** is Poor when 3 or more lines, or most lines, score 4 or lower;
-Check when any line scores 6 or lower (one or two serious lines included, still listed with their times); otherwise
+Needs review when any line scores 6 or lower (one or two serious lines included, still listed with their times); otherwise
 Good. Until 2026-10-29 one serious line made meaning Poor; on 19 dubs graded by a person, a cut countdown or two
-swapped sentences made dubs Poor that the person graded Good for meaning (`docs/validation.md`). The other four rows are Check when any line scores 6 or lower and never Poor, until labelled dubs show
+swapped sentences made dubs Poor that the person graded Good for meaning (`docs/validation.md`). The other four rows are Needs review when any line scores 6 or lower and never Poor, until labelled dubs show
 they should be. Every line scoring 6 or lower on any criterion becomes an issue on that line's time span, with its
 error type, the reason for its lowest score (meaning first) and the suggested translation; meaning at 4 or lower makes
 it Poor (major). Meaning errors keep their timeline categories (missing / added speech, mistranslation, names and
@@ -416,20 +433,20 @@ ear. Without a judge it's reported as not measured, with the reason.
   instead, see below), and every measure built on the recognized speech (clarity, timing, line length and overruns,
   pace, the meaning screen and the translation check) is "not graded" instead of Poor. The translation judge and the
   meaning screen aren't even run on that speech: they would only grade recognition noise (two Uzbek dubs a person
-  graded Good and Check scored 1 of 5). A confident third language, or the original's language, stays Poor (a real
+  graded Good and Needs review scored 1 of 5). A confident third language, or the original's language, stays Poor (a real
   wrong-language dub). Long silences are still listed there, without reading a word: where the voice detector hears the
   dub silent and the original speak for at least 2 s in total (`evaluate.voice_gaps`), Poor from 4 s. They're moments
   to listen to, and the timing row says it's looking for them; the verdict still comes from the rows.
 - **No speech:** when the dub has no recognized speech at all while the original has (music, singing, noise), a "Speech
-  found" row is **Poor**: nothing was dubbed. When the original has none, the row is Check: a person should watch it,
+  found" row is **Poor**: nothing was dubbed. When the original has none, the row is Needs review: a person should watch it,
   because the speech checks couldn't run.
 
 The first versions came from 7 labelled PersoDub pairs (agreement 3 → 5). On the 12-pair set of 2026-10-25 the
-language row moved from Check to "not measured" (three Uzbek dubs graded Good were held at Check by it) and a dub
-without speech from Check to Poor (the reviewer graded such a dub Poor).
+language row moved from Needs review to "not measured" (three Uzbek dubs graded Good were held at Needs review by it) and a dub
+without speech from Needs review to Poor (the reviewer graded such a dub Poor).
 
 ## 6. The report and the verdict (`report.py`)
-Every measure gets a level (good / check / poor / info / not measured), a one-sentence explanation and the thresholds used. **Verdict:** any Poor → Poor; otherwise any Check → Needs review; otherwise Good. Info (lip movement, speech offsets) and not-measured items never change it, and the report lists why each unmeasured item wasn't measured.
+Every measure gets a level (good / check / poor / info / not measured), a one-sentence explanation and the thresholds used. **Verdict:** any Poor → Poor; otherwise any Needs review → Needs review; otherwise Good. Info (speech offsets) and not-measured items never change it, and the report lists why each unmeasured item wasn't measured.
 
 **How sure** (`report.sure_of`): DubEval says so when its own measurement is shaky, and the verdict follows.
 
@@ -438,47 +455,67 @@ Every measure gets a level (good / check / poor / info / not measured), a one-se
 | little speech | the original speaks < 35% of the video (`SURE_SPEECH_SHARE`) | only distortion, same video, coverage, file, sound sync or speech found can make it Poor; else Needs review. Line length, overruns and, with no judge, meaning similarity aren't graded or listed: recognized words over music aren't reliable |
 | too little speech | < 10 s of original speech (`SURE_SPEECH_SEC`) | same |
 | unclear speech | the dub recognized confidently < 90% of its speech time (`SURE_CLARITY`) | same |
-| background replaced | the dub's background (DNSMOS BAK) ≥ 2.0 cleaner than the original's (`BACKGROUND_REPLACED`) | silence and loudness are Check at most |
+| background replaced | the dub's background (DNSMOS BAK) ≥ 2.0 cleaner than the original's (`BACKGROUND_REPLACED`) | silence and loudness are Needs review at most |
 | words not checked | the dub's language wasn't recognized (`speech_problem` "unrecognized") | never Good |
 | translation not checked | the translation check didn't run: no judge, an error, or turned off (a required check) | never Good |
 | backup judge | a backup model judged the translation (`translation_judge.fallback`) | a note; no level changes |
+| a language the speech model reads badly | on 25 read test sentences the model used got more than 10% of characters wrong in the dub's or the original's language (`WEAK_RECOGNITION_PCT`, `languages.RECOGNITION_ERRORS`: 36 languages, `large-v3-turbo` and `base`) | a note naming the language, the model and the measured share, and the large model when it reads that language well; no level changes. A model or language that wasn't measured gets no note |
 
 The headline states each reason in plain words and asks the reader to listen. Set on 19 dubs a person graded:
 agreement 11 → 13 of 19, all 5 graded Poor still Poor (`docs/validation.md`). There's deliberately no single 0–100 score: weights between these measures would be arbitrary and hard to defend.
 
 ## 7. Problem intervals (`intervals.py`)
-(Pairing adds the `missing_in_dub` category: a part of the original that isn't in the dub, Check, Poor from 5 s, and `sound_sync`: the whole dub when its sound is 0.3 s or more
+(Pairing adds the `missing_in_dub` category: a part of the original that isn't in the dub, Needs review, Poor from 5 s, and `sound_sync`: the whole dub when its sound is 0.3 s or more
 behind or ahead of its picture, Poor from 0.6 s.
 Line timing adds `line_length` and `line_overrun`; see "Line by line" above.)
 Every issue becomes a time range `{start, end, dub, category, severity (poor/check), check, description}`, in `report.problem_intervals`. Things to check are built from the same list.
 
 | Category | Found by | Severity |
 |---|---|---|
-| `long_silence` | speech timing: original speaks, dub silent for ≥ 2 s, the voice detector agreeing; where the dub's words can't be read, the voice detector alone (`timing_alignment.voice_gaps`) | Poor from 4 s, else Check |
-| `timing_mismatch` | speech timing: shorter one-track-only stretches of at least 0.8 s, the voice detector agreeing (`TIMING_MIN_SEC`; 0.5-0.8 s ones are word-timing jitter that validation saw come and go; they still count in the overlap score) | Check |
-| `missing_speech` / `added_speech` | translation check | Poor if major, else Check |
-| `mistranslation`, `names_numbers` | translation check | Poor if major, else Check |
-| `names_numbers` | numbers check: a number the original says (on that line or the one before or after) has become another in the dub | Check |
-| `translation_wording` | translation check (naturalness, context, terms, localization) | Check |
-| `distortion` | clipped samples (`dubbed_clipping_intervals`, merged within 0.5 s) | Poor if the clipping row is Poor, else Check |
-| `loudness_jump` | loudness envelope: dub vs original level, after removing their overall offset, differs by ≥ 10 dB for ≥ 1 s where both tracks have sound | Poor from 16 dB, else Check |
-| `wrong_language` | Whisper language detection per 10 s window of the dub, windows overlapping by half (`dubbed_language_windows`; they widen so at most 120 are checked): the original's language at ≥ 50% while it leads the expected one by at least 0.3 (`LANG_SOURCE_LEAD`: an 8 s part left in a 10 s window keeps the dub's language near 0.3), or any other language at ≥ 80% while the expected one is < 20% (stricter: Whisper guesses odd languages on noise and music) | original's language: Poor from 80%; other language: Poor from 95%; else Check |
-| `unclear_speech` | voice clarity: segments Whisper recognised with low confidence, at least 0.5 s long (`SLIVER_SEC`) | Check |
-| `voice_change` | voice similarity: one line's dub voice much less like the original speaker than the rest | Check |
-| `noise` | noise: the dub fills with hiss or static the original doesn't have, for at least 1.5 s (see Noise above) | Check |
-| `voice_quality` | voice quality: a ~9 s stretch where the dub, at the original's volume, scores below the original (SIG ≥ 0.6 or OVRL ≥ 0.5), unless the original itself scores below 1.6 there | Poor from 2.5 / 1.5, else Check |
+| `long_silence` | speech timing: original speaks, dub silent for ≥ 2 s, the voice detector agreeing; where the dub's words can't be read, the voice detector alone (`timing_alignment.voice_gaps`) | Poor from 4 s, else Needs review |
+| `timing_mismatch` | speech timing: shorter one-track-only stretches of at least 0.8 s, the voice detector agreeing (`TIMING_MIN_SEC`; 0.5-0.8 s ones are word-timing jitter that validation saw come and go; they still count in the overlap score) | Needs review |
+| `missing_speech` / `added_speech` | translation check | Poor if major, else Needs review |
+| `mistranslation`, `names_numbers` | translation check | Poor if major, else Needs review |
+| `names_numbers` | numbers check: a number the original says (on that line or the one before or after) has become another in the dub | Needs review |
+| `translation_wording` | translation check (naturalness, context, terms, localization) | Needs review |
+| `distortion` | clipped samples (`dubbed_clipping_intervals`, merged within 0.5 s) | Poor if the clipping row is Poor, else Needs review |
+| `loudness_jump` | loudness envelope: dub vs original level, after removing their overall offset, differs by ≥ 10 dB for ≥ 1 s where both tracks have sound | Poor from 16 dB, else Needs review |
+| `wrong_language` | Whisper language detection per 10 s window of the dub, windows overlapping by half (`dubbed_language_windows`; they widen so at most 120 are checked): the original's language at ≥ 50% while it leads the expected one by at least 0.3 (`LANG_SOURCE_LEAD`: an 8 s part left in a 10 s window keeps the dub's language near 0.3), or any other language at ≥ 80% while the expected one is < 20% (stricter: Whisper guesses odd languages on noise and music) | original's language: Poor from 80%; other language: Poor from 95%; else Needs review |
+| `unclear_speech` | voice clarity: segments Whisper recognised with low confidence, at least 0.5 s long (`SLIVER_SEC`) | Needs review |
+| `voice_change` | voice similarity: one line's dub voice much less like the original speaker than the rest | Needs review |
+| `noise` | noise: the dub fills with hiss or static the original doesn't have, for at least 1.5 s (see Noise above) | Needs review |
+| `voice_quality` | voice quality: a ~9 s stretch where the dub, at the original's volume, scores below the original (SIG ≥ 0.6 or OVRL ≥ 0.5), unless the original itself scores below 1.6 there | Poor from 2.5 / 1.5, else Needs review |
 
-Rules: ranges of the same category that overlap or are less than 0.5 s apart merge (worst severity kept, `merged` counts them); ranges are clipped to the dub's length, rounded to 0.1 s and sorted by start. A translation issue lasts until the end of the original line starting closest to it (within 1 s; the judge quotes line start times), else the line containing it, else 2 s. Issues the judge flags as probable speech-recognition errors go to `report.possible_asr_errors` and never count, except a meaning issue scored 4 or lower: the judge can't tell a mishearing from a real error there, so it stays a Check interval ("listen to the line to tell") and makes meaning Check, never Poor. The prompt allows the flag only when a similar-sounding word explains the score, never for a changed, opposite or different-number phrase. `report.problem_seconds` is the time covered by at least one interval (overlaps count once). Intervals don't change the verdict, which comes from the measure levels; compare mode uses `problem_seconds` as a tie-breaker.
+Rules: ranges of the same category that overlap or are less than 0.5 s apart merge (worst severity kept, `merged` counts them); ranges are clipped to the dub's length, rounded to 0.1 s and sorted by start. A translation issue lasts until the end of the original line starting closest to it (within 1 s; the judge quotes line start times), else the line containing it, else 2 s. Issues the judge flags as probable speech-recognition errors go to `report.possible_asr_errors` and never count, except a meaning issue scored 4 or lower: the judge can't tell a mishearing from a real error there, so it stays a Needs review interval ("listen to the line to tell") and makes meaning Needs review, never Poor. The prompt allows the flag only when a similar-sounding word explains the score, never for a changed, opposite or different-number phrase. `report.problem_seconds` is the time covered by at least one interval (overlaps count once). Intervals don't change the verdict, which comes from the measure levels; compare mode uses `problem_seconds` as a tie-breaker.
+
+**Moments (`group_moments`, `report.moments`).** Two checks often flag the same second: on 20 graded dubs, 9 reports listed
+a moment twice ("missing speech" from the translation check and "the dub is silent" from speech timing). The findings stay
+as they are in `problem_intervals` (a reviewer votes on each), and the report puts those about one moment together: two
+ranges that share at least 50% of their combined time (`MOMENT_OVERLAP`), or that are about the same line (a line too long
+that also runs into the next). A long range doesn't swallow a short one inside it (a 9 s voice-quality window and a 1 s
+wording problem stay two moments). The finding that says most about what is wrong speaks for the moment (`LEAD_ORDER`:
+the checks that read the words first, "one track speaks and the other doesn't" last), worst severity first. On those 20
+dubs, 78 findings became 66 moments. *Things to check* lists each moment once, with the names of its other findings.
+
+**What a finding says, in parts.** Besides `description` (everything in one text), each finding has `problem` (what is
+wrong, in a sentence), `original` and `dubbed` (what each track says there), `suggestion` (a better translation), `doubt`
+(`asr`: probably misheard; `asr_or_real`: can't tell) and `line`. A timing moment quotes the words of the track that
+speaks, from the transcript lines it shares at least 0.2 s with (20 of 20 timing moments on the 20 dubs now do). The
+translation check's "(nothing)" for a silent track is never shown as a quote or a suggestion.
+
+**A moment is Poor only when its measure is** (`report._cap_moments`). Each check grades its moments one by one with the
+bands above, but Poor means "this is why the dub is Poor" on a row, a moment and the verdict alike: a moment whose measure
+isn't Poor (or isn't graded) is shown as Needs review. Before, 7 of 20 graded dubs showed a Poor moment in a dub with no
+Poor measure. The bands above still decide which moments are listed.
 
 ## 8. Calibrating the bands (`qa.py batch`)
-Every band above is a starting point. To tune them on your own dubs: list share links with your verdict (`link,good|check|poor`), run `python qa.py batch links.txt`, and read the agreement line and the person × tool table. "Stricter than you" means the tool called a dub worse than you did; find which `<measure>_level` columns in `summary.csv` were Poor or Check on those rows, adjust that constant in `report.py` / `intervals.py`, and rerun. Reruns are cached (no downloads, no Whisper, no API calls), so each try takes seconds.
+Every band above is a starting point. To tune them on your own dubs: list share links with your verdict (`link,good|check|poor`), run `python qa.py batch links.txt`, and read the agreement line and the person × tool table. "Stricter than you" means the tool called a dub worse than you did; find which `<measure>_level` columns in `summary.csv` were Poor or Needs review on those rows, adjust that constant in `report.py` / `intervals.py`, and rerun. Reruns are cached (no downloads, no Whisper, no API calls), so each try takes seconds.
 
 ## Sanity warnings (`warnings` in results)
 Raised automatically when:
 - the duration differs by more than 20% (probably not a matching pair),
 - the dub transcript is empty,
 - the primary error rate is above 0.8 (probably the wrong script or language),
-- lip movement couldn't be measured on the dub (the reason is included).
 
 Each warning also appears under *Things to check* in the report.
 

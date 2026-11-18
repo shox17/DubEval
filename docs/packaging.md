@@ -22,7 +22,7 @@ Models (downloaded on first use today):
 | BGE-M3 | 4.35 GB as downloaded today (an int8 ONNX copy is ~0.6 GB) | the offline meaning screen (optional; the judge works without it) |
 | WeSpeaker | 26 MB | voice similarity. Bundle it. |
 | DNSMOS, MediaPipe face | already in `dubeval/models/` | voice quality, lip movement |
-| Qwen3 8B + Ollama | 5.0 GB + ~1.8 GB | the local translation judge (optional; Claude or Gemini need no download) |
+| Gemma 4 12B + Ollama | 8.0 GB + ~0.1 GB (only the files DubEval needs) | the local translation judge (optional; Claude or Gemini need no download) |
 
 The finding that shapes everything: **without PyTorch, DubEval's core drops from ~5.7 GB to ~1.3 GB.** Only two
 things pull torch in, and both have torch-free routes: the meaning screen can run BGE-M3 on onnxruntime (already
@@ -54,7 +54,8 @@ app where a person chooses extras, each with its size, a progress bar and a chec
 | GPU acceleration (NVIDIA only, offered only when one is found) | 736 MB (measured) | faster speech recognition through CUDA |
 | Meaning screen | 586 MB (measured) | the offline line-by-line meaning check |
 | Better recognition for less common languages | ~1.6 GB | `large-v3-turbo` |
-| Local translation checker | ~7 GB | Ollama + Qwen3 8B, for checking without Claude or Gemini |
+| Local translation checker | 8.1 GB | Ollama + Gemma 4 12B, for checking without Claude or Gemini |
+| Voice quality over music | 415 MB | Audiobox Aesthetics, in place of DNSMOS |
 
 - Good: one reliable, offline install for everyone; nobody downloads gigabytes they don't use; the person agrees to
   each large download; the same file sets work on every PC.
@@ -126,7 +127,8 @@ app where a person chooses extras, each with its size, a progress bar and a chec
 ## Still to do for option C
 1. DubEval's own icon and auto-update are done (see `desktop/README.md`).
 2. Code signing is done from 0.1.6: the installer is signed by ESTsoft Corp. through the company's internal portal
-   (`desktop/README.md` → Publish a new version). Later: signing the app's own files too, and the macOS build.
+   (`desktop/README.md` → Publish a new version). Later: signing the app's own files too. The macOS build is signed with ESTsoft's Developer ID and notarized
+   since 0.1.7 (`desktop/README.md` → Build the macOS app).
 
 Licenses to add to NOTICE when shipping: Python (PSF), ffmpeg from imageio-ffmpeg (GPL build: fine under AGPL, but
 its license text and source offer ship with the app), CUDA libraries (NVIDIA's redistribution terms) in the GPU pack,

@@ -148,12 +148,12 @@ def test_lip_sync_is_graded_on_the_share_of_moments_that_line_up(dub, level, ver
         assert "close-ups" in row["message"]
 
 
-def test_lip_sync_that_wasnt_measured_or_only_estimated_never_counts():
+def test_lip_sync_that_wasnt_measured_never_counts():
     results = make_results(translation_judge=JUDGED)
     results["lipsync_metrics"]["sync"] = ls.not_measured("r.sync_lips.few_moments", n=3)
     assert build_report(results)["overall"]["level"] == "good"
-    rep = build_report(make_results(translation_judge=JUDGED))          # no pack: the rough estimate, information only
-    assert metric(rep, "lip_movement")["level"] == "info" and rep["overall"]["level"] == "good"
+    rep = build_report(make_results(translation_judge=JUDGED))          # the check was off
+    assert metric(rep, "lip_sync")["level"] == "not_measured" and rep["overall"]["level"] == "good"
 
 
 def test_the_report_says_when_the_sound_is_off_and_why_it_wasnt_measured():
@@ -167,9 +167,38 @@ def test_the_report_says_when_the_sound_is_off_and_why_it_wasnt_measured():
     assert row["level"] == "not_measured" and "20%" in row["message"] and "narrator" in row["message"]
 
 
-def test_without_the_pack_lip_movement_points_to_the_download():
-    row = metric(build_report(make_results(translation_judge=JUDGED)), "lip_movement")
-    assert "Settings → Models" in row["message"]
+def test_without_the_download_the_report_points_to_it_and_no_estimate_is_shown():
+    # A rough lip-movement estimate once ran here; it scored an in-sync original -0.20 and was removed (2026-11-13).
+    asked = make_results(translation_judge=JUDGED,
+                         lipsync_metrics={"measured": True, "sync": None, "reason_key": "r.lips.no_download"})
+    for lang in ("en", "ko", "pt", "es"):
+        rep = build_report(asked, lang)
+        row = metric(rep, "lip_sync")
+        assert row["level"] == "not_measured" and "1.6 GB" in row["message"].replace(",", ".") and "{" not in row["message"]
+        assert not [m for s in rep["sections"] for m in s["metrics"] if m["id"] == "lip_movement"]
+    assert "Settings → Models" in metric(build_report(asked), "lip_sync")["message"]
+    assert build_report(asked)["overall"]["level"] == "good"            # a check that didn't run never counts
+
+
+def test_a_result_saved_with_the_old_estimate_says_it_was_removed_and_shows_no_number():
+    old = make_results(translation_judge=JUDGED, lipsync_metrics={
+        "measured": True, "valid": True, "reason": "", "pearson_correlation": -0.03, "best_lag_correlation": 0.1,
+        "best_lag_ms": 40, "sync_quality": "none", "face_coverage_pct": 56.0, "original_pearson": -0.2,
+        "waveform_data": {"timestamps": [], "mar_norm": [], "rms_norm": []}})
+    rep = build_report(old)
+    row = metric(rep, "lip_sync")
+    assert row["level"] == "not_measured" and "no longer shows" in row["message"] and "-0.03" not in str(rep)
+    failed = make_results(translation_judge=JUDGED, lipsync_metrics={
+        "measured": True, "valid": False, "reason": "face detected in only 20% of frames", "reason_key": "r.lips.few_faces",
+        "reason_params": {"pct": "20%"}, "pearson_correlation": None})
+    assert "no longer shows" in metric(build_report(failed), "lip_sync")["message"]      # its old reason has no text now
+
+
+def test_the_estimate_and_its_face_tracking_are_gone_from_the_measuring_code():
+    from dubeval import evaluate
+    assert not hasattr(evaluate, "analyze_lipsync") and not hasattr(evaluate, "LIPSYNC_SKIPPED")
+    assert "mediapipe" not in {name.split(".")[0] for name in vars(evaluate) if not name.startswith("_")}
+    assert evaluate.SCHEMA_VERSION >= 7                 # the estimate's keys left lipsync_metrics
 
 
 def test_the_pack_is_ByteDances_file_pinned_to_a_revision():

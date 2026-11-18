@@ -5,8 +5,9 @@ speech into a voice fingerprint; the cosine similarity of two fingerprints says 
 voice ~0.8, different voices ~0.1). Each original line is compared with the dub at the same moment, because Perso
 keeps the timing: that follows every character in a multi-speaker video without speaker detection.
 
-Background music blurs the fingerprints (tested on a real film: even two lines of the same actor scored < 0.45), so
-a line counts only where the original's background is clean (DNSMOS background score, dubeval/voice_quality.py).
+Some videos fool the model (on a real film even two lines of the same actor scored < 0.45), so the result also says
+how well it recognises the original's own speakers (voice_similarity: original_self); the report grades a low
+similarity only when that is high.
 
 The model (26.5 MB) is downloaded once to ~/.cache/dubeval/, pinned to a Hugging Face commit and checked by
 SHA-256. The Kaldi filterbank features it expects are computed here with numpy (no torchaudio).
@@ -29,7 +30,6 @@ MODEL_SHA256 = "7bb2f06e9df17cdf1ef14ee8a15ab08ed28e8d0ef5054ee135741560df2ec068
 CACHE_DIR = Path(os.getenv("DUBEVAL_MODELS", Path.home() / ".cache" / "dubeval"))
 SAMPLE_RATE = 16000
 MIN_LINE_SEC = 2.0                   # shorter lines give unreliable fingerprints
-CLEAN_BACKGROUND = 3.0               # DNSMOS background score of the original line needed to compare voices
 MAX_LINES = 80                       # longest lines kept on long videos
 
 _session = None
@@ -136,42 +136,54 @@ def embed(wave: np.ndarray, session=None) -> np.ndarray:
     return e / (np.linalg.norm(e) + 1e-9)
 
 
-def similarity(a: np.ndarray, b: np.ndarray, session=None) -> float:
-    """Cosine similarity of two equally long stretches' voices, both run through the model at once (same scores as
-    embedding each alone, ~20% faster)."""
+def _pair(a: np.ndarray, b: np.ndarray, session=None) -> tuple[np.ndarray, np.ndarray]:
+    """The fingerprints of two stretches; equally long ones go through the model at once (same scores as embedding
+    each alone, ~20% faster)."""
     if len(a) != len(b):
-        return float(embed(a, session) @ embed(b, session))
+        return embed(a, session), embed(b, session)
     e = (session or _model()).run(None, {"feats": np.stack([_feats(a), _feats(b)])})[0]
     e = e / (np.linalg.norm(e, axis=1, keepdims=True) + 1e-9)
-    return float(e[0] @ e[1])
+    return e[0], e[1]
 
 
-def voice_similarity(y_orig: np.ndarray, y_dub: np.ndarray, orig_segments: list[dict],
-                     background: Callable[[np.ndarray], float], session=None) -> dict:
-    """Similarity of original and dub voices per original line (>= 2 s), where the original's background is clean.
+def similarity(a: np.ndarray, b: np.ndarray, session=None) -> float:
+    """Cosine similarity of two stretches' voices."""
+    ea, eb = _pair(a, b, session)
+    return float(ea @ eb)
 
-    background(audio) returns the DNSMOS background score of a stretch of the original. Returns
-    {measured, reason_key, median, lines[{start, end, similarity}], skipped_noisy, model}.
+
+def voice_similarity(y_orig: np.ndarray, y_dub: np.ndarray, orig_segments: list[dict], session=None) -> dict:
+    """Similarity of original and dub voices per original line (>= 2 s) at the same moments, and how well the model
+    recognises the original's own speakers.
+
+    original_self is the typical similarity of an original line with the other original line that sounds most like
+    it: high when the model knows this video's speakers, low when the sound (several voices at once, music, short
+    lines) fools it, whatever the dub is like. The report reads a low dub similarity only when it is high
+    (report.VOICE_KNOWN). It replaced a rule that skipped lines with a loud background: on 10 real dubs that rule left
+    9 unmeasured, though the scores with the music in were the same as with the voice separated (docs/validation.md).
+    Returns {measured, reason_key, median, lines[{start, end, similarity}], original_self, model}.
     """
     lines = sorted((s for s in orig_segments if s["end"] - s["start"] >= MIN_LINE_SEC),
                    key=lambda s: s["start"] - s["end"])[:MAX_LINES]
-    out, noisy = [], 0
+    out, prints = [], []
     for s in sorted(lines, key=lambda s: s["start"]):
         a, b = int(s["start"] * SAMPLE_RATE), int(s["end"] * SAMPLE_RATE)
         orig, dub = y_orig[a:b], y_dub[a:b]
         if len(dub) < MIN_LINE_SEC * SAMPLE_RATE * 0.9 or np.abs(dub).max(initial=0) < 1e-4:
             continue
-        if background(orig) < CLEAN_BACKGROUND:
-            noisy += 1
-            continue
+        of_orig, of_dub = _pair(orig, dub, session)
+        prints.append(of_orig)
         out.append({"start": round(float(s["start"]), 2), "end": round(float(s["end"]), 2),
-                    "similarity": round(similarity(orig, dub, session), 3)})
+                    "similarity": round(float(of_orig @ of_dub), 3)})
     if len(out) < 2:
-        return {**not_measured("r.vs.noisy" if noisy else "r.vs.few_lines"), "skipped_noisy": noisy}
+        return not_measured("r.vs.few_lines")
+    among = np.stack(prints) @ np.stack(prints).T
+    np.fill_diagonal(among, -1.0)                          # a line isn't compared with itself
     return {"measured": True, "reason_key": None, "median": round(float(np.median([l["similarity"] for l in out])), 3),
-            "lines": out, "skipped_noisy": noisy, "model": "WeSpeaker ResNet34-LM"}
+            "lines": out, "original_self": round(float(np.median(among.max(axis=1))), 3),
+            "model": "WeSpeaker ResNet34-LM"}
 
 
 def not_measured(reason_key: str) -> dict:
     """The result when voice similarity wasn't measured."""
-    return {"measured": False, "reason_key": reason_key, "median": None, "lines": [], "skipped_noisy": 0}
+    return {"measured": False, "reason_key": reason_key, "median": None, "lines": [], "original_self": None}

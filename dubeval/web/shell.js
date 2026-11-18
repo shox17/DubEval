@@ -30,8 +30,11 @@ export function watchUpdatesFor(el, fn) {
   });
 }
 
-export const updatesAvailable = () => !!shell;
-export const checkForUpdates = () => shell && shell.checkForUpdates();
+// A desktop app that can't update itself yet (the Mac build) says so; the page then offers no check.
+const selfUpdates = !!shell && shell.selfUpdates !== false;
+export const updatesAvailable = () => selfUpdates;
+export const updatesByHand = () => !!shell && !selfUpdates;
+export const checkForUpdates = () => selfUpdates && shell.checkForUpdates();
 export const restartToUpdate = () => shell && shell.restartToUpdate();
 
 // An update exists: found and downloading, on disk, or its download broke.
@@ -136,7 +139,7 @@ function versionWindow() {
 
   const paint = u => {
     const isLive = live(u);
-    title.textContent = !shell ? `DubEval ${state.info.version}`
+    title.textContent = !selfUpdates ? `DubEval ${state.info.version}`
       : isLive ? t("w.upd.can_update")
       : u.phase === "checking" ? t("w.upd.checking")
       : u.phase === "error" ? t("w.upd.failed_short") : t("w.upd.up_to_date");
@@ -155,7 +158,7 @@ function versionWindow() {
     failed.hidden = !broke && u.phase !== "error";
     if (!failed.hidden) failed.textContent = t(broke ? "w.upd.download_failed" : "w.upd.check_failed_hint");
     running.hidden = !(evaluating && isLive && !broke);
-    check.hidden = !shell || (isLive && !broke) || u.phase === "checking";
+    check.hidden = !selfUpdates || (isLive && !broke) || u.phase === "checking";
     const lines = isLive ? updateLines(u) : state.info.whats_new;
     notes.replaceChildren(...lines.map(n => h("li", {}, n)));
     link.hidden = !(isLive && !lines.length);

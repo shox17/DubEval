@@ -102,6 +102,7 @@ def no_real_translation_judge(monkeypatch, tmp_path):
     from dubeval import pipeline
     from dubeval.translation_judge import not_measured
     monkeypatch.setattr(pipeline, "judge_translation", lambda *a, **k: not_measured("r.judge.off"))
+    monkeypatch.delenv("DUBEVAL_SECOND_LISTEN", raising=False)                  # the second listen as shipped
     from dubeval import translation_judge
     monkeypatch.setattr(translation_judge, "ollama_available", lambda: False)   # never probe a local Ollama
     from dubeval import local_judge, packs
@@ -110,6 +111,9 @@ def no_real_translation_judge(monkeypatch, tmp_path):
     from dubeval import lip_sync
     monkeypatch.setattr(lip_sync, "PACK_DIR", tmp_path / "models" / "latentsync-syncnet")  # nor the lip-sync pack
     lip_sync.unload()
+    from dubeval import voice_quality
+    monkeypatch.setattr(voice_quality, "PACK_DIR", tmp_path / "models" / "audiobox-aesthetics")  # nor Audiobox
+    voice_quality.unload()
 
 
 @pytest.fixture(autouse=True)

@@ -14,13 +14,14 @@ function tiles(s) {
   const tile = (label, value, cls = "") => h("div", { class: `tile ${cls}` }, h("span", { class: "muted small" }, label),
     h("strong", {}, value));
   return [h("div", { class: "tiles" },
-    tile(t("h.dubs"), String(s.dubs)), tile(t("h.good_pct"), String(v.good), "good"),
+    tile(t("h.dubs"), String(s.dubs)), tile(t("verdict.good"), String(v.good), "good"),
     tile(t("verdict.check"), String(v.check), "check"), tile(t("verdict.poor"), String(v.poor), "poor")),
   h("p", { class: "muted small" }, t("h.totals", { runs: s.runs, dubs: s.dubs, good: v.good, check: v.check,
     poor: v.poor, pct: Math.round(s.good_pct) }))];
 }
 
-// Stacked bars, one per week; the bar's height is the number of dubs that week.
+// Stacked bars, one per week; the bar's height is the number of dubs that week, printed over it. A quiet week keeps
+// a bar tall enough to see (a week with 2 dubs next to one with 80 was a hairline).
 function weekly(s) {
   const most = Math.max(1, ...s.weekly.map(w => w.good + w.check + w.poor));
   return h("section", { class: "card" }, h("h2", {}, t("h.weekly_chart")),
@@ -28,7 +29,8 @@ function weekly(s) {
     h("div", { class: "bars", role: "img", "aria-label": t("h.weekly_chart") }, s.weekly.map(w => {
       const n = w.good + w.check + w.poor;
       return h("div", { class: "bar-col", title: `${w.week}: ${t("h.week_counts", { n, good: w.good, check: w.check, poor: w.poor })}` },
-        h("div", { class: "bar", style: `height:${(n / most) * 100}%` },
+        n ? h("span", { class: "bar-n" }, String(n)) : null,
+        h("div", { class: "bar", style: `height:${n ? `max(10px, ${(n / most) * 80}%)` : "0"}` },
           LEVELS.slice().reverse().map(lv => w[lv] ? h("div", { class: `seg ${lv}`, style: `flex:${w[lv]}` }) : null)),
         h("span", { class: "small muted" }, w.week.slice(5)));
     })));
@@ -106,7 +108,7 @@ export function renderHistory(root) {
       if (!alive) return;
       const s = data.history;
       if (!s.dubs) { fill(body, h("p", { class: "muted card" }, t("h.empty")), reviewers(data.feedback)); return; }
-      fill(body, tiles(s), weekly(s), h("div", { class: "split" }, pairs(s), problems(s)), reviewers(data.feedback),
+      fill(body, tiles(s), weekly(s), h("div", { class: "split hist-split" }, pairs(s), problems(s)), reviewers(data.feedback),
         recent(s));
     } catch (e) {
       if (alive) fill(body, h("p", { class: "error" }, e.message));

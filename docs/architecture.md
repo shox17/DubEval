@@ -35,23 +35,23 @@ Share links only; no API key, no account (https://developers.perso.ai/llms.txt).
 - `download_media` streams a relative `/perso-storage/…` path from `https://portal-media.perso.ai` (URL-encoded) with retries and an atomic `.part` rename.
 
 ### `dubeval/pipeline.py`
-- `evaluate_share` parses the link, reads the project, downloads the original and the dub (the lip-synced video when `isLipSync`) into the link's cache folder `data/cache/<sha1(token)[:16]>/` (files named after a hash of their Perso path, so a re-rendered dub is downloaded again), and evaluates with the project's source and target languages. Whisper results go to `whisper_cache.json` in the same folder. `use_cache=False` (`--no-cache`) empties the folder first. The newest `MAX_CACHED_LINKS` link folders are kept. Lip movement is measured only when the evaluated video is lip-synced (`include_lipsync=None` = automatic; `--no-lipsync` forces it off). `original` (a file or URL) is used when the link has no original. It checks the stop signal between steps, then runs `check_translation` (any failure is a not-measured result).
+- `evaluate_share` parses the link, reads the project, downloads the original and the dub (the lip-synced video when `isLipSync`) into the link's cache folder `data/cache/<sha1(token)[:16]>/` (files named after a hash of their Perso path, so a re-rendered dub is downloaded again), and evaluates with the project's source and target languages. Whisper results go to `whisper_cache.json` in the same folder. `use_cache=False` (`--no-cache`) empties the folder first. The newest `MAX_CACHED_LINKS` link folders are kept. The lip-sync check runs only when the evaluated video is lip-synced (`include_lipsync=None` = automatic; `--no-lipsync` forces it off). `original` (a file or URL) is used when the link has no original. It checks the stop signal between steps, then runs `check_translation` (any failure is a not-measured result).
 - `run_share_evaluation` = `evaluate_share` + `build_report` + `save_report_files` (`report.json` = report + results, `report.html`, `report.txt`) into `out_dir` (the CLI's `--out`) or a new `data/output/runs/<run-id>/` (kept until deleted; see `dubeval/library.py`), then `results.json`.
 - `check_translation` caches successful reviews in the link's `judge_cache.json` under a fingerprint of both transcripts, the languages and `translation_judge.judge_fingerprint()` (provider, models, thinking, prompt, schema); failures are never cached.
 - `run_comparison(url_a, url_b, out_dir, more_urls=())` evaluates every link (2–8), calls `build_comparison`, and `save_comparison_files` writes `comparison.txt` / `.json` (without the embedded reports) / `.html` and `report_A.*` / `report_B.*`. Progress is mapped onto the stages `dub_a`, `dub_b`, `compare`.
 - HTML reports refer to the cached videos by relative path (a `file://` URI when they are on another Windows drive).
 
 ### `dubeval/evaluate.py`
-Pure: no file writes (only temp audio) and no side effects on import. `run_full_evaluation` reports sub-steps through `on_step`, takes `include_lipsync` (skip the slow experimental step), `source_lang`, and an optional dict-like `cache` for Whisper results (transcripts, language detection, language windows) keyed by model, language and media file; the Whisper model is loaded only on a cache miss. On Windows, OpenCV gets an ASCII path (`_cv2_path`) and MediaPipe gets its model as bytes, because both fail on non-ASCII paths. It returns audio measures, both transcripts with Whisper segments, the dub's detected language, clarity, speech intervals and their alignment, clipping, a technical comparison of both files, and lip movement. See [metrics.md](metrics.md).
+Pure: no file writes (only temp audio) and no side effects on import. `run_full_evaluation` reports sub-steps through `on_step`, takes `include_lipsync` (run the lip-sync check; it needs its download), `source_lang`, and an optional dict-like `cache` for Whisper results (transcripts, language detection, language windows) keyed by model, language and media file; the Whisper model is loaded only on a cache miss. On Windows, OpenCV gets an ASCII path (`_cv2_path`) and MediaPipe gets its model as bytes, because both fail on non-ASCII paths. It returns audio measures, both transcripts with Whisper segments, the dub's detected language, clarity, speech intervals and their alignment, clipping, a technical comparison of both files, and lip movement. See [metrics.md](metrics.md).
 
 ### `dubeval/voice_quality.py`
-`voice_quality(y_orig, y_dub, orig_speech, dub_speech)` scores ~9 s windows where both tracks speak with DNSMOS P.835 (`dubeval/models/dnsmos_sig_bak_ovr.onnx`, onnxruntime on CPU, session loaded once), the dub at the original window's volume (`_at_volume_of`), and returns `{measured, reason_key, dub, original, difference, windows[{start, end, dub, original, dub_sig, original_sig, dub_bak, original_bak}], model}`. `evaluate.run_full_evaluation` calls it through the per-link cache; a missing runtime becomes `not_measured("r.vq.error")`. Grading: `intervals.voice_window_level`, used by both the report row and the intervals; a stretch whose original scores below `VOICE_FLOOR` counts as good.
+`scorer()` says which model scores: `audiobox` when the `voice_quality` pack is installed (Meta's Audiobox Aesthetics through the bundled graph `models/audiobox_aesthetics.onnx`, whose weights are read out of the pack's `model.safetensors`; windows then hold `dub` / `original` = production quality 1-10, `dub_ce` / `original_ce`, and DNSMOS's `dub_bak` / `original_bak`; the result has `scorer` and `scale`), else `dnsmos`. `voice_quality(y_orig, y_dub, orig_speech, dub_speech)` scores ~9 s windows where both tracks speak, by default with DNSMOS P.835 (`dubeval/models/dnsmos_sig_bak_ovr.onnx`, onnxruntime on CPU, session loaded once), the dub at the original window's volume (`_at_volume_of`), and returns `{measured, reason_key, dub, original, difference, windows[{start, end, dub, original, dub_sig, original_sig, dub_bak, original_bak}], model}`. `evaluate.run_full_evaluation` calls it through the per-link cache; a missing runtime becomes `not_measured("r.vq.error")`. Grading: `intervals.voice_window_level`, used by both the report row and the intervals; a stretch whose original scores below `VOICE_FLOOR` counts as good.
 
 ### `dubeval/lip_sync.py`
 `lip_sync(orig_video, y_orig, orig_speech, dub_video, y_dub, dub_speech, duration, check, dub_offset_sec)` (y_dub: the
 dub's own sound, not moved onto the original's timeline; the dub's frames and sound are read `dub_offset_sec` later;
 a recut dub is `not_measured("r.sync_lips.recut")`) runs only when the
-`lip_sync` pack is installed (`ready()`), in place of `analyze_lipsync`. `pick_moments` takes separate 16-frame
+`lip_sync` pack is installed (`ready()`). `pick_moments` takes separate 16-frame
 moments (25 fps) where both tracks speak for ≥ 80% in the first 60 s; `face_seen` looks at each one's middle frame in
 both videos (read side by side in two threads); `lower_faces` prepares the 16 frames of up to 36 of them as LatentSync
 does (MediaPipe's three points → `align`, warp, 256×256, lower half); `best_shifts` embeds faces and sound
@@ -63,7 +63,7 @@ dub_match_pct, dub_offset_ms, dub_offset_match_pct, timeline[{time, end, origina
 `tools/build_syncnet_onnx.py` from the pinned checkpoint (torch and onnx, developer only).
 
 ### `dubeval/speaker.py`
-`voice_similarity(y_orig, y_dub, orig_segments, background)` embeds each original line ≥ 2 s and the dub over the same span with WeSpeaker ResNet34-LM (ONNX; `fbank` is a numpy port of torchaudio's Kaldi fbank defaults, then per-utterance mean normalisation) and returns `{measured, reason_key, median, lines[{start, end, similarity}], skipped_noisy, model}`. `background(audio)` is DNSMOS's background score; lines below `CLEAN_BACKGROUND` are skipped. `model_path()` downloads the model once to `~/.cache/dubeval/` (pinned commit URL, SHA-256 checked, atomic `.part` rename); failures become `not_measured("r.vs.no_model")`.
+`voice_similarity(y_orig, y_dub, orig_segments)` embeds each original line ≥ 2 s and the dub over the same span with WeSpeaker ResNet34-LM (ONNX; `fbank` is a numpy port of torchaudio's Kaldi fbank defaults, then per-utterance mean normalisation) and returns `{measured, reason_key, median, lines[{start, end, similarity}], original_self, model}`. `original_self` is the median, over the original's lines, of each line's highest similarity with another original line: how well the model recognises this video's own speakers (the report grades a low `median` only when it is high). `model_path()` downloads the model once to `~/.cache/dubeval/` (pinned commit URL, SHA-256 checked, atomic `.part` rename); failures become `not_measured("r.vs.no_model")`.
 
 ### `dubeval/translation_judge.py`
 One LLM review of both timestamped transcripts: a 1–5 meaning score, a summary, and issues typed `missing / added / mistranslation / name_or_number` with severity, time, exact quotes and `may_be_recognition_error`.
@@ -161,7 +161,7 @@ partial / absent; `remove` deletes both folders.
 ### Stop and Continue
 `POST /api/jobs/{id}/cancel` sets the job's stop flag; the pipeline's `check_cancel` raises `Cancelled` at the next
 check. Checks run between steps, inside the measurements (`run_full_evaluation(check=...)`: between measurements,
-after each recognized segment in `asr._transcribe_faster`, each sampled frame in `analyze_lipsync`, each window in
+after each recognized segment in `asr._transcribe_faster`, each window in
 `language_windows`), and before the report is written, so a stopped run writes nothing and records no history. The
 meaning screen and the translation check run through `pipeline._abandonable`: a thread the run stops waiting for at
 once (the abandoned web request ends on its own; its result is dropped). Each job keeps its request
@@ -189,10 +189,10 @@ with the job: the same request would fail the same way, so there is no Continue 
 - `timing_alignment`: `overlap_pct`, `original_covered_pct`, `dub_in_original_pct`, `start_offset_sec`, `end_offset_sec`, `mismatches[{start, end, kind}]`, `original_speech[]`, `dubbed_speech[]`, `voice_gaps[{start, end, original_sec}]` (where the voice detector hears the dub silent and the original speak; `null` without a detector; only reported when the dub's words can't be read).
 - `voice_quality`: see `dubeval/voice_quality.py` above. `voice_similarity`: see `dubeval/speaker.py` above.
 - `video_integrity`: `original` / `dubbed` `{readable, width, height, fps, frames, duration_sec, has_audio}`, `same_resolution`, `same_fps`.
-- `lipsync_metrics`: `measured`, `sync` (the lip-sync check's result, `dubeval/lip_sync.py`; `None` when it didn't run, and then `valid`, `reason`, zero-lag and best-lag correlation, face coverage, the original's values and waveforms come from the lip-movement estimate).
+- `lipsync_metrics`: `measured` (the lip check was asked for), `sync` (the lip-sync check's result, `dubeval/lip_sync.py`; `None` when it didn't run) and `reason_key` (why it didn't: `r.lips.skipped`, `r.lips.no_download`). Results saved before `SCHEMA_VERSION` 7 also hold the removed lip-movement estimate's values; the report doesn't show them.
 - `translation_judge`: `{measured, reason, model, meaning_score, summary, issues[]}`; the rubric adds `models[]`, `coverage {evaluated, total}` and `chunks[{lines[], model, requested, fallback}]` (`model` joins `models` with " + "; `requested` is the name asked for, `model` the version the service reports).
 - `numbers`: `{measured, reason_key, compared, with_numbers, lines[{n, start, end, original[], dub[]}]}` (the dub lines with a number their original doesn't say).
-- `report`: the output of `build_report`, including `problem_intervals[]`, `possible_asr_errors[]` and `problem_seconds`.
+- `report`: the output of `build_report`, including `problem_intervals[]` (each finding), `moments[]` (the findings about one moment, together), `possible_asr_errors[]` and `problem_seconds`.
 - `pipeline`: `run_id`, `execution_mode`, local video paths, target language name/code/id, `share {share_url, seq, title, source_language_name, source_language_code, target_language_name, is_lipsync, evaluated_video, duration_ms, created, original_from}`, `timestamp`, `report_files`.
 
 Version 6 turned `warnings` into `{key, params, text}` objects, added `reason_key` / `reason_params` to lip-sync and translation-check results, and made the judge's `summary` and issue `explanation` `{en, ko, pt, es}` objects. Version 5 removed the dubbing-only keys (`perso_translation`, `vs_perso_script`, `perso_translation_vs_target`, `pipeline.perso`, `lip_dubbing_enabled`). When you rename or remove keys, bump `SCHEMA_VERSION` in `evaluate.py`.
@@ -203,10 +203,11 @@ Version 6 turned `warnings` into `{key, params, text}` objects, added `reason_ke
 | `GEMINI_API_KEY` | none | Turns on the translation check with Gemini (preferred) |
 | `GEMINI_MODEL` | `gemini-3.5-flash` | First Gemini model tried (then `gemini-3.8-flash`, `gemini-3.1-flash-lite`) |
 | `DUBEVAL_JUDGE_PIN` | off | `1`: the translation check uses only its judge's first model, never a backup (the same as `--lock-model` and the start page's option; a busy model makes it not measured) |
+| `DUBEVAL_SECOND_LISTEN` | off | A trial switch, not for normal use: `base`, `same` or a model's name makes every line the judge marks down be recognized again on its own and judged again where the words differ (`pipeline.listen_again`). Off because it lowered agreement with the reviewer (`docs/validation.md`) |
 | `GEMINI_THINKING` | `low` | Gemini thinking level: `low` ≈ 3 s per review, `high` ≈ 40 s |
 | `ANTHROPIC_API_KEY` | none | Translation check with Claude, when no Gemini key is set |
 | `CLAUDE_JUDGE_MODEL` | `claude-opus-5-5` | Claude model for the translation check |
-| `WHISPER_MODEL` | `auto` | Speech model: **automatic**: Whisper `large-v3-turbo` when it is downloaded (Settings → Models) and the computer has an NVIDIA GPU, otherwise `base` (`asr.default_model`; `auto` is resolved where a model is loaded and in cache keys, so results name the model that ran). The start page's More options and the CLI's `--whisper-model` can name one |
+| `WHISPER_MODEL` | `auto` | Speech model: **automatic**: Whisper `large-v3-turbo` when it is downloaded (Settings → Models), with or without an NVIDIA GPU (a few times slower on a processor), otherwise `base` (`asr.default_model`; `auto` is resolved where a model is loaded and in cache keys, so results name the model that ran). The start page's More options and the CLI's `--whisper-model` can name one |
 | `MAX_KEPT_RUNS` | `0` | App run folders kept (0: all, until the person deletes them on the Evaluations screen) |
 | `MAX_CACHED_LINKS` | `20` | Share links whose downloads and Whisper results stay cached |
 | `PERSO_API_BASE` / `PERSO_MEDIA_BASE` | `https://api.perso.ai` / `https://portal-media.perso.ai` | Endpoints |
@@ -226,7 +227,7 @@ longer than `DUBEVAL_MAX_MINUTES` (default 120). `read_subtitles(path, label)` p
 ### `dubeval/pipeline.py`: `evaluate_files` / `run_files_evaluation`
 Inputs are fetched, tracks selected and both files checked; the dub's language is detected from its first 30 s
 when `target_lang` isn't given (a guess below `LANGUAGE_GUESS_OK` = 0.8 adds the `r.warn.lang_guess` warning);
-then `run_full_evaluation` runs as for share links, with lip movement off unless asked. The cache folder is keyed by
+then `run_full_evaluation` runs as for share links, with the lip-sync check off unless asked. The cache folder is keyed by
 the inputs as given. `pipeline["input"]` records `{kind: files | tracks, title, original, dub, original_track,
 dub_track, source/target language name and code, languages_from {source, target: given | detected},
 original_media, dub_media (probes), subtitles {original, dub: cue counts}}`; the cues themselves are in

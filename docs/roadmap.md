@@ -3,7 +3,7 @@
 DubEval is a **general dubbing evaluator**: any original video and its dub, from any service (Perso, ElevenLabs,
 HeyGen, Rask AI, Deepdub, ...) or from human voice actors. It checks dubs and never makes them.
 
-It has been a public beta since October 2026, with an installer for Windows. This page has no dates, and the order can
+It has been a public beta since October 2026, with an installer for Windows and, since 0.1.7, an app for Macs with Apple silicon. This page has no dates, and the order can
 change with what testing shows. What each version changed is in the
 [releases](https://github.com/shox17/DubEval/releases).
 
@@ -24,6 +24,8 @@ change with what testing shows. What each version changed is in the
 - **History:** pass rate over time, language pairs and the most frequent problems.
 - **Desktop app:** a Windows installer with the main models inside, optional downloads and updates from inside the app.
   Since 0.1.6 the installer is signed by ESTsoft Corp., and the app installs only updates signed the same way.
+- **Mac app:** since 0.1.7, for Apple silicon, signed with ESTsoft's Apple Developer ID and notarized by Apple, with the
+  same updates.
 - **Beyond the app:** command line, batch checks of many links and a REST API.
 - **Lip sync in the verdict:** an optional download that finds a sound delay and tells a lip-synced dub from a
   plain one; 90% of moments lined up is Good, 30% or less Poor.
@@ -53,7 +55,7 @@ A check is only useful if people can trust it, so this comes first.
 Ideas, not commitments.
 
 - A sample evaluation in the app, so you can see a result before using your own videos.
-- Installers for macOS and Linux, which run from source today.
+- Apps for Linux and Intel Macs, which run from source today.
 - A second look at close calls before a verdict is given.
 - An optional switch that separates voices from background music.
 - Pronunciation and fluency checks.

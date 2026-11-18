@@ -134,7 +134,8 @@ def _summary(result: dict) -> dict:
                 "reasoning": comp["reasoning"], "intervals": comp["intervals"], "notes": comp["notes"]}
     rep = result["report"]
     return {"kind": "evaluation", "project": rep["project"], "overall": rep["overall"],
-            "problem_intervals": rep["problem_intervals"], "not_measured": rep["not_measured"],
+            "problem_intervals": rep["problem_intervals"], "moments": rep.get("moments", []),
+            "not_measured": rep["not_measured"],
             "sections": [{"id": s["id"], "title": s["title"],
                           "metrics": [{k: m[k] for k in ("id", "label", "level", "display", "message")}
                                       for m in s["metrics"]]} for s in rep["sections"]]}

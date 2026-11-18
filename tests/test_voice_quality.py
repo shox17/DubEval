@@ -140,3 +140,91 @@ def test_a_stretch_too_noisy_to_compare_isnt_held_against_the_dub():
     assert metric(rep, "voice_quality")["level"] == "check"
     too_noisy = make_results(voice_quality=vq_result(window(0.0, 1.4, 2.1, 1.1, 1.4)))
     assert metric(build_report(too_noisy), "voice_quality")["level"] == "not_measured"
+
+
+# ---------------- Audiobox Aesthetics (the voice_quality download) ----------------
+class FakeAudiobox:
+    """Stands in for the Audiobox graph: a louder stretch gets higher scores; records how many it was given at once."""
+    def __init__(self):
+        self.batches = []
+
+    def run(self, _outputs, feeds):
+        x = feeds["wav"]
+        self.batches.append(x.shape)
+        level = np.abs(x).mean(axis=1)
+        return [np.stack([5 + 20 * level, 5 + 10 * level, 3 + 0 * level, 6 + 30 * level], axis=1).astype(np.float32)]
+
+
+def test_without_the_download_dnsmos_scores_and_with_it_audiobox(monkeypatch):
+    assert vq.scorer() == "dnsmos" and not vq.ready()         # tests never have the pack (tests/conftest.py)
+    y = (0.1 * np.sin(np.arange(20 * SR) / 20.0)).astype(np.float32)
+    speech = [[0.0, 20.0]]
+    basic = vq.voice_quality(y, y, speech, speech, FakeSession())
+    assert basic["scorer"] == "dnsmos" and basic["scale"] == 5 and "dub_sig" in basic["windows"][0]
+    session = FakeAudiobox()
+    better = vq.voice_quality(y, y, speech, speech, session, scorer="audiobox", dnsmos_session=FakeSession())
+    assert better["scorer"] == "audiobox" and better["scale"] == 10 and better["model"].startswith("Audiobox")
+    first = better["windows"][0]
+    # DNSMOS's background score stays in every stretch: the report tells a replaced background by it
+    assert set(first) == {"start", "end", "dub", "original", "dub_ce", "original_ce", "dub_bak", "original_bak"}
+    assert first["dub"] == first["original"] and 6 < first["dub"] <= 10       # production quality, the same sound
+    assert all(shape == (2, int(vq.WINDOW_SEC * SR)) for shape in session.batches)   # the pair of a stretch together
+    monkeypatch.setattr(vq, "ready", lambda: True)
+    assert vq.scorer() == "audiobox"
+
+
+def test_the_real_graph_is_bundled_and_reads_its_weights_from_the_pack_file():
+    import onnx
+    graph = onnx.load(str(vq.GRAPH_PATH), load_external_data=False)
+    assert vq.GRAPH_PATH.stat().st_size < 2_000_000            # the graph only: the 415 MB of weights aren't shipped
+    assert [i.name for i in graph.graph.input] == ["wav"] and [o.name for o in graph.graph.output] == ["scores"]
+    places = [{e.key: e.value for e in init.external_data} for init in graph.graph.initializer]
+    assert places and all(p["location"] == vq.WEIGHTS for p in places)
+    from dubeval import packs
+    weights = packs.PACKS["voice_quality"]["files"][0]
+    assert weights["name"] == vq.WEIGHTS and "/resolve/9b1dd8e5" in weights["url"] and len(weights["sha256"]) == 64
+    assert max(int(p["offset"]) + int(p["length"]) for p in places) <= weights["bytes"]
+
+
+def aes_window(start: float, dub: float, orig: float, dub_ce: float = 6.0, orig_ce: float = 6.0) -> dict:
+    return {"start": start, "end": start + 9.01, "dub": dub, "original": orig, "dub_ce": dub_ce, "original_ce": orig_ce}
+
+
+def aes_result(*windows) -> dict:
+    dub = sum(w["dub"] for w in windows) / len(windows)
+    orig = sum(w["original"] for w in windows) / len(windows)
+    return {"measured": True, "reason_key": None, "dub": round(dub, 2), "original": round(orig, 2),
+            "difference": round(dub - orig, 2), "windows": list(windows), "scorer": "audiobox", "scale": 10}
+
+
+@pytest.mark.parametrize("third, level", [
+    (aes_window(20.0, 7.6, 7.2), "good"),                    # like the rest of the dub
+    (aes_window(20.0, 6.9, 7.2), "good"),                    # 0.3 below the original: undamaged dubs reach 0.8
+    (aes_window(20.0, 6.1, 7.2), "check"),                   # 1.1 below the original
+    (aes_window(20.0, 6.6, 7.2), "check"),                   # 0.6 below the original, but 1.0 below this dub's usual +0.4
+    (aes_window(20.0, 7.5, 7.2, dub_ce=4.7), "check"),       # the second score 1.3 below the dub's usual: robotic
+    (aes_window(20.0, 4.6, 7.2), "poor"),                    # 2.6 below the original
+])
+def test_an_audiobox_stretch_is_graded_against_the_original_and_the_dubs_own_usual(third, level):
+    r = make_results(voice_quality=aes_result(aes_window(0.0, 7.6, 7.2), aes_window(10.0, 7.6, 7.2), third))
+    row = metric(build_report(r), "voice_quality")
+    assert row["level"] == level and "1-10" in row["thresholds"] and "how this dub usually compares" in row["thresholds"]
+    assert ("1/3" in row["display"]) == (level != "good")
+    if level == "good":
+        assert "1-10 scale" in row["message"]
+
+
+def test_audiobox_grades_an_original_that_dnsmos_finds_too_noisy():
+    # DNSMOS rates this original 1.1 of 5 over its music and can't use it; Audiobox rates the same sound 7 of 10.
+    basic = make_results(voice_quality=vq_result(window(0.0, 1.3, 1.2, 1.2, 1.1)))
+    assert metric(build_report(basic), "voice_quality")["level"] == "not_measured"
+    better = make_results(voice_quality=aes_result(aes_window(0.0, 7.7, 7.1), aes_window(10.0, 7.6, 7.0)))
+    assert metric(build_report(better), "voice_quality")["level"] == "good"
+
+
+def test_an_audiobox_stretch_with_a_worse_voice_becomes_an_interval():
+    r = make_results(timing_alignment={"mismatches": []}, acoustic_metrics={"dubbed_duration_sec": 40.0},
+                     voice_quality=aes_result(aes_window(0.0, 7.6, 7.2), aes_window(12.0, 5.9, 7.2), aes_window(24.0, 7.6, 7.2)))
+    out = build_intervals(r, lambda key, **p: t(key, "en", **p), "en")["intervals"]
+    assert [(i["start"], i["category"], i["severity"]) for i in out] == [(12.0, "voice_quality", "check")]
+    assert "5.9" in out[0]["description"] and "7.2" in out[0]["description"]

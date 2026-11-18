@@ -180,6 +180,8 @@ function markNav(screen) {
 // Closing it puts that screen's address back without drawing the screen again.
 let rendered = null;                                 // the address of the screen drawn under any dialog
 let settings = null;                                 // the open Settings dialog: {overlay, body, title, cleanup}
+const SETTINGS_TABS = ["keys", "models", "storage", "privacy", "about"];   // as settings.js draws them; models first
+const SAVE_TABS = ["keys", "about"];                 // the tabs with something Save keeps
 
 function closeSettings(restore = true) {
   if (!settings) return;
@@ -220,9 +222,19 @@ function openSettings(tab) {
     const onKey = e => { if (e.key === "Escape" && onTop(overlay)) closeSettings(); };
     document.addEventListener("keydown", onKey);
     document.body.append(overlay);
-    settings = { overlay, body, title, onKey, cleanup: null };
-    watchChanges(on => { save.disabled = !on; });
+    // Only API keys and About (the language) have something to save: the other tabs show one Close button, unless
+    // something typed on those two is still waiting (then Cancel and Save stay, so it isn't lost by surprise).
+    const footer = () => {
+      const savable = SAVE_TABS.includes(settings.tab) || settings.dirty;
+      save.hidden = !savable;
+      cancel.textContent = savable ? t("w.cancel") : t("w.close");
+      cancel.classList.toggle("primary", !savable);
+    };
+    settings = { overlay, body, title, onKey, cleanup: null, tab: null, dirty: false, footer };
+    watchChanges(on => { save.disabled = !on; if (settings) { settings.dirty = on; footer(); } });
   }
+  settings.tab = SETTINGS_TABS.includes(tab) ? tab : "models";
+  settings.footer();
   settings.cleanup?.();
   settings.title.textContent = t("w.set.title");
   settings.body.replaceChildren();

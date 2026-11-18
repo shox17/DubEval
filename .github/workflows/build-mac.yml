@@ -1,0 +1,98 @@
+# Builds the macOS app (Apple Silicon) on one of GitHub's Macs and checks that it really works there, because the
+# project's own build machine is a Windows PC. Run it by hand (Actions → build-mac → Run workflow) or by pushing a
+# branch named mac-build. The result is a test build: GitHub's Mac has no Developer ID certificate, so it is signed
+# ad-hoc (npm run dist:mac:adhoc) and macOS asks the person to allow it once. A release is built on a Mac that has the
+# certificate (desktop/README.md). It publishes nothing: the .dmg is kept as the run's artifact for 14 days.
+name: build-mac
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["mac-build", "mac-build/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-mac-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: macOS arm64
+    runs-on: macos-15                  # Apple Silicon
+    timeout-minutes: 60
+    env:
+      APP: desktop/dist/mac-arm64/DubEval.app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"       # only runs tools/build_desktop.py; the app's own Python is downloaded by it
+
+      - name: Python, packages and models for the app
+        run: python tools/build_desktop.py
+
+      - name: The app (.dmg and .zip)
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist:mac:adhoc
+          ls -lh dist/*.dmg dist/*.zip
+
+      - name: The signature is valid and nothing in the bundle is unsigned
+        run: |
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --verbose=2 "$APP" 2>&1 | grep -E "Signature|Identifier|flags"
+
+      # A whole evaluation with the app's own Python, isolated as the app runs it: a spoken clip made here (macOS's
+      # "say"), used as both the original and the dub. It exercises ffmpeg, speech recognition, the voice models, the
+      # audio code and the report, on Apple Silicon.
+      - name: One evaluation with the app's Python
+        run: |
+          PY="$GITHUB_WORKSPACE/$APP/Contents/Resources/python/bin/python3"
+          FFMPEG="$("$PY" -I -B -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          cd "$RUNNER_TEMP"
+          say -o speech.aiff "Good morning, and welcome back to the show. Today we are testing how well a dubbed video follows its original. First we check the timing of every line. Then we listen to the voice, and finally we read the translation."
+          "$FFMPEG" -loglevel error -f lavfi -i "testsrc2=size=640x360:rate=25" -i speech.aiff -shortest \
+            -c:v mpeg4 -q:v 5 -c:a aac original.mp4
+          cp original.mp4 dub.mp4
+          DUBEVAL_DATA="$RUNNER_TEMP/data" DUBEVAL_BUNDLED_MODELS="$GITHUB_WORKSPACE/$APP/Contents/Resources/models" \
+            NUMBA_CACHE_DIR="$RUNNER_TEMP/numba" \
+            "$PY" -I -B -X utf8 -m dubeval evaluate --original original.mp4 --dub dub.mp4 \
+            --source-lang en --target-lang en --no-translation-check --lang en --out "$RUNNER_TEMP/report"
+          head -40 "$RUNNER_TEMP/report/report.txt"
+          grep -q "OVERALL" "$RUNNER_TEMP/report/report.txt"
+
+      - name: The evaluation wrote nothing inside the app
+        run: codesign --verify --deep --strict "$APP"
+
+      # The app itself: it starts, starts its server, and the server answers with DubEval's page.
+      - name: The app starts
+        run: |
+          LOG="$HOME/Library/Application Support/DubEval/logs/server.log"
+          "$APP/Contents/MacOS/DubEval" > "$RUNNER_TEMP/app.out" 2>&1 &
+          PID=$!
+          for i in $(seq 1 120); do
+            grep -q "DubEval: http://127.0.0.1" "$LOG" 2>/dev/null && break
+            sleep 1
+          done
+          if ! grep -q "DubEval: http://127.0.0.1" "$LOG" 2>/dev/null; then
+            echo "The app's server didn't start:"; cat "$LOG" "$RUNNER_TEMP/app.out" 2>/dev/null; kill $PID 2>/dev/null; exit 1
+          fi
+          PORT="$(grep -o 'http://127.0.0.1:[0-9]*' "$LOG" | head -1 | grep -o '[0-9]*$')"
+          curl -s -o /dev/null -w "server answered %{http_code} on port $PORT\n" "http://127.0.0.1:$PORT/"
+          kill $PID
+          sleep 8                      # the server notices its parent is gone within a second or two
+          if pgrep -f "dubeval web" > /dev/null; then echo "Python kept running after the app was closed"; exit 1; fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: DubEval-mac-arm64
+          path: |
+            desktop/dist/*.dmg
+            desktop/resources/build.json
+          retention-days: 14
+          compression-level: 0         # the .dmg is already compressed
+          if-no-files-found: error

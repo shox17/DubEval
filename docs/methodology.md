@@ -65,38 +65,38 @@ DubEval treats a dub the same way whichever service made it:
 | 4. Clean the transcript | Drops "words" read into music or effects, unless the other track speaks at that moment | The voice detector from step 2 |
 | 5. Compare the sound | Length, loudness, silence, distortion, sound in sync with the picture | Plain signal measurements |
 | 6. Compare the speech | Timing, line by line length, pace, language, clarity | The transcripts from step 3 |
-| 7. Compare the voices | How clean the dub voice sounds next to the original; whether it sounds like the same person | DNSMOS (Microsoft), WeSpeaker |
+| 7. Compare the voices | How clean the dub voice sounds next to the original; whether it sounds like the same person | Audiobox Aesthetics (Meta, an optional download) or DNSMOS (Microsoft); WeSpeaker |
 | 8. Check the translation | Scores every line 1 to 10 for meaning and four other criteria; without an AI, a meaning-similarity screen | Claude, Gemini, ChatGPT or a local model; BGE-M3 |
-| 9. Decide the verdict | Grades every measure Good, Check or Poor, then applies the verdict rule (below) | The rules in `report.py` |
+| 9. Decide the verdict | Grades every measure Good, Needs review or Poor, then applies the verdict rule (below) | The rules in `report.py` |
 
 ## What each check tells you
 
-| Check | It answers | How much to trust it |
+| Needs review | It answers | How much to trust it |
 |---|---|---|
 | Same video, coverage | Is the dub the same video, and is any part of the original missing? | High: a mismatched pair (a dub of another edit) was found exactly |
 | Sound in sync | Is the dub's sound behind or ahead of its picture? | High where it is measured (a 1 s delay was found in all 12 dubs it could measure); not measured on dubs that replaced the background music |
-| Length, loudness, silence, distortion | Does the dub run as long, sound as loud and as clean as the original? | High for distortion and loudness jumps (caught 15 of 15 and 13 of 15); silence and loudness are capped at Check when the dub replaced the background |
+| Length, loudness, silence, distortion | Does the dub run as long, sound as loud and as clean as the original? | High for distortion and loudness jumps (caught 15 of 15 and 13 of 15); silence and loudness are capped at Needs review when the dub replaced the background |
 | Speech timing, line length | Does the dub speak when the original speaks, and is each line about as long? | Good on speech, weaker on music-heavy videos (DubEval says so) |
 | Original voice left in | Is any part still in the original language? | Good: 8 of 9 caught on tune dubs, 2 of 3 on unseen ones |
-| Voice quality | Does the dub voice sound robotic or distorted next to the original? | Medium: a simulated robotic voice was flagged on 9 of 17 dubs, and volume alone doesn't count against a dub. Distortion has its own check. Misses a muffled voice |
+| Voice quality | Does the dub voice sound robotic, muffled or distorted next to the original? | With the voice-quality download, high on planted damage: a robotic voice found on 20 of 20 dubs, a muffled one on 17, a clipped one on 17, no undamaged stretch flagged; mild damage is mostly missed, and no real damaged dub has been tested. Without it (DNSMOS), medium on clean speech and unreliable over music: a simulated robotic voice was flagged on 9 of 17 dubs, a muffled one never |
 | Noise | Does the dub fill with hiss or static the original doesn't have? | Found 15 of 15 planted bursts, with no false alarm on 22 real dubs; none has been seen in a real dub yet. Misses hum, buzz, crackle and bursts under 1.5 s |
-| Voice similarity | Does the dub sound like the same person? | Measured only with a clean background; never Poor, since a new voice can be on purpose |
-| Translation | Does each line mean what the original said, naturally? | With Gemini, high: 23 of 23 planted wrong numbers, reversed meanings and left-out lines found, no harmless rewording flagged. With the local model, low: 4 of 23. It reads transcripts, not audio, and scores vary between runs |
-| Lip sync | Do the lips follow the dub's speech? | With the lip-sync download (StableSyncNet): on a real Perso dub it told the lip-synced version from the plain one and measured planted sound delays to the frame. It counts in the verdict (90% of moments lined up is Good, 30% or less Poor), though it was tested on one video. Without it, a rough lip-movement measure, information only |
+| Voice similarity | Does the dub sound like the same person? | Says same voice, another voice, or can't tell (when the model doesn't recognise the original's own speakers); never Poor, since a new voice can be on purpose. Set on 10 real dubs; the two it called another voice were confirmed by ear, the others not yet |
+| Translation | Does each line mean what the original said, naturally? | With Gemini, high: 23 of 23 planted wrong numbers, reversed meanings and left-out lines found, no harmless rewording flagged. With the local model (Gemma 4 12B), 28 of 28 on a second set of planted mistakes, more slowly. It reads transcripts, not audio, and scores vary between runs |
+| Lip sync | Do the lips follow the dub's speech? | With the lip-sync download (StableSyncNet): on a real Perso dub it told the lip-synced version from the plain one and measured planted sound delays to the frame. It counts in the verdict (90% of moments lined up is Good, 30% or less Poor), though it was tested on one video. Without it, the lips aren't checked |
 
 ## How the verdict is decided
 
-1. Every measure gets a level: **Good**, **Check** or **Poor**, each with its rule written next to it.
-2. **Any Poor makes the dub Poor; otherwise any Check makes it Needs review; otherwise it is Good.** Information
+1. Every measure gets a level: **Good**, **Needs review** or **Poor**, each with its rule written next to it.
+2. **Any Poor makes the dub Poor; otherwise any Needs review makes it Needs review; otherwise it is Good.** Information
    rows and checks that couldn't run never count, and each one that couldn't run says why.
-3. **Meaning is Poor only with 3 or more seriously wrong lines (or most lines).** One or two are Check, still listed
+3. **Meaning is Poor only with 3 or more seriously wrong lines (or most lines).** One or two are Needs review, still listed
    with their times.
-   A line the AI thinks may be misheard never makes the dub Poor, but if it scored very low it is Check: the AI
+   A line the AI thinks may be misheard never makes the dub Poor, but if it scored very low it is Needs review: the AI
    can't tell a mishearing from a real error there, so you listen.
 4. **When DubEval isn't sure, it doesn't let a shaky measurement decide:**
    - little speech (under 35% of the video, or under 10 s), or speech it couldn't make out clearly: only problems that
      don't depend on speech (distortion, a different or incomplete video, sound out of sync) can make the dub Poor;
-   - the dub replaced the background music: silence and loudness are Check at most;
+   - the dub replaced the background music: silence and loudness are Needs review at most;
    - the dub's language couldn't be recognized, or the translation check didn't run at all (no AI key, no local
      model, or turned off), so its words weren't checked: the dub is never called Good;
    - a backup AI model judged the translation because the first one was busy: the report notes it.
@@ -149,11 +149,12 @@ how good it is in general.
   detector that doesn't need the words.
 - **The translation check isn't fully repeatable.** An AI model's scores can change between runs, more so when a busy
   service falls back to a smaller model (locking the model stops that). Even one model doesn't repeat itself exactly:
-  scores move, and on one dub of six reviewed more than once, the verdict flipped between Needs review and Poor. **The local model is private but weak**: in testing it found 4 of 23 planted
-  translation mistakes, against 23 of 23 for Gemini.
+  scores move, and on one dub of six reviewed more than once, the verdict flipped between Needs review and Poor. **The local model is private but slow**: Gemma 4 12B found 28 of 28 planted
+  translation mistakes (Gemini 27 of 28 on the same set) at about 10 seconds a line, and it hasn't been compared with a
+  reviewer's labels yet. The model before it, Qwen3 8B, found 4 of 23.
 - **Lip sync** counts in the verdict only with the lip-sync check (an optional 1.6 GB download), whose bands were set
-  by decision rather than from graded dubs: it has been tested on one real dub and planted delays. Without it, only a
-  rough lip-movement measure is shown, and it never changes the verdict.
+  by decision rather than from graded dubs: it has been tested on one real dub and planted delays. Without it, the lips
+  aren't checked.
 - **The evidence is still small:** 19 graded dubs, one reviewer, three languages. Korean has the most.
 
 ## How it gets better

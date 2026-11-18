@@ -1,6 +1,6 @@
 # Installing DubEval
 
-The desktop app for Windows, or DubEval from source on any computer (command line, web interface, REST API), or in Docker. Back to the [README](README.md).
+The desktop app for Windows or Mac, or DubEval from source on any computer (command line, web interface, REST API), or in Docker. Back to the [README](README.md).
 
 ## Install the desktop app (Windows beta)
 For Windows 10 or 11 (64-bit). No Python or other tools needed.
@@ -26,6 +26,28 @@ and installs it only when you choose to restart (it warns you first if an evalua
 **Uninstall:** Windows Settings → Apps → DubEval. Your evaluations, history, settings and keys stay in
 `%APPDATA%\DubEval`, and downloaded models in `%USERPROFILE%\.cache\dubeval`; delete those folders too to remove
 everything.
+
+## Install the desktop app (Mac)
+For a Mac with Apple silicon (M1 or later) on macOS 14 or later. No Python or other tools needed. There is no
+version for Intel Macs; run DubEval from source there.
+
+1. [Download `DubEval-Mac.dmg`](https://github.com/shox17/DubEval/releases/latest/download/DubEval-Mac.dmg), always
+   the newest version (about 560 MB, with everything inside, as on Windows).
+2. Open it and drag **DubEval** onto **Applications**.
+3. Open DubEval from Applications or Launchpad. The app is signed by **ESTsoft Corp.** and checked by Apple
+   (notarized, since 0.1.7), so macOS only asks once whether to open an app downloaded from the Internet, and says
+   Apple found no malicious software in it: click **Open**. Any other warning, such as "cannot be opened because the
+   developer cannot be verified", means the copy isn't ours.
+4. From here it works as on Windows: **New evaluation**, then the optional **Settings → API keys** and
+   **Settings → Models** (a larger speech model, an offline meaning check, the local translation checker; the NVIDIA
+   speed-up is Windows only, so speech recognition runs on the processor).
+
+**Updates:** as on Windows, from 0.1.7 on. A copy from before 0.1.7 (a test build) can't update itself: install
+0.1.7 over it once.
+
+**Uninstall:** drag DubEval from Applications to the Trash. Your evaluations, history, settings and keys stay in
+`~/Library/Application Support/DubEval`, and downloaded models in `~/.cache/dubeval`; delete those folders too to
+remove everything.
 
 ## Get started on a new machine
 To run DubEval from source (any OS, for the command line, the REST API or development).

@@ -22,7 +22,7 @@ from dubeval.batch import agreement, render_batch_text, summary_row, to_csv
 from dubeval import history
 from dubeval.paths import DATA_DIR
 from dubeval.compare import GENERIC_NAMES, LABELS, build_ranking, render_comparison_html, render_comparison_text
-from dubeval import asr, inputs, meaning, numbers, pairing, schema, speaker
+from dubeval import asr, inputs, meaning, numbers, pairing, schema, speaker, translation_judge
 from dubeval.version import TOOL_VERSION
 from dubeval.evaluate import (run_full_evaluation, DEFAULT_WHISPER_MODEL, CACHE_VERSION, base_lang, load_both,
                               detect_language, extract_audio, get_whisper_model, load_audio, FFMPEG_EXE,
@@ -330,7 +330,8 @@ def evaluate_share(
     judge_cache = JsonCache(folder / "judge_cache.json")
     _abandonable(lambda: check_meaning_screen(eval_results, notify, cache=judge_cache), check_cancel)
     check_numbers(eval_results)
-    _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache), check_cancel)
+    _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache,
+                                           audio=audio), check_cancel)
     return eval_results
 
 
@@ -394,8 +395,11 @@ def _speech_unrecognized(results: dict) -> bool:
         return False
 
 
-def check_translation(results: dict, enabled, notify: Callable[..., None], cache=None) -> None:
+def check_translation(results: dict, enabled, notify: Callable[..., None], cache=None, audio=None) -> None:
     """Adds the translation check to results; any failure becomes a not-measured result, never an error.
+
+    audio: both tracks' sound (evaluate.load_both); with it, each line the judge marks down is heard a second time
+    before it counts (listen_again).
 
     enabled: False (off), True (the checker DUBEVAL_JUDGE picks, auto by default), a checker's name (claude, gemini,
     openai, ollama), as chosen on the start page, or {"judge": name or None, "lock": True} for only its first model.
@@ -427,16 +431,100 @@ def check_translation(results: dict, enabled, notify: Callable[..., None], cache
     cached = cache.get(key) if cache is not None else None
     if cached:
         results["translation_judge"] = {**cached, "cached": True}
+    else:
+        def free_card(judge: Optional[str]) -> None:
+            # A local judge shares the GPU: free the recognizer and the sentence model first, or the judge spills onto
+            # the CPU and takes many minutes instead of seconds.
+            if judge == "ollama":
+                asr.unload()
+                meaning.unload()
+        free_card(named or judge_provider())
+        results["translation_judge"] = judge_translation(*args, lines=lines, dub_type=dub_type, provider=named,
+                                                         description=title, lock=lock, on_switch=free_card)
+        if cache is not None and results["translation_judge"].get("measured"):
+            cache[key] = results["translation_judge"]
+    if results["translation_judge"].get("measured"):     # a check saved before results named their judge
+        results["translation_judge"].setdefault("provider", named or judge_provider())
+    try:
+        listen_again(results, audio, args, lines, dub_type, title, lock, notify, cache, key)
+    except Exception as e:                   # the check stands as it was first given
+        log.warning("The flagged lines weren't heard again: %s", e)
+
+
+SECOND_LISTEN = 1                  # in the second listen's cache key: raise it when its result would change
+
+
+def second_listen_model() -> Optional[str]:
+    """The recognizer for the second listen, or None when it is off, which is the default: on the 20 test dubs it
+    lowered agreement with the reviewer (docs/validation.md). DUBEVAL_SECOND_LISTEN turns it on for a trial by naming
+    the recognizer ("base", "same": the evaluation's own, or a model's name)."""
+    wanted = (os.getenv("DUBEVAL_SECOND_LISTEN") or "").strip().lower()
+    return None if wanted in ("", "off", "0") else wanted
+
+
+def _same_words(a: Optional[str], b: Optional[str]) -> bool:
+    """Whether two readings of a line say the same words (letters and digits only, any case)."""
+    from dubeval.intervals import _letters
+    return _letters(a) == _letters(b)
+
+
+def hear_lines(results: dict, audio, lines: list[dict], wanted: list[int], model) -> dict:
+    """Each wanted line heard a second time, on its own, on both tracks (evaluate.hear_again): {line number:
+    {"original", "dub": the words now, "changed": whether either side's differ from the first reading}}. A side the
+    second listen hears nothing on keeps its first words: hearing nothing doesn't show the line is fine."""
+    from dubeval.evaluate import hear_again, whisper_language
+    y_orig, y_dub = audio
+    pair, meta = results.get("pairing") or {}, results.get("metadata") or {}
+    parts = applied_parts(pair)                      # the dub on the original's timeline, as it was measured
+    y_dub = pairing.align_dub_parts(y_dub, parts, SAMPLE_RATE, len(y_orig)) if parts else \
+        pairing.align_dub(y_dub, pair.get("applied_offset_sec") or 0.0, SAMPLE_RATE)
+    source = whisper_language(meta.get("detected_source_language") or meta.get("source_language"))
+    target = whisper_language(meta.get("target_language"))
+    heard = {}
+    for ln in lines:
+        if ln["n"] not in wanted:
+            continue
+        original = hear_again(y_orig, ln["start"], ln["end"], model, source) or ln.get("original") or ""
+        dub = hear_again(y_dub, ln["start"], ln["end"], model, target) or ln.get("dub") or ""
+        heard[ln["n"]] = {"original": original, "dub": dub,
+                          "changed": not (_same_words(original, ln.get("original")) and _same_words(dub, ln.get("dub")))}
+    return heard
+
+
+def listen_again(results: dict, audio, judge_args: tuple, lines: list[dict], dub_type: Optional[str],
+                 title: Optional[str], lock: bool, notify: Callable[..., None], cache=None, key: str = "") -> None:
+    """The second listen: every line the judge marked down is recognized again on its own, and where the words come
+    out differently the same judge reads the line once more. A line then counts as a problem only if it reads as one
+    both times (translation_judge.with_second_listen): on the 20 test dubs most marked-down lines were the first
+    reading's mishearings, which the judge takes for the dub's mistakes. Cached with the check; a judge that fails the
+    second time leaves the check as it was and is asked again on the next run."""
+    first, name = results["translation_judge"], second_listen_model()
+    numbers_low = translation_judge.flagged(first) if first.get("measured") and first.get("rubric") else []
+    if audio is None or name is None or not numbers_low:
         return
-    if (named or judge_provider()) == "ollama":
-        # A local judge shares the GPU: free the recognizer and the sentence model first, or the judge spills onto
-        # the CPU and takes many minutes instead of seconds.
-        asr.unload()
-        meaning.unload()
-    results["translation_judge"] = judge_translation(*args, lines=lines, dub_type=dub_type, provider=named,
-                                                     description=title, lock=lock)
-    if cache is not None and results["translation_judge"].get("measured"):
-        cache[key] = results["translation_judge"]
+    local = first.get("provider") == "ollama"        # the local judge holds the graphics card: listen on the processor
+    name = asr.resolve(results["metadata"].get("whisper_model") or asr.AUTO) if name == "same" else name
+    key2 = _short_hash(json.dumps([key, "second listen", SECOND_LISTEN, asr.backend(), name, local]))
+    cached = cache.get(key2) if cache is not None and key else None
+    if cached:
+        results["translation_judge"] = {**cached, **({"cached": True} if first.get("cached") else {})}
+        return
+    notify("evaluate", "Listening again to the lines with a problem...", 0.98)
+    heard = hear_lines(results, audio, lines, numbers_low, asr.load_model(name, cpu=local))
+    changed = [n for n in numbers_low if heard[n]["changed"]]
+    again = {}
+    if changed:
+        now = [{**ln, "original": heard[ln["n"]]["original"], "dub": heard[ln["n"]]["dub"]} if ln["n"] in changed else ln
+               for ln in lines]
+        again = translation_judge.judge_again(first, changed, *judge_args, lines=now, dub_type=dub_type,
+                                              description=title, lock=lock)
+        if again is None:
+            results["translation_judge"] = {**first, "second_listen": {"measured": False}}
+            return
+    merged = translation_judge.with_second_listen(first, lines, heard, again, f"{asr.backend()}:{name}")
+    results["translation_judge"] = merged
+    if cache is not None and key:
+        cache[key2] = {k: v for k, v in merged.items() if k != "cached"}
 
 
 def check_numbers(results: dict) -> None:
@@ -777,7 +865,8 @@ def evaluate_files(
     judge_cache = JsonCache(folder / "judge_cache.json")
     _abandonable(lambda: check_meaning_screen(eval_results, notify, cache=judge_cache), check_cancel)
     check_numbers(eval_results)
-    _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache), check_cancel)
+    _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache,
+                                           audio=audio), check_cancel)
     return eval_results
 
 

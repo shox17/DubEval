@@ -1,10 +1,15 @@
-"""The local translation checker: Qwen3 8B run by Ollama on this computer, downloaded from Settings → Models.
+"""The local translation checker: Gemma 4 12B run by Ollama on this computer, downloaded from Settings → Models.
+It replaced Qwen3 8B on 2026-11-13 (docs/validation.md: the planted-mistake test on both computers).
 
-Only what DubEval needs of Ollama v0.40.9 for Windows is downloaded: ollama.exe, its CPU libraries and
-the Vulkan GPU backend (any NVIDIA, AMD or Intel card; ~40 MB to download), taken out of the official release zip
-with range requests instead of its 1.6 GB of CUDA builds. The model's files come from Ollama's registry, which names
-every file by its SHA-256. Every file is pinned (size and SHA-256) like DubEval's other packs (dubeval/packs.py) and
-laid out the way Ollama keeps models, so an Ollama model folder that already has Qwen3 is reused, not downloaded again.
+Only what DubEval needs of Ollama v0.40.9 is downloaded, taken out of the official release zip with range requests.
+On Windows: ollama.exe, its CPU libraries and the Vulkan GPU backend (any NVIDIA, AMD or Intel card; ~40 MB to
+download) instead of the zip's 1.6 GB of CUDA builds. On a Mac with Apple silicon: the ollama program, llama-server
+and their libraries (Metal is built in; ~45 MB) out of Ollama.app, without its window, updater and MLX engine
+(580 MB). The model's files come from Ollama's registry, which names every file by its SHA-256: the GGUF build
+(MODEL names its tag; the registry's default gemma4:12b needs Ollama's MLX engine on a Mac, this one doesn't), with
+its small draft model and projector, as tested. Every file is pinned (size and SHA-256) like DubEval's other packs
+(dubeval/packs.py) and laid out the way Ollama keeps models, so files already in the pack's folder are reused, not
+downloaded again. tools/pin_ollama_runtime.py prints the runtime's pins.
 
 When the checker runs, DubEval starts its own Ollama on a free port of 127.0.0.1 with this folder, and stops it when
 DubEval quits. DUBEVAL_OLLAMA_URL still points DubEval at another Ollama instead.
@@ -12,8 +17,10 @@ DubEval quits. DUBEVAL_OLLAMA_URL still points DubEval at another Ollama instead
 import atexit
 import logging
 import os
+import platform
 import socket
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -24,10 +31,15 @@ import requests
 log = logging.getLogger(__name__)
 
 OLLAMA_ZIP = "https://github.com/ollama/ollama/releases/download/v0.40.9/ollama-windows-amd64.zip"
-REGISTRY = "https://registry.ollama.ai/v2/library/qwen3"
+MAC_ZIP = "https://github.com/ollama/ollama/releases/download/v0.40.9/Ollama-darwin.zip"
+MAC_PREFIX = "Ollama.app/Contents/Resources/"             # where the runtime is inside the Mac zip
+MODEL = "gemma4:12b-it-q4_K_M"                            # the name the judge asks Ollama for
+MODEL_NAME = "Gemma 4 12B"
+REGISTRY = "https://registry.ollama.ai/v2/library/" + MODEL.split(":")[0]
 MANIFEST_ACCEPT = "application/vnd.docker.distribution.manifest.v2+json"
-MANIFEST_PATH = "manifests/registry.ollama.ai/library/qwen3/8b"
-MANIFEST = (859, "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41")
+MANIFEST_PATH = "manifests/registry.ollama.ai/library/" + MODEL.replace(":", "/")
+# The registry gives a manifest by tag only, so the tag is pinned by its bytes: a republished tag fails the check.
+MANIFEST = (1299, "6114515d63c17436a7c0417d82820ac65ad643e2806c5a3c89cb62846436ed0b")
 START_TIMEOUT_SEC = 60
 
 # (member of the release zip, bytes, SHA-256); each is kept as runtime/<member>.
@@ -84,23 +96,74 @@ RUNTIME_FILES = (
      25992, "2f5bff2a87544dc1ce3f30582555e2add8969abbaac32c0e81fa67cfda00e5c3"),
     ("ollama.exe", 37799816, "0957bdaa7b52e163cdc7feb1275653f27c6b32e8ba309e957bdbb83493e97a4b"),
 )
+# The Mac runtime (Apple silicon): (member under MAC_PREFIX, bytes, SHA-256), each kept as runtime/<member>.
+MAC_RUNTIME_FILES = (
+    ("CPP_HTTPLIB_LICENSE", 1075, "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b"),
+    ("FMT_LICENSE", 1431, "07580f2a3b35709ce703d523f447b242f6dfec7582a8c0df102c7fa2849375f8"),
+    ("GO_LICENSE", 163159, "3d4141fbdef53a211326be2e0278e1b9959b4d848bcf727dd230636a3523c00c"),
+    ("JSON_LICENSE.MIT", 1076, "86b998c792894ccb911a1cb7994f7a9652894e7a094c0b5e45be2f553f45cf14"),
+    ("LLAMA_CPP_LICENSE", 1078, "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"),
+    ("LLAMA_CPP_VENDORS_LICENSE", 7257, "eb17b411e39c75c4ac40916d66e39287ee9723b8bbe54daf020fc27acf670c11"),
+    ("METAL_CPP_LICENSE.txt", 11344, "f4e92c7fe2aa066e294c0da9d08683dc9fb741ee6e6debbfad99a0c96e07c1f2"),
+    ("PICOJSON_LICENSE", 1414, "52a7da16781b4b899382c9ddfcf059235cdee73e2f45cfd7402c2ae9a2e9d28d"),
+    ("libggml-base.0.27.0.dylib", 794768, "c25c41e069dbd38caddea839bec3b906e1bfd789f0642e83e4b9bbca71e4b720"),
+    ("libggml-blas.so", 52560, "5d6d361695f48bd147e343ac41ae17c982e541130dcc4749f89759b9301f7876"),
+    ("libggml.0.27.0.dylib", 57728, "f0f0ffa906254c41dcef6ac0d2eb1e44d751ff3285836b44b36d9668fa71e5c3"),
+    ("libllama-common.0.7.0.dylib", 5542320, "0a021ea00e6328ce951d7d331138d6cc080540f3466ac41b3c3bd9e84e2ae1d2"),
+    ("libllama-quantize-impl.dylib", 89984, "6322090306333dbe60678afa556296dcdcdf1b5521731172af671ac8c0b119da"),
+    ("libllama-server-impl.dylib", 3794944, "c9d3c06fe860e99823811e0716766fae9589b40b800b91cbcb9f78dda1df2a7c"),
+    ("libllama.0.7.0.dylib", 4118768, "efb6db98926a18c876f674112674f3546dd0a1c6da606d8daf171ac4618acf08"),
+    ("libmtmd.0.7.0.dylib", 1613952, "7273c8904608207d72777b688c7894faf1e241ce97586267abd2161ee3a21ce3"),
+    ("llama-quantize", 11571024, "4990670b4e213fefe51c0ff4e813d1d409a96b238e81f256e78df15bbbb8ccbb"),
+    ("llama-server", 19177440, "831a41b83171eb00710d75e55bc1d995c8bc61e01bee547420ca52c02448275d"),
+    ("ollama", 71493488, "be4b054f8ebf8b3b185daa30671849a80f22c2b2ef45e064de562f69aba46a96"),
+)
+# A download is a plain file: the programs get their run permission, and the libraries the names the programs load
+# them by (links in the zip: name -> the file it points at), when the server starts (_prepare).
+MAC_PROGRAMS = ("ollama", "llama-server", "llama-quantize")
+MAC_LINKS = (
+    ("libggml-base.0.dylib", "libggml-base.0.27.0.dylib"), ("libggml-base.dylib", "libggml-base.0.dylib"),
+    ("libggml.0.dylib", "libggml.0.27.0.dylib"), ("libggml.dylib", "libggml.0.dylib"),
+    ("libllama-common.0.dylib", "libllama-common.0.7.0.dylib"), ("libllama-common.dylib", "libllama-common.0.dylib"),
+    ("libllama.0.dylib", "libllama.0.7.0.dylib"), ("libllama.dylib", "libllama.0.dylib"),
+    ("libmtmd.0.dylib", "libmtmd.0.7.0.dylib"), ("libmtmd.dylib", "libmtmd.0.dylib"),
+)
 # The model's files (the manifest's config and layers): (SHA-256, bytes); kept as blobs/sha256-<SHA-256>.
 MODEL_BLOBS = (
-    ("05a61d37b08453e59290add468e3bb2f688e23a01e967fecb0e2fa41218cea76", 487),
-    ("a3de86cd1c132c822487ededd47a324c50491393e6565cd14bafa40d0b8e686f", 5225374496),
-    ("ae370d884f108d16e7cc8fd5259ebc5773a0afa6e078b11f4ed7e39a27e0dfc4", 1723),
-    ("d18a5cc71b84bc4af394a31116bd3932b42241de70c77d2b76d69a314ec8aa12", 11338),
-    ("cff3f395ef3756ab63e58b0ad1b32bb6f802905cae1472e6a12034e4246fbbdb", 120),
+    ("e5ca99f918964e7d5a912f974eae708ae59370883a5b182fc0660fe7adf3f0e4", 242),          # config
+    ("0cb0cd0a5c499d92942caa22fe5abb98f6e8874868d590e2b094ece4ac8e6d28", 175115616),    # projector
+    ("bb722270d54346adc198f213851dbe0207e87c3ecf2a0aff4d92262726215391", 7381383680),   # the model (Q4_K_M)
+    ("7008a656050bed18f6741406a631e83fa75ee1a02308f2e4f40d978cfbb3ce4b", 465109152),    # draft model
+    ("b507b9c2f6ca642bffcd06665ea7c91f235fd32daeefdf875a0f938db05fb315", 13),           # template
+    ("0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594", 10174),        # license (Apache-2.0)
+    ("2365fbb6d97bf654fdda0353b7505baa2254c662122cff0f153e4b47e6220ded", 64),           # params
 )
 
 
-def pack_files() -> list[dict]:
-    """The pack's files for dubeval/packs.py: the runtime out of the release zip, then the model and its manifest."""
-    files = [{"zip": OLLAMA_ZIP, "member": member, "name": f"runtime/{member}", "bytes": size, "sha256": sha}
-             for member, size, sha in RUNTIME_FILES]
+def this_computer() -> Optional[str]:
+    """"windows" or "mac" when the checker can run here (a Mac needs Apple silicon, as DubEval's Mac app does), else
+    None: there is no pinned runtime for other computers."""
+    if os.name == "nt":
+        return "windows"
+    return "mac" if sys.platform == "darwin" and platform.machine() == "arm64" else None
+
+
+def supported() -> bool:
+    return this_computer() is not None
+
+
+def pack_files(computer: Optional[str] = None) -> list[dict]:
+    """The pack's files for dubeval/packs.py: the runtime out of the release zip (this computer's; Windows's where
+    there is none, so the list is never empty), then the model and its manifest."""
+    if (computer or this_computer()) == "mac":
+        files = [{"zip": MAC_ZIP, "member": MAC_PREFIX + member, "name": f"runtime/{member}", "bytes": size,
+                  "sha256": sha} for member, size, sha in MAC_RUNTIME_FILES]
+    else:
+        files = [{"zip": OLLAMA_ZIP, "member": member, "name": f"runtime/{member}", "bytes": size, "sha256": sha}
+                 for member, size, sha in RUNTIME_FILES]
     files += [{"url": f"{REGISTRY}/blobs/sha256:{sha}", "name": f"blobs/sha256-{sha}", "bytes": size, "sha256": sha}
               for sha, size in MODEL_BLOBS]
-    files.append({"url": f"{REGISTRY}/manifests/8b", "headers": {"Accept": MANIFEST_ACCEPT}, "name": MANIFEST_PATH,
+    files.append({"url": f"{REGISTRY}/manifests/{MODEL.split(':')[1]}", "headers": {"Accept": MANIFEST_ACCEPT}, "name": MANIFEST_PATH,
                   "bytes": MANIFEST[0], "sha256": MANIFEST[1]})
     return files
 
@@ -119,6 +182,20 @@ def folder() -> Path:
 def installed() -> bool:
     from dubeval import packs
     return packs.state("local_judge") == "installed"
+
+
+def _prepare(runtime: Path) -> Path:
+    """Makes a downloaded runtime runnable and returns its program. On a Mac the downloaded programs lack their run
+    permission and the libraries the names they are loaded by (see MAC_PROGRAMS, MAC_LINKS)."""
+    if this_computer() != "mac":
+        return runtime / "ollama.exe"
+    for name in MAC_PROGRAMS:
+        (runtime / name).chmod(0o755)
+    for name, target in MAC_LINKS:
+        link = runtime / name
+        if not link.is_symlink() and not link.exists():
+            link.symlink_to(target)
+    return runtime / "ollama"
 
 
 def _free_port() -> int:
@@ -153,7 +230,7 @@ def ensure_running() -> Optional[str]:
         out = open(logs / "ollama.log", "ab")
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         try:
-            _server = subprocess.Popen([str(folder() / "runtime" / "ollama.exe"), "serve"], env=env, stdout=out,
+            _server = subprocess.Popen([str(_prepare(folder() / "runtime")), "serve"], env=env, stdout=out,
                                        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=flags)
         except OSError as e:
             log.warning("Could not start the local translation checker: %s", e)

@@ -55,6 +55,23 @@
           "title": "Description",
           "type": "string"
         },
+        "doubt": {
+          "anyOf": [
+            {
+              "enum": [
+                "asr",
+                "asr_or_real"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "asr: probably misheard by speech recognition; asr_or_real: misheard or a real error",
+          "title": "Doubt"
+        },
         "dub": {
           "anyOf": [
             {
@@ -68,15 +85,80 @@
           "description": "Which dub (A, B, ...) in a comparison",
           "title": "Dub"
         },
+        "dubbed": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the dub says there",
+          "title": "Dubbed"
+        },
         "end": {
           "title": "End",
           "type": "number"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The line it is about, when it is about one",
+          "title": "Line"
         },
         "merged": {
           "default": 1,
           "description": "How many findings were merged into this range",
           "title": "Merged",
           "type": "integer"
+        },
+        "moment": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Index of its moment in the report's moments",
+          "title": "Moment"
+        },
+        "original": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the original says there",
+          "title": "Original"
+        },
+        "problem": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What is wrong, in a sentence (description holds every part)",
+          "title": "Problem"
         },
         "severity": {
           "enum": [
@@ -89,6 +171,19 @@
         "start": {
           "title": "Start",
           "type": "number"
+        },
+        "suggestion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A better translation, when the translation check gave one",
+          "title": "Suggestion"
         }
       },
       "required": [
@@ -145,6 +240,23 @@
           "title": "Message",
           "type": "string"
         },
+        "parts": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The scores inside this measure (the translation check's five criteria), each {id, label, level, value, display, low}",
+          "title": "Parts"
+        },
         "thresholds": {
           "anyOf": [
             {
@@ -171,6 +283,45 @@
         "message"
       ],
       "title": "Metric",
+      "type": "object"
+    },
+    "Moment": {
+      "additionalProperties": true,
+      "description": "The findings about one moment, together: what a person looks at once.",
+      "properties": {
+        "end": {
+          "title": "End",
+          "type": "number"
+        },
+        "intervals": {
+          "description": "Indexes into problem_intervals; the first speaks for the moment",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Intervals",
+          "type": "array"
+        },
+        "severity": {
+          "description": "The worst of its findings",
+          "enum": [
+            "check",
+            "poor"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "start": {
+          "title": "Start",
+          "type": "number"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "severity",
+        "intervals"
+      ],
+      "title": "Moment",
       "type": "object"
     },
     "NotMeasured": {
@@ -221,6 +372,26 @@
           ],
           "title": "Level",
           "type": "string"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        },
+        "sure": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Sure",
+          "type": "array"
         }
       },
       "required": [
@@ -400,6 +571,14 @@
           "title": "Method",
           "type": "object"
         },
+        "moments": {
+          "description": "problem_intervals grouped by moment",
+          "items": {
+            "$ref": "#/$defs/Moment"
+          },
+          "title": "Moments",
+          "type": "array"
+        },
         "not_measured": {
           "items": {
             "$ref": "#/$defs/NotMeasured"
@@ -443,6 +622,15 @@
             "$ref": "#/$defs/Section"
           },
           "title": "Sections",
+          "type": "array"
+        },
+        "skipped": {
+          "description": "not_measured grouped by reason, each {title, reason, action, labels, ids, banner}",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Skipped",
           "type": "array"
         },
         "things_to_check": {

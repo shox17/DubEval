@@ -41,7 +41,9 @@ def test_silences_are_still_found_where_the_words_cant_be_read(lang):
                                            {"start": 20.0, "end": 23.0, "original_sec": 1.0}]   # barely speaks: no moment
     rep = build_report(r, lang)
     moments = [i for i in rep["problem_intervals"] if i["category"] == "long_silence"]
-    assert [(i["start"], i["end"], i["severity"]) for i in moments] == [(5.0, 8.0, "check"), (12.0, 17.0, "poor")]
+    # The 4.5 s one would be Poor by its length, but no measure is graded here, and a moment is Poor only when its
+    # measure is.
+    assert [(i["start"], i["end"], i["severity"]) for i in moments] == [(5.0, 8.0, "check"), (12.0, 17.0, "check")]
     assert "2.8" in moments[0]["description"] and "{" not in moments[0]["description"]
     timing = rows(rep)["speech_overlap"]
     assert timing["level"] == "not_measured" and "{" not in timing["message"]
@@ -117,5 +119,5 @@ def test_the_translation_check_is_not_graded_on_unrecognized_speech():
     r["translation_judge"] = _rubric_result([_result({"lines": [line]}, "gemini", "Gemini")],
                                             [{"n": 1, "start": 1.0, "end": 2.0, "original": "x", "dub": "y"}])
     rep = build_report(r, "en")
-    assert rows(rep)["meaning"]["level"] == "not_measured"
+    assert rows(rep)["translation_check"]["level"] == "not_measured"
     assert not [i for i in rep["problem_intervals"] if i["category"] == "mistranslation"]

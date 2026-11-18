@@ -190,6 +190,19 @@ def test_a_runs_picture_is_kept_and_none_is_made_without_its_videos(tmp_path):
     assert library.thumbnail(folder.name) == folder / library.THUMB
 
 
+def test_a_black_picture_saved_before_is_made_again_once(tmp_path, monkeypatch):
+    from dubeval import preview
+    video = tmp_path / "dub.mp4"
+    video.write_bytes(b"x")
+    folder = run(tmp_path, dub=video)
+    library.save_thumbnail(folder / library.THUMB, JPEG)
+    made = []
+    monkeypatch.setattr(library, "_dark", lambda path: True)              # every picture reads as black
+    monkeypatch.setattr(preview, "_frame", lambda path, duration: made.append(path) or JPEG)
+    assert library.thumbnail(folder.name) == folder / library.THUMB and made == [str(video)]
+    assert library.thumbnail(folder.name) == folder / library.THUMB and len(made) == 1   # not on every look
+
+
 def test_drafts_are_saved_again_under_their_id_and_listed_newest_first():
     first = library.save_draft(None, "Clip", JPEG, {"original": {"typed": "C:/v/o.mp4"}})
     second = library.save_draft(None, None, None, {"dubs": [{"typed": "https://perso.ai/x"}]})

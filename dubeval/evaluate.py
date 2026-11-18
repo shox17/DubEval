@@ -1,4 +1,4 @@
-"""All quality measurements for a dub: audio, speech recognition (Whisper) and lip movement (MediaPipe).
+"""All quality measurements for a dub: audio, speech recognition (Whisper) and the lip-sync check's set-up.
 
 Pure functions: they take files or waveforms and return dicts. Nothing here writes files or talks to Perso.
 """
@@ -16,9 +16,6 @@ import numpy as np
 import librosa
 import jiwer
 import cv2
-import mediapipe as mp
-from mediapipe.tasks import python as mp_python
-from mediapipe.tasks.python import vision
 import imageio_ffmpeg
 
 from dubeval import asr
@@ -42,14 +39,9 @@ CER_LANGS = {"ja", "zh", "ko", "th"}
 WHISPER_CODE_ALIASES = {"fil": "tl", "jv": "jw"}
 
 # Lip-sync analysis settings
-LIPSYNC_SAMPLE_FPS = 15.0          # frames analysed per second of video
-LIPSYNC_MAX_SECONDS = 60.0         # analysis window from the start of the clip
-LIPSYNC_MAX_LAG_MS = 200           # diagnostic lag search range (+/-); never used for the headline score
-LIPSYNC_MIN_FACE_COVERAGE = 0.5    # below this the result is reported as invalid
-LIPSYNC_MIN_FRAMES = 20
 
 # Bump when result keys are renamed or removed.
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Speech timing and clarity settings
 CLIP_LEVEL = 0.999                 # |sample| at or above this counts as clipped
@@ -412,6 +404,24 @@ def fill_gaps(stt: dict, y: np.ndarray, voiced: Optional[list[list[float]]], whi
     return {**stt, "segments": segments, "text": " ".join(s["text"] for s in segments).strip()}
 
 
+HEAR_AGAIN_PAD_SEC = 0.4           # a line heard again is recognized with this much sound either side
+
+
+def hear_again(y: np.ndarray, start: float, end: float, whisper_model, language: Optional[str] = None,
+               sr: int = SAMPLE_RATE) -> str:
+    """What one stretch of a track says when it is recognized on its own: a second reading of a line the first one,
+    made on the whole track, may have misheard or missed. Empty when the voice detector hears no speech there (over
+    music alone the recognizer invents words)."""
+    clip = y[max(0, int((start - HEAR_AGAIN_PAD_SEC) * sr)):int((end + HEAR_AGAIN_PAD_SEC) * sr)]
+    if len(clip) < sr // 5:
+        return ""
+    voiced = asr.voice_activity(clip, fine=True)
+    if voiced is not None and not voiced:
+        return ""
+    segments = transcribe(clip, whisper_model, language=language)["segments"]
+    return " ".join(s["text"] for s in segments if s["text"] and _is_real_speech(s)).strip()
+
+
 def _share(seg: dict, spans) -> float:
     """The share of a segment's time covered by [start, end] spans."""
     length = seg["end"] - seg["start"]
@@ -599,149 +609,12 @@ def video_integrity(original_video_path: str, dubbed_video_path: str) -> dict:
     return {"original": o, "dubbed": d, "same_resolution": same_res, "same_fps": same_fps}
 
 
-def _mouth_aspect_ratio(lm) -> float:
-    """How open the mouth is: lip gap divided by mouth width, from MediaPipe face landmarks."""
-    v_dist = ((lm[13].x - lm[14].x) ** 2 + (lm[13].y - lm[14].y) ** 2) ** 0.5
-    h_dist = ((lm[61].x - lm[291].x) ** 2 + (lm[61].y - lm[291].y) ** 2) ** 0.5
-    return float(v_dist / (h_dist + 1e-6))
-
-
-def _pearson(a: np.ndarray, b: np.ndarray) -> float:
-    """Pearson correlation of two series; 0.0 when either is too short or flat to correlate."""
-    if len(a) < 3 or np.std(a) < 1e-9 or np.std(b) < 1e-9:
-        return 0.0
-    r = float(np.corrcoef(a, b)[0, 1])
-    return 0.0 if np.isnan(r) else r
-
-
-def _sync_quality(r: float) -> str:
-    """Turns a lip-sync correlation into a label: strong, moderate, weak or none."""
-    if r >= 0.4:
-        return "strong"
-    if r >= 0.2:
-        return "moderate"
-    if r >= 0.05:
-        return "weak"
-    return "none"
-
-
-def analyze_lipsync(video_path: str, y: np.ndarray, sr: int = SAMPLE_RATE,
-                    model_path: str = FACE_MODEL_PATH, max_seconds: float = LIPSYNC_MAX_SECONDS, check=None) -> dict:
-    """Correlates mouth opening (MediaPipe MAR) with speech loudness (RMS).
-
-    Experimental: the headline score is the zero-lag Pearson r. The best r over a +/-200 ms lag window is
-    reported only as a diagnostic, because maximising over lags inflates pure noise to r ~ +0.1.
-    """
-    invalid = {
-        "valid": False, "reason": "", "reason_key": None, "reason_params": {},
-        "pearson_correlation": None, "best_lag_correlation": None,
-        "best_lag_ms": None, "sync_quality": "n/a", "face_coverage_pct": 0.0, "frames_analyzed": 0,
-        "timestamps": [], "mar_waveform": [], "rms_waveform": []
-    }
-
-    cap = cv2.VideoCapture(_cv2_path(video_path))
-    if not cap.isOpened():
-        return {**invalid, "reason": "video could not be opened", "reason_key": "r.lips.no_video"}
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if not fps or fps <= 0 or np.isnan(fps):
-        fps = 25.0
-    stride = max(1, int(round(fps / LIPSYNC_SAMPLE_FPS)))
-    max_frame = int(max_seconds * fps)
-
-    options = vision.FaceLandmarkerOptions(
-        # The model is passed as bytes: MediaPipe can't open non-ASCII paths on Windows.
-        base_options=mp_python.BaseOptions(model_asset_buffer=Path(model_path).read_bytes()),
-        running_mode=vision.RunningMode.VIDEO,
-        num_faces=1
-    )
-    timestamps, mar_values = [], []
-    try:
-        with vision.FaceLandmarker.create_from_options(options) as detector:
-            idx = 0
-            while idx < max_frame:
-                # grab() skips decoding of frames we don't analyse; retrieve() decodes only sampled ones.
-                if not cap.grab():
-                    break
-                if idx % stride == 0:
-                    if check:
-                        check()
-                    ok, frame = cap.retrieve()
-                    if not ok:
-                        break
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    t = idx / fps
-                    res = detector.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int(t * 1000))
-                    timestamps.append(t)
-                    mar_values.append(_mouth_aspect_ratio(res.face_landmarks[0]) if res.face_landmarks else np.nan)
-                idx += 1
-    finally:
-        cap.release()
-
-    n = len(mar_values)
-    mar = np.array(mar_values, dtype=np.float64)
-    ts = np.array(timestamps, dtype=np.float64)
-    face_mask = ~np.isnan(mar)
-    coverage = float(face_mask.mean()) if n else 0.0
-    base = {**invalid, "face_coverage_pct": round(coverage * 100, 1), "frames_analyzed": n}
-
-    if n < LIPSYNC_MIN_FRAMES:
-        return {**base, "reason": f"only {n} frames analysed", "reason_key": "r.lips.few_frames",
-                "reason_params": {"n": n}}
-    if coverage < LIPSYNC_MIN_FACE_COVERAGE:
-        return {**base, "reason": f"face detected in only {coverage * 100:.0f}% of frames",
-                "reason_key": "r.lips.few_faces", "reason_params": {"pct": f"{coverage * 100:.0f}%"}}
-
-    # Audio RMS on a fine 10 ms grid, then sampled at (lag-shifted) frame times.
-    hop = sr // 100
-    rms = librosa.feature.rms(y=y, frame_length=hop * 4, hop_length=hop)[0]
-    rms_t = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
-
-    ts_face, mar_face = ts[face_mask], mar[face_mask]
-    if np.std(mar_face) < 1e-6:
-        return {**base, "reason": "mouth shape does not change", "reason_key": "r.lips.no_motion"}
-    mar_z = (mar_face - mar_face.mean()) / mar_face.std()
-
-    def corr_at(lag_s: float) -> float:
-        """Correlation between mouth opening and loudness with the audio shifted by lag_s seconds."""
-        audio = np.interp(ts_face + lag_s, rms_t, rms, left=0.0, right=0.0)
-        return _pearson(mar_z, audio)
-
-    lags_ms = range(-LIPSYNC_MAX_LAG_MS, LIPSYNC_MAX_LAG_MS + 1, 20)
-    best_r, best_lag = max((corr_at(l / 1000.0), l) for l in lags_ms)
-    zero_r = corr_at(0.0)
-
-    audio = np.interp(ts_face, rms_t, rms, left=0.0, right=0.0)
-    audio_z = (audio - audio.mean()) / (audio.std() + 1e-9)
-
-    return {
-        "valid": True,
-        "reason": "", "reason_key": None, "reason_params": {},
-        "pearson_correlation": round(zero_r, 4),
-        "best_lag_correlation": round(best_r, 4),
-        "best_lag_ms": int(best_lag),
-        "sync_quality": _sync_quality(zero_r),
-        "face_coverage_pct": round(coverage * 100, 1),
-        "frames_analyzed": n,
-        "timestamps": [round(float(t), 3) for t in ts_face],
-        "mar_waveform": [round(float(v), 3) for v in mar_z],
-        "rms_waveform": [round(float(v), 3) for v in audio_z]
-    }
-
-
-LIPSYNC_SKIPPED = {
-    "valid": False, "reason": "skipped (turned off for this run)", "reason_key": "r.lips.skipped", "reason_params": {},
-    "pearson_correlation": None,
-    "best_lag_correlation": None, "best_lag_ms": None, "sync_quality": "n/a", "face_coverage_pct": None,
-    "frames_analyzed": 0, "timestamps": [], "mar_waveform": [], "rms_waveform": []
-}
-
-
 def _warning(key: str, text: str, **params) -> dict:
     """A warning as a translatable key with its values, plus the English text for the JSON file."""
     return {"key": key, "params": {k: str(v) for k, v in params.items()}, "text": text}
 
 
-def _quality_warnings(orig_ac: dict, dub_ac: dict, stt: dict, dub_ls: dict, dub_text: str) -> list[dict]:
+def _quality_warnings(orig_ac: dict, dub_ac: dict, stt: dict, dub_text: str) -> list[dict]:
     """Warnings for results that look wrong (mismatched videos, empty transcript, ...)."""
     warnings = []
     od, dd = orig_ac["duration_sec"], dub_ac["duration_sec"]
@@ -753,8 +626,6 @@ def _quality_warnings(orig_ac: dict, dub_ac: dict, stt: dict, dub_ls: dict, dub_
     if stt.get("error_rate") is not None and stt["error_rate"] > 0.8:
         warnings.append(_warning("r.warn.script", "Very little of the script was heard; check that the script "
                                  "belongs to this video and is in the dub's language."))
-    if not dub_ls["valid"] and dub_ls.get("reason_key") not in (None, "r.lips.skipped", "r.lips.replaced"):
-        warnings.append(_warning("r.warn.lips", f"Lip movement couldn't be measured: {dub_ls['reason']}."))
     return warnings
 
 
@@ -842,7 +713,7 @@ def _voice_similarity(y_orig: np.ndarray, y_dub: np.ndarray, segments: list) -> 
     """Voice similarity per original line (dubeval/speaker.py); a model that can't be downloaded or run is not measured."""
     from dubeval import speaker, voice_quality
     try:
-        return speaker.voice_similarity(y_orig, y_dub, segments, lambda a: voice_quality.score_window(a)[1])
+        return speaker.voice_similarity(y_orig, y_dub, segments)
     except speaker.ModelUnavailable as e:
         log.warning("Voice similarity not measured: %s", e)
         return speaker.not_measured("r.vs.no_model")
@@ -982,19 +853,26 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
     clarity = speech_clarity(dub_stt["segments"])
     step("Rating the voice quality of both tracks...", 0.66)
     speech_id = _spans_id(orig_speech + [None] + dub_speech)    # what the speech-time steps below were given
-    vq = cached(f"v{CACHE_VERSION}|vq2|{orig_id}|{dub_id}|{speech_id}",        # vq2: the dub is scored at the original's volume
+    from dubeval import voice_quality as vq_model
+    # vq3: the model that scores is part of the key (Audiobox Aesthetics with its download, else DNSMOS)
+    vq = cached(f"v{CACHE_VERSION}|vq3:{vq_model.scorer()}|{orig_id}|{dub_id}|{speech_id}",
                 lambda: _voice_quality(y_orig, y_dub, orig_speech, dub_speech))
     step("Checking the dub's language part by part...", 0.67)
     step("Comparing the dub voice with the original speakers...", 0.665)
-    vs = cached(f"v{CACHE_VERSION}|vs|{orig_id}|{dub_id}|{_spans_id([[s['start'], s['end']] for s in orig_stt['segments']])}",
+    # vs2: every line, with or without background sound, and the original's speakers against themselves
+    vs = cached(f"v{CACHE_VERSION}|vs2|{orig_id}|{dub_id}|{_spans_id([[s['start'], s['end']] for s in orig_stt['segments']])}",
                 lambda: _voice_similarity(y_orig, y_dub, orig_stt["segments"]))
     lang_windows = cached(f"v{CACHE_VERSION}|langwin{LANG_OVERLAP}|{asr_id}|{stt_lang}|{dub_id}|{speech_id}",
                           lambda: language_windows(y_dub, model(), orig_speech + dub_speech, stt_lang, check=check))
     integrity = video_integrity(original_video_path, dubbed_video_path)
 
-    sync = None
-    if include_lipsync and _lip_sync_ready():
-        # The real check (the lip_sync pack) replaces the lip-movement estimate, which then isn't run.
+    # The lip-sync check runs only with its download (the lip_sync pack). A rough lip-movement estimate once ran in its
+    # place (mouth opening against loudness); it was removed on 2026-11-13: it scored an in-sync original -0.20.
+    sync, lips_why = None, "r.lips.skipped"                    # why no lip check ran: it was off
+    if include_lipsync and not _lip_sync_ready():
+        lips_why = "r.lips.no_download"
+    elif include_lipsync:
+        lips_why = None
         step("Checking lip sync in both videos...", 0.70)
         duration = min(orig_ac["duration_sec"], dub_ac["duration_sec"])
         if dub_parts:                    # cut differently: no one shift takes the original's moments to the dub's
@@ -1004,14 +882,6 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
             sync = cached(f"v{CACHE_VERSION}|lipsync|{orig_id}|{dub_id}|{speech_id}",
                           lambda: _lip_sync(original_video_path, y_orig, orig_speech, dubbed_video_path, y_dub_own,
                                             dub_speech, duration, check, dub_offset_sec))
-        dub_ls = orig_ls = {**LIPSYNC_SKIPPED, "reason": "replaced by the lip-sync check", "reason_key": "r.lips.replaced"}
-    elif include_lipsync:
-        step("Analyzing lip movement in the dubbed video...", 0.70)
-        dub_ls = analyze_lipsync(dubbed_video_path, y_dub_own, check=check)   # its picture with its own sound
-        step("Analyzing lip movement in the original video...", 0.85)
-        orig_ls = analyze_lipsync(original_video_path, y_orig, check=check)
-    else:
-        dub_ls = orig_ls = {**LIPSYNC_SKIPPED}
 
     orig_speaking = _speaking_sec(orig_ac)
     dub_speaking = _dub_speaking_sec(dub_ac, y_dub_own, dub_drifts)
@@ -1078,29 +948,13 @@ def run_full_evaluation(original_video_path: str, dubbed_video_path: str, ground
         "voice_quality": vq,
         "voice_similarity": vs,
         "lipsync_metrics": {
-            "measured": include_lipsync,
-            # The lip-sync check (dubeval/lip_sync.py) when its pack is installed; None when it didn't run.
+            "measured": include_lipsync,                 # the lip check was asked for
+            # The lip-sync check's result (dubeval/lip_sync.py); None when it didn't run, and reason_key says why
+            # (r.lips.skipped: it was off; r.lips.no_download: its download isn't installed).
             "sync": sync,
-            "valid": dub_ls["valid"],
-            "reason": dub_ls["reason"],
-            "reason_key": dub_ls.get("reason_key"),
-            "reason_params": dub_ls.get("reason_params", {}),
-            "pearson_correlation": dub_ls["pearson_correlation"],
-            "best_lag_correlation": dub_ls["best_lag_correlation"],
-            "best_lag_ms": dub_ls["best_lag_ms"],
-            "sync_quality": dub_ls["sync_quality"],
-            "face_coverage_pct": dub_ls["face_coverage_pct"],
-            "original_valid": orig_ls["valid"],
-            "original_pearson": orig_ls["pearson_correlation"],
-            "original_sync_quality": orig_ls["sync_quality"],
-            "original_face_coverage_pct": orig_ls["face_coverage_pct"],
-            "waveform_data": {
-                "timestamps": dub_ls["timestamps"],
-                "mar_norm": dub_ls["mar_waveform"],
-                "rms_norm": dub_ls["rms_waveform"]
-            }
+            "reason_key": lips_why,
         },
         "warnings": ([] if stt_lang else [_warning(
             "r.warn.no_whisper", f"Speech recognition doesn't know {target_lang}, so it guessed the language; "
-            "treat speech results as rough.", lang=target_lang)]) + _quality_warnings(orig_ac, dub_ac, scores, dub_ls, dub_stt["text"])
+            "treat speech results as rough.", lang=target_lang)]) + _quality_warnings(orig_ac, dub_ac, scores, dub_stt["text"])
     }

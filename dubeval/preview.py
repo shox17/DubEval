@@ -82,16 +82,54 @@ def _file(path: str) -> dict:
     return _result("file", p.name, info.get("duration_sec"), _frame(str(p), info.get("duration_sec")))
 
 
-def _frame(path: str, duration: Optional[float]) -> Optional[str]:
-    """One frame (a second in, or the middle of a short video) as a small JPEG data: URI, or None."""
-    at = min(1.0, (duration or 0) / 2)
+DARK_LEVEL = 30           # a frame whose average brightness (0-255) is below this reads as black: a fade-in, a title card
+
+
+def frame_times(duration: Optional[float]) -> list[float]:
+    """The moments to try for a video's picture, best first: a tenth of the way in (past most fade-ins and opening
+    titles, at most 20 s), a quarter, the middle, then a second in (or the middle of a very short video)."""
+    if not duration:
+        return [1.0, 5.0]
+    times = [min(duration * 0.1, 20.0), duration * 0.25, duration * 0.5, min(1.0, duration / 2)]
+    return list(dict.fromkeys(round(t, 2) for t in times))
+
+
+def _brightness(jpeg: bytes) -> Optional[float]:
+    """A JPEG's average brightness, 0-255, or None when it can't be read."""
+    try:
+        import cv2
+        import numpy as np
+        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
+    except Exception:                                   # no OpenCV, or a broken picture: take it as it is
+        return None
+    return float(img.mean()) if img is not None and img.size else None
+
+
+def _grab(path: str, at: float) -> bytes:
+    """One frame at `at` seconds as a small JPEG, or b"" when ffmpeg gives none."""
     cmd = [FFMPEG_EXE, "-nostdin", "-loglevel", "error", "-ss", f"{at:.2f}", *LOCAL_INPUT, "-i", path,
            "-frames:v", "1", "-vf", "scale=480:-2", "-f", "image2pipe", "-vcodec", "mjpeg", "-"]
     try:
-        out = subprocess.run(cmd, capture_output=True, timeout=30).stdout
+        return subprocess.run(cmd, capture_output=True, timeout=30).stdout or b""
     except (OSError, subprocess.TimeoutExpired):
-        return None
-    return "data:image/jpeg;base64," + base64.b64encode(out).decode("ascii") if out else None
+        return b""
+
+
+def _frame(path: str, duration: Optional[float]) -> Optional[str]:
+    """A picture of the video as a small JPEG data: URI, or None: the first of frame_times that isn't black, else the
+    brightest one found (a frame a second in was black for every clip that fades in)."""
+    best, best_level = b"", -1.0
+    for at in frame_times(duration):
+        jpeg = _grab(path, at)
+        if not jpeg:
+            continue
+        level = _brightness(jpeg)
+        if level is None or level >= DARK_LEVEL:
+            best = jpeg
+            break
+        if level > best_level:
+            best, best_level = jpeg, level
+    return "data:image/jpeg;base64," + base64.b64encode(best).decode("ascii") if best else None
 
 
 def _image(url: str, session) -> Optional[str]:

@@ -1059,13 +1059,17 @@ def _rubric_lines(results: dict, lang: str) -> dict:
     """Each judged line's rubric in the page's language, by line number: scores, the reasons for low ones, the error
     type and the suggested translation (empty when the check didn't use the rubric)."""
     from dubeval.i18n import t
-    from dubeval.intervals import local_text
+    from dubeval.intervals import NOTHING, judge_text
     tj = results.get("translation_judge") or {}
     if not tj.get("measured") or not tj.get("rubric"):
         return {}
-    return {str(j["line"]): {"scores": j["scores"], "reasons": {c: local_text(v, lang) for c, v in j["reasons"].items()},
+    # each line's two sides, as the judge read them (a line cleared by the second listen: as it was heard then)
+    said = {ln["n"]: ln for ln in pipeline.translation_judge.said(tj, pipeline.judge_lines(results))}
+    sides = lambda n: ((said.get(n) or {}).get("original"), (said.get(n) or {}).get("dub"))
+    return {str(j["line"]): {"scores": j["scores"],
+                             "reasons": {c: judge_text(v, lang, *sides(j["line"])) if v else "" for c, v in j["reasons"].items()},
                              "error_type": t(f"r.tcat.{j['error_type']}", lang) if j["error_type"] != "no_error" else "",
-                             "suggested": j.get("ideal_translation") or "",
+                             "suggested": "" if (j.get("ideal_translation") or "").strip() in NOTHING else j["ideal_translation"],
                              "misheard": bool(j.get("may_be_recognition_error"))}
             for j in tj.get("lines") or []}
 
@@ -1075,7 +1079,10 @@ def _fixes(results: dict) -> dict:
 
     {"translation_check": "keys"} when no translation checker works; {"meaning_screen": "models"} when the offline
     meaning model isn't installed; {"language": "models"} when recognition couldn't make out the dub's language and
-    the large speech model isn't installed yet."""
+    the large speech model isn't installed yet; {"lip_sync": "models"} when the lip check was asked for without its
+    download; {"voice_quality": "models"} when the built-in voice-quality model couldn't grade a noisy original and the
+    better one isn't installed."""
+    from dubeval.intervals import VOICE_FLOOR
     from dubeval.report import speech_problem
     fixes = {}
     tj, ms = results.get("translation_judge") or {}, results.get("meaning_screen") or {}
@@ -1087,6 +1094,12 @@ def _fixes(results: dict) -> dict:
     problem = speech_problem(results)
     if problem and problem["kind"] == "unrecognized" and packs.state("large_model") != "installed":
         fixes["language"] = "models"
+    if (results.get("lipsync_metrics") or {}).get("reason_key") == "r.lips.no_download"             and packs.state("lip_sync") != "installed":
+        fixes["lip_sync"] = "models"
+    vq = results.get("voice_quality") or {}
+    if vq.get("measured") and vq.get("scorer") != "audiobox" and vq["original"] < VOICE_FLOOR \
+            and packs.available("voice_quality") and packs.state("voice_quality") != "installed":
+        fixes["voice_quality"] = "models"        # DNSMOS couldn't grade over this original's music; Audiobox can
     return fixes
 
 

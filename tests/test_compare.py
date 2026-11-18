@@ -216,7 +216,7 @@ def test_interval_lines_carry_every_field():
     comp = build_comparison(make_results(translation_judge=JUDGED), as_b(make_results(translation_judge=JUDGED)), "en")
     text = render_comparison_text(comp, width=300)
     line = next(x for x in text.splitlines() if x.strip().startswith("19.4s-20.4s | Dub A"))
-    assert line.strip().split(" | ")[:5] == ["19.4s-20.4s", "Dub A", "timing", "Check", "Speech timing"]
+    assert line.strip().split(" | ")[:5] == ["19.4s-20.4s", "Dub A", "timing", "Needs review", "Speech timing"]
 
 
 # ---------------- pipeline, files and CLI (fake Perso, no real network) ----------------

@@ -135,6 +135,9 @@ def summary_row(n: int, entry: dict, results: Optional[dict] = None, error: Opti
         for m in s["metrics"]:
             row[f"{m['id']}_level"] = m["level"]
             row[f"{m['id']}_value"] = "" if m["value"] is None else m["value"]
+            for part in m.get("parts") or []:           # the translation check's five scores keep their own columns
+                row[f"{part['id']}_level"] = part["level"]
+                row[f"{part['id']}_value"] = "" if part["value"] is None else part["value"]
     if row["human_label"]:
         row["agrees"] = row["verdict"] == row["human_label"]
     return row

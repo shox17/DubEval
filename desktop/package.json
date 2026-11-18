@@ -1,7 +1,7 @@
 {
   "name": "dubeval-desktop",
   "productName": "DubEval",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "DubEval desktop app: evaluates a dub against its original, on your computer.",
   "license": "AGPL-3.0-or-later",
   "author": "DubEval contributors",
@@ -10,6 +10,8 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis --publish never",
+    "dist:mac": "electron-builder --mac dmg zip --arm64 --publish never",
+    "dist:mac:adhoc": "electron-builder --mac dmg zip --arm64 --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false",
     "build:windows:release": "node scripts/release-windows.js build",
     "release:windows:finish": "node scripts/release-windows.js finish"
   },
@@ -84,6 +86,40 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.video",
+      "icon": "build/icon-mac.png",
+      "minimumSystemVersion": "14.0",
+      "identity": "ESTsoft corp. (WQL32M5H24)",
+      "signIgnore": [
+        "/Contents/Resources/python/",
+        "/Contents/Resources/models/"
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": true,
+      "gatekeeperAssess": false,
+      "artifactName": "DubEval-${version}-${arch}-mac.${ext}"
+    },
+    "dmg": {
+      "artifactName": "DubEval-Mac.${ext}",
+      "title": "DubEval ${version}"
     },
     "afterPack": "after-pack.js",
     "electronFuses": {

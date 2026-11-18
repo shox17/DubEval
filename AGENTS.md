@@ -16,7 +16,7 @@ comes last. **License:** AGPL-3.0-or-later (`LICENSE`); third-party code and mod
 1. The share link's public endpoint (no key, no account, no credits) gives the original video and the dub.
 2. The tool downloads both (the lip-synced dub when there is one), then measures them: length, loudness, silence,
    distortion, speaking pace, dub language, voice clarity (Whisper), voice quality (DNSMOS), voice similarity (speaker model), speech timing, video file, lip sync
-   (lip-synced dubs only: StableSyncNet when its download is installed, else the experimental lip-movement estimate),
+   (lip-synced dubs only: StableSyncNet, when its download is installed; without it the lips aren't checked),
    and script accuracy when a script is passed to the CLI.
 3. Gemini (or Claude) checks the translation automatically when a key is set.
 4. `dubeval/report.py` turns everything into a report: a verdict (Good / Needs review / Poor), every measure with a
@@ -115,7 +115,8 @@ dubeval/compare.py           Compare mode: facts, decide (the rule), build_compa
 dubeval/validation.py        Known-problem validation: copies each dub with one problem at a known time, compares with a
                              re-encoded control; caught / false alarms per language pair (docs/validation.md)
 dubeval/batch.py             Batch mode: parse links file (+ person's verdicts), summary rows, agreement, CSV/text (pure)
-dubeval/voice_quality.py     Voice quality: DNSMOS P.835 on both tracks at the same moments and volume, where both speak (ONNX)
+dubeval/voice_quality.py     Voice quality on both tracks at the same moments and volume, where both speak: Audiobox
+                             Aesthetics with its download (graph bundled, Meta's weights file in the pack), else DNSMOS P.835
 dubeval/speaker.py           Voice similarity: WeSpeaker ONNX (downloaded once, SHA-256 pinned), numpy Kaldi fbank
 dubeval/api.py               REST API (FastAPI) over the same job runner; token auth when DUBEVAL_API_TOKEN is set
 dubeval/ort_session.py       ONNX Runtime CPU sessions (threads sleep between runs: two models taking turns ran 6x slower)
@@ -133,13 +134,15 @@ dubeval/library.py           The Evaluations list: cards of finished run folders
                              delete, drafts (data/drafts/), and the inputs that pruning must spare
 dubeval/preview.py           Start-page previews: Perso share (public endpoint), web page (yt-dlp, no download), file
                              (one ffmpeg frame); pictures as data: URIs. GET /api/preview
-dubeval/local_judge.py       The local translation checker pack (Ollama CPU+Vulkan + Qwen3 8B, pinned) and its server
+dubeval/local_judge.py       The local translation checker pack (Ollama CPU+Vulkan + Gemma 4 12B, pinned) and its server
 dubeval/xlsx.py              A dependency-free one-sheet .xlsx writer (Export's problem list, webapp.problem_rows)
 dubeval/release_notes.py     What's new per version in en/ko/pt/es; the lines are in release_notes.json (add the new version's
                              with every release), which installed apps read at a release's tag
 dubeval/web_text.py          Every web-page text in en/ko/pt/es (keys w.*), merged into i18n.TEXT
 dubeval/__main__.py          python -m dubeval = the dubeval command (how the desktop app starts the server)
-tools/build_desktop.py       Windows build: Python 3.14 + requirements.txt + DubEval + base/speaker models → desktop/resources/
+tools/build_desktop.py       Windows and macOS build: Python 3.14 + requirements.txt + DubEval + base/speaker models →
+                             desktop/resources/ (macOS: a pinned python-build-standalone CPython, built by
+                             .github/workflows/build-mac.yml on one of GitHub's Macs)
 tools/build_meaning_onnx.py  Dev tool: BGE-M3 → int8 ONNX pack (model.onnx + tokenizer.json + pack.json) for meaning.py
 desktop/                     Electron app: main.js starts `python -m dubeval web`, reads the launch link,
                              opens it in a sandboxed window (status.html while starting); updater.js (electron-updater,
@@ -159,7 +162,7 @@ dubeval/cli.py               Argument parsing, quiet native logs, exit codes
 dubeval/lip_sync.py          Lip sync: StableSyncNet (LatentSync 1.5) on the same moments of both videos, the original
                          as the zero point (the lip_sync download; runs on onnxruntime, no torch)
 dubeval/models/              Bundled models with their licenses (README.md there): MediaPipe face landmarker (lip
-                         movement), DNSMOS P.835 ONNX (voice quality), the lip-sync graphs (weights in the download)
+                         movement), DNSMOS P.835 ONNX (voice quality), the Audiobox Aesthetics and lip-sync graphs (weights in their downloads)
 tests/fake_perso.py      Fake share endpoint + media host, with a real response shape
 tests/sample_results.py  A realistic results dict (make_results) for report/CLI/UI tests
 tests/data/sample.mp4    Local only (git-ignored): any ~30 s English talking-head MP4; the 2 slow tests skip without it
@@ -211,7 +214,13 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
 - **Levels, thresholds and messages live only in `dubeval/report.py`** (thresholds are constants at its top), interval
   thresholds in `dubeval/intervals.py`, and the compare decision rule only in `dubeval/compare.py` (`RULES`). The UI and
   CLI render reports and comparisons; they never re-derive levels or decisions. Every Good/Check/Poor row states
-  how it's graded.
+  how it's graded (`thresholds`): the app and the HTML report show it for every row, the text report for the rows that
+  need attention.
+- **Reports put problems first** (`render_text`, `render_html`): verdict, things to check, the measures that need
+  attention in full, what passed in a line each (folded with its explanation in HTML), what wasn't measured. Don't go
+  back to printing every row in full section by section: a 7 s clip printed 1,700 words. Checks that didn't run are
+  put together by reason (`report._skipped`, `report.skipped`; a row says why in `cause`), with what to do when there
+  is something (`r.skip.*`); `SKIP_BANNER_MIN` of them for one reason show as a banner in the app.
 - **A dub's name is only a label** (`pipeline.dub_name`, `compare.shown_names`): it's never part of `facts` or the ranking.
 - **The decision rule is deterministic and printed:** rule order, "skip a rule when any dub lacks its value", ties
   keep input order, the reasoning compares #1 with #2, rule 1 (a dub with fewer of the key checks `KEY_CHECKS` measured never
@@ -238,25 +247,42 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   It was chosen after UTMOS failed on real dubs (every real recording scored ~1.2-1.5, even after voice separation);
   don't swap in a studio-speech model without testing it on real Perso dubs. Window bands are in `dubeval/intervals.py`
   (`VOICE_SIG_DROP`, `VOICE_OVRL_DROP`, `VOICE_FLOOR`). A change to what the model is given needs a new cache key in
-  `evaluate.py` (now `vq2`), not a `CACHE_VERSION` bump, which would drop all recognition.
-- **Voice similarity is only measured on lines with a clean original background** (DNSMOS background ≥ 3.0):
-  music blurs voice fingerprints (on a real film even one actor's own lines scored < 0.45). It's Good or Check, never
-  Poor (a new voice can be deliberate). Line-level "different voice" intervals are relative to the dub's own median.
+  `evaluate.py` (now `vq3`, with the scoring model in it), not a `CACHE_VERSION` bump, which would drop all recognition.
+- **With the `voice_quality` download, Audiobox Aesthetics grades voice quality, not DNSMOS** (owner's decision,
+  2026-11-13; `voice_quality.scorer()`): its production-quality score stays steady over music, where DNSMOS swings and
+  can't grade. Bands are `VOICE_PQ_DROP` / `VOICE_CE_DROP` in `intervals.py`: a stretch is judged against the original
+  there and against how the dub usually compares with it (`intervals.voice_window_levels`). The bundled graph reads
+  Meta's `model.safetensors` unchanged (rebuild it with `tools/build_audiobox_onnx.py`; never redistribute the
+  weights or host a converted copy). DNSMOS stays bundled: it grades without the download, and its background score
+  is kept in every stretch because `report.sure_of` tells a replaced background by it (without it one test dub's
+  silence row went from Check to Poor). Results say which model scored (`scorer`, `scale`); never grade one model's
+  numbers with the other's bands.
+- **Voice similarity says same voice, another voice, or can't tell** (`report._similarity`, 2026-11-13): 40% or more
+  is the same voice (Good), under 30% another voice, between them partly alike (both Check, never Poor: a new voice can
+  be deliberate). A result under 40% is graded only when the model recognises the original's own speakers
+  (`original_self`, each original line against the other original line most like it, 60% or more: `VOICE_KNOWN` in
+  `intervals.py`); else the row isn't graded and says so with both numbers. Don't bring back the rule that skipped lines
+  with a loud background: it left 16 of 20 test dubs unmeasured, and the scores with the music in equalled those with
+  the voice separated. Line-level "different voice" intervals are relative to the dub's own median and need a
+  recognised original too.
   The model downloads on first use to `~/.cache/dubeval/` (`DUBEVAL_MODELS` overrides); tests never download
   (`tests/conftest.py`).
 - Lip sync is measured automatically only when the dub is lip-synced. **With the `lip_sync` download it counts in the
   verdict** (owner's decision, 2026-11-10, on one tested real dub): the share of checked moments whose lips line up is
   Good from 90%, Poor at 30% or less, Check between (`report.LIP_SYNC_PCT`); not measured (no download, too few faces,
-  a narrated original, a recut dub) never counts. Without the download, the lip-movement estimate stays information
-  only. The download's check is StableSyncNet
+  a narrated original, a recut dub) never counts. The download's check is StableSyncNet
   (`dubeval/lip_sync.py`): each moment is judged against the original at the same moments (its zero point), and
   the bundled graphs read ByteDance's checkpoint unchanged (rebuild them with `tools/build_syncnet_onnx.py`, never
-  redistribute the weights). Without it, the lip-movement estimate runs; don't present its number as reliable
-  (metrics.md §3).
+  redistribute the weights). **Without it the lips aren't checked**: the rough lip-movement estimate that once ran in
+  its place (MediaPipe mouth opening against loudness) was removed on the owner's instruction (2026-11-13); it scored an
+  in-sync original −0.20. Don't bring an estimate back under another name; the row says where to get the download
+  (`r.lips.no_download`). MediaPipe's face landmarker stays: the check aligns the face with it.
 - The web interface keeps options few: per dub its kind and language, subtitles, the original's language, the
-  translation check on/off and lip movement (automatic for lip-synced share links). The Whisper model is
-  automatic (`asr.default_model`: `large-v3-turbo` when downloaded and a GPU runs it, else `base`; the start page's
-  More options and `WHISPER_MODEL` / the CLI can name one); script accuracy is CLI-only.
+  translation check on/off and the lip-sync check (automatic for lip-synced share links; offered only with its download). The Whisper model is
+  automatic (`asr.default_model`: `large-v3-turbo` when it is downloaded, with or without a graphics card, else `base`;
+  owner's decision, 2026-11-15: on a processor it is a few times slower, 16-18 s per minute of sound against 5 on one
+  2025 laptop, and `base` read 4 of 36 languages well; the start page's More options and `WHISPER_MODEL` / the CLI can
+  name one); script accuracy is CLI-only.
 - **report.json is a contract** (`dubeval/schema.py`): renaming or removing a field, or changing its meaning, bumps
   `FORMAT_VERSION`; adding a field doesn't. After any change run `dubeval schema > schemas/report.schema.json`.
 - **Speech recognition goes through `dubeval/asr.py` only.** Both backends must keep returning the same shapes, and
@@ -265,8 +291,8 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   speech line by line. The judge is chosen by `--judge` / `DUBEVAL_JUDGE` (`auto` = Claude → Gemini → ChatGPT → Ollama; ChatGPT uses an OpenAI API key,
   `OPENAI_API_KEY`, sent only in the Authorization header); keep
   `RESULT_SCHEMA`, `SYSTEM_PROMPT` and `DUB_TYPE_RULES` in `translation_judge.py` and change them only together with
-  the judge tests. The screen's band (`SCREEN_LOW`) is in `report.py`; it is Check-only, information only when a judge ran
-  (`_meaning_screen(judged=True)`), and not graded on a mostly-music video with no judge (`_apply_little_speech`). Don't lower
+  the judge tests. The screen's band (`SCREEN_LOW`) is in `report.py`; it is Check-only, has no row when a judge ran
+  (`report._translation`), and is not graded on a mostly-music video with no judge (`_apply_little_speech`). Don't lower
   the band to cut false alarms: at 0.50 it loses 5 of the 6 flags Gemini agrees with (`docs/validation.md`). The numbers check (`numbers.py`, `pipeline.check_numbers`) compares digits only,
   skips lines with digits on one side, flags only a number replaced by another (languages say one number differently: 7월 4일,
   200만) and is Check-only (a recognizer can mishear a digit). Tests never load BGE-M3,
@@ -278,14 +304,20 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   long silences are still listed for an unrecognized dub, from the voice detector alone (`evaluate.voice_gaps`,
   `intervals._voice_gaps`; same category and bands, moments only, never a row);
   a dub without speech adds a Poor row (nothing was dubbed), an original without speech a Check row. Both were set from
-  the 12-pair labelled set of 2026-10-25. In `auto`, a judge with a rejected key or no credit hands over to the next one
-  (`translation_judge.ACCOUNT_PROBLEMS`); a judge chosen with `--judge` never does.
+  the 12-pair labelled set of 2026-10-25. In `auto`, and for the judge the app's start page chose (it preselects
+  the first with a key), a judge with a rejected key or no credit hands over to the next one
+  (`translation_judge.ACCOUNT_PROBLEMS`), and the report notes it (`handed_over`, `r.sure.judge_handover_*`); a judge
+  chosen with `--judge` never does.
 - **Downloads (`dubeval/packs.py`)**: every file has a fixed source (a Hugging Face revision, a PyPI version, a GitHub
   release or a registry digest, never `main` or "latest") and a SHA-256 checked before it is installed; nothing
   downloads unless a person asks. A file already in the pack's folder with the right checksum is kept, not downloaded
-  again. The local judge pack (`dubeval/local_judge.py`) takes only Ollama's CPU + Vulkan files out of its release zip
-  by range requests and runs DubEval's own `ollama serve` on a free 127.0.0.1 port while DubEval runs; to update it,
-  regenerate the pins (versions, sizes, SHA-256) for both the zip members and the registry manifest. Changing a source
+  again. The local judge pack (`dubeval/local_judge.py`) takes only the Ollama files it needs out of the release zip
+  by range requests (Windows: CPU + Vulkan; a Mac with Apple silicon: the programs and libraries inside Ollama.app,
+  Metal built in, without its MLX engine) and runs DubEval's own `ollama serve` on a free 127.0.0.1 port while DubEval
+  runs. A Mac's downloaded programs get their run permission and library links when the server starts (`_prepare`).
+  There is no pinned runtime for an Intel Mac or Linux (`local_judge.this_computer`). To update it, regenerate the pins
+  (versions, sizes, SHA-256) for the zip members of both computers (`tools/pin_ollama_runtime.py`) and the registry
+  manifest. Changing a source
   means new checksums, and for the meaning pack a fresh score comparison with the original model (METRICS.md).
 - **Evaluations stay until the person deletes them** (like PersoDub's projects): the app's run folders are not pruned
   (`MAX_KEPT_RUNS` 0), and the pruning of uploads and of the share-link cache spares every file a kept evaluation plays
@@ -307,7 +339,8 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   replaced PersoDub's icon (that needed ESTsoft's permission).
 - **Releases and updates:** the version lives in `dubeval/version.py`, `desktop/package.json` and `pyproject.toml`
   (a test keeps them equal) and every version needs its lines in `dubeval/release_notes.json`. Installed apps update themselves from the
-  GitHub Releases of `REPOSITORY_URL` (`build.publish`): publish the installer, its `.blockmap` and `latest.yml` together.
+  GitHub Releases of `REPOSITORY_URL` (`build.publish`): publish the installer, its `.blockmap` and `latest.yml` together,
+  and (since 0.1.7) the Mac's `DubEval-Mac.dmg`, `.zip`, its `.blockmap` and `latest-mac.yml` in the same release.
   **Since 0.1.6 the installer is signed** (ESTsoft Corp., through the company's internal portal, by hand):
   `npm run build:windows:release`, sign in the portal, then `npm run release:windows:finish`, which checks the signature
   and rebuilds `latest.yml` and the `.blockmap` from the signed file (signing changes the bytes; with the build's
@@ -324,6 +357,18 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   app never installs. The restart isn't silent, unlike PersoDub's: DubEval's update replaces about 9,000 files, and a silent
   install left the person with no window for minutes. A change to this flow needs a run of the real updater: `npm start`
   doesn't update, so use a packaged app with `DUBEVAL_UPDATE_URL` (`desktop/README.md`).
+- **The macOS app is signed with ESTsoft's Developer ID and notarized** (2026-11-18; Apple Silicon only): built by
+  hand on a Mac with the certificate in its keychain and the notarization key saved as `dubeval-notary`
+  (`APPLE_KEYCHAIN_PROFILE=dubeval-notary npm run dist:mac`, in the Mac's own Terminal: SSH can't use the key), with
+  the hardened runtime and only the entitlements in `desktop/build/entitlements.mac.plist`. electron-builder skips the
+  bundled Python and models (`signIgnore`) and `desktop/after-pack.js` signs their Mach-O files with the Developer ID,
+  the hardened runtime and a timestamp; a new native library is covered by that, a new kind of exception needs an
+  entitlement and a notarization run. GitHub's Macs make an ad-hoc test build (`dist:mac:adhoc`, `build-mac.yml`,
+  which publishes nothing). The certificate, its password and the notarization key never go in the repository or a
+  log. Keep three things: it never writes inside its own bundle (Python `-B`, every `.pyc` compiled at
+  build time, `NUMBA_CACHE_DIR` in the data folder), every release carries its `latest-mac.yml`, `.zip` and
+  `DubEval-Mac.dmg` beside the Windows files (it updates itself since 0.1.7, and only from an update signed with the
+  same Developer ID), and its Python is one pinned download with a SHA-256 (`MAC_PYTHON`). Details in `desktop/README.md`.
 - **Labels are a person's answer key** (`dubeval label`, `dubeval/labeling.py`): never fill them from DubEval's own
   output or from an LLM, or calibration only measures DubEval against itself. The page hides DubEval's verdict until
   the person has answered, listens on 127.0.0.1 only, opens only with its launch link (token cookie, Host check,
@@ -354,10 +399,26 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   written score descriptions in `SCORE_BANDS`, reasons for scores of 7 or lower, an ideal translation and one of
   `ERROR_TYPES`. The judges only read text (transcripts and subtitle files); they never listen to audio. Grading lives
   in `report.py` (`RUBRIC_FLAG`, `RUBRIC_POOR`, `RUBRIC_POOR_LINES`, `_rubric`); only meaning can be Poor, and only with
-  3 or more serious lines or most lines. Every requested line must be answered (`_ask_again`, `_rubric_result`):
+  3 or more serious lines or most lines. **The report shows it as one row** (`translation_check`, level = the worst of
+  the five, the five scores in its `parts`): don't split it into rows again, five rows said one thing and inflated
+  every count of items (the headline's, compare mode's "fewer Needs review items"). Every requested line must be answered (`_ask_again`, `_rubric_result`):
   anything less is not measured (`r.judge.incomplete`), never a grade from part of the dub. The result keeps each
   request's model (`chunks`, `models`). Results saved before the rubric
   (`meaning_score` 1-5, no `rubric` key) still render with the old rows.
+- **A language the speech model reads badly gets a note, not a grade** (`report._weak_recognition`,
+  `WEAK_RECOGNITION_PCT`, 2026-11-15): when the model used read more than 10% of characters wrong in the dub's or
+  the original's language on test sentences (`languages.RECOGNITION_ERRORS`: 25 read FLEURS sentences per language,
+  36 languages, `large-v3-turbo` and `base`), the report says so under the verdict (`r.sure.weak_dub`,
+  `r.sure.weak_original`), and points to the large model when that one reads the language well (`r.sure.weak_tip`).
+  It changes no level and holds no comparison: the numbers come from clean read speech, not from the dub. A model
+  or language not in the table says nothing. Measure again when a recognizer changes
+  (`data/validation/languages/`, `docs/validation.md`).
+- **The second listen stays off** (`pipeline.listen_again`, `DUBEVAL_SECOND_LISTEN`; tried 2026-11-15): recognizing each
+  marked-down line again on its own and judging it again where the words differ lowered agreement with the reviewer
+  (meaning 7 → 5 of 16 with `base`, 7 → 7 with `large-v3-turbo`, and two right verdicts lost). A line heard alone often
+  comes out as other wrong words, a recognizer told the dub's language wrote an untranslated English line out in Korean,
+  and the judge scores the same words differently when asked twice. Don't turn it on by default without the reviewer's
+  answers on the flagged lines themselves (`docs/validation.md`).
 
 ## Conventions
 - Plain functions returning dicts. Type hints, one-line docstrings, comments only where the why isn't obvious.
@@ -375,7 +436,15 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
 - **The web interface looks like the PersoDub desktop app** (owner's decision, 2026-10-22): dark only, its palette,
   12 px Onest type, a top bar, a left sidebar panel and a work panel on a darker desk; every colour is a token at the
   top of `dubeval/web/style.css` (credited in NOTICE). New screens use those tokens and components, not new colours.
+- **Dropdowns are drawn by the page** (`select` in `style.css`: its own arrow, and `appearance: base-select` so the list
+  opens inside the page). The system's dropdown on a Mac is a light list as tall as the screen with the arrow against the
+  edge. Such a dropdown is only as wide as its chosen option: give a new one a width if something stands beside it.
 - UI copy is short, plain, second person ("Paste a Perso share link").
+- **A level has one name in each language**, the verdict's: Good / Needs review / Poor (ko 좋음 / 검토 필요 / 미흡, pt Bom /
+  Precisa de revisão / Ruim, es Bien / Necesita revisión / Deficiente). `check` and "Check" are only the level's id in the
+  code, the JSON and these notes; no text a person reads uses a second word (`tests/test_i18n.py`). The headline
+  (`report._headline`, `overall.summary`) names the measures behind the verdict; what DubEval isn't sure of is
+  `overall.sure`, one sentence each, shown under it; `overall.headline` keeps both in one text.
 
 ## How to do common tasks
 - **Add a measure:** compute it in `dubeval/evaluate.py` (pure) and add it to the `run_full_evaluation` result →
@@ -392,8 +461,14 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
 - **Add an interval category:** add the id → `r.cat.*` label to `CATEGORIES` in `dubeval/intervals.py`, a collector that
   returns `_item(...)` ranges, its texts in `dubeval/report_text.py` (4 languages), a test in `tests/test_intervals.py`,
   and a row in metrics.md §7.
-- **Things to check** are built from the problem intervals (+ untimed warnings) in `_things_to_check`
-  (`dubeval/report.py`); add new timed issues as interval categories instead.
+- **Things to check** are built from the moments (+ the possibly misheard lines and untimed warnings) in
+  `_things_to_check` (`dubeval/report.py`); add new timed issues as interval categories instead. A finding
+  (`problem_intervals[i]`, what a reviewer votes on) keeps its own range and says what it found in parts (`problem`,
+  `original`, `dubbed`, `suggestion`, `doubt`, `line`; `description` is all of them in one text); a collector passes them
+  to `_item`. `intervals.group_moments` puts the findings about one moment together (`MOMENT_OVERLAP`, or the same
+  `line`), the one that says most first (`LEAD_ORDER`: give a new category its place there). The screen's count, the
+  review flow and the list go by moments. **A moment is Poor only when its measure is** (`report._cap_moments`,
+  `MOMENTS_OF`): keep it, or a "Needs review" dub shows Poor moments again.
 - **Change the translation check:** prompt and JSON schema are `SYSTEM_PROMPT` / `RESULT_SCHEMA` in
   `dubeval/translation_judge.py`. Summary and explanations must stay four-language objects. Gemini models are tried
   in `GEMINI_MODELS` order; `GEMINI_MODEL` / `GEMINI_THINKING` env vars override the first model and thinking.
@@ -430,8 +505,7 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   2027-10). Before changing either, check every pin has a wheel for it:
   `pip install --dry-run --ignore-installed --only-binary=:all: --platform win_amd64 --python-version 3.14
   --implementation cp --target <tmp> -r requirements.txt` (openai-whisper is source-only, which is fine).
-- Without the lip-sync download, lip movement is a heuristic (the in-sync original of the sample scores −0.20).
-  The lip-sync check was tested on one real Perso EN→KO dub and planted sound delays only; on a CPU it adds about
+- The lip-sync check was tested on one real Perso EN→KO dub and planted sound delays only; on a CPU it adds about
   30 s (at most 30 moments from the first 60 s).
 - The translation check reads Whisper transcripts, not audio, so misheard words can look like translation errors
   (they're flagged as probable recognition errors).
@@ -440,13 +514,21 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   fallback ends at temperature 1.0 with a lower avg_logprob), speech timing 58% vs 26% on another, and no speech
   found in a music video. Until then, clarity, timing and pace verdicts from faster-whisper are provisional;
   `DUBEVAL_ASR=openai-whisper` reproduces the calibrated behaviour.
-- **The local judge (qwen3:8b through Ollama) is unreliable but stays in `auto`** (user's decision, 2026-10-22). On
-  the Francis EN→KO dub it reported missing content in 11 of 13 lines, nearly all wrongly, so the verdict became Poor;
-  it answers in English only (`LOCAL_SCHEMA`) to finish in about a minute (four languages took over 10 minutes).
-  Claude is the reliable judge; the offline BGE-M3 screen found the real error with no false alarm.
+- **The local judge is Gemma 4 12B** (`local_judge.MODEL`, the GGUF tag `gemma4:12b-it-q4_K_M`; owner's decision,
+  2026-11-13). It replaced Qwen3 8B, which found 4 of 23 planted mistakes, reported missing content in 11 of 13 lines of
+  a good dub and, on the new set, never stopped writing. Gemma 4 12B caught 28 of 28 planted mistakes on Windows and on
+  the Mac with no harmless rewording flagged (`docs/validation.md`), but that is planted mistakes on 8 dubs, one run
+  each: it hasn't been compared with the reviewer's labels. It is slow (about 11 s a line on an 8 GB NVIDIA laptop,
+  7 s on an M2 Pro), needs about 7 GB of graphics memory, answers in English only (`LOCAL_SCHEMA`), and stays last in
+  `auto`. Gemma 4 E4B is not a smaller substitute: it missed every left-out line. When the model doesn't fit the
+  graphics card as Ollama splits it, its runner crashes (HTTP 500): with 1.8 GB of an 8 GB card in use it put 36 of
+  49 layers on the card and every request failed, so `_judge_ollama` asks again with 24 layers on the card and then
+  none (`LOCAL_GPU_LAYERS`; 81 s and 186 s for a 6-line check against 72 s with the whole card). Keep the step-down. A pack installed with the old
+  model is `outdated` (`packs.state`): it isn't used, and Settings → Models offers Update or Remove.
 - Less common languages are recognized poorly: a real EN→UZ dub was heard as Kazakh (47% with `base`, 75% with
   `large-v3-turbo`), and forcing the wrong language collapses the transcript (speech timing read 0%). Users should
-  pass `--target-lang`; the default model may move to `large-v3-turbo` after calibration.
+  pass `--target-lang`. `large-v3-turbo` is the default wherever it is downloaded (2026-11-15); it still can't read
+  Uzbek, and its speed on a processor was timed on one laptop only (not on a Mac, not on an older processor).
 - **Candidate change, on hold** (decided 2026-10-22): speech-timing Poor below 55% → 45%. On 7 labelled PersoDub
   pairs, dubs at 47-52% overlap were Check to the reviewer, not Poor; revisit with 20-30 labelled pairs.
 - Speech-timing and pace bands are calibrated on one real Perso EN→KO dub (81–82% overlap, 5.8 chars/s).
@@ -461,11 +543,16 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   recognized again (`fill_gaps`). It also
   drops short shouts over loud effects and some singing (~1-2% of speech time).
 - A job running when `dubeval web` restarts can't resume; it's reported as interrupted (start it again).
-- Voice similarity is not measured on music-heavy videos (by design); its bands come from synthetic voices (same voice
-  0.80-0.87 across languages, different voices median 0.13, max 0.57) and need real cloned dubs to confirm.
+- Voice similarity's bands rest on 10 real dubs and 363 line pairs of different videos (`docs/validation.md`), with no
+  person's answer except one: the owner listened to the two dubs it calls "another voice" (p015, p018) and found both
+  a different voice (2026-11-13); nobody has listened to the "same voice" ones. Results on 2 or 3 lines
+  are graded and are thin. On 6 of 20 test dubs it can't tell (a film clip, videos with 2-3 lines).
 - Recognition on a graphics card isn't exactly repeatable even with the seed set: the same audio gave different text on 2 of 3
   copies tried (2026-11-03). Don't read a few false alarms' difference between two runs as an effect (`docs/validation.md`).
-- Voice quality misses a muffled (low-passed) voice, and its bands were set from damage simulated on two real dubs
+- Audiobox Aesthetics' bands rest on damage put into the 20 test dubs (8 s, one stretch each) and on no person's
+  answer: no real dub with a bad voice has been tested, mild damage is mostly missed (a 4 kHz low-pass on 2 of 20,
+  3x clipping on none), Poor (2.5) has never been reached, and it adds about 20 s per minute of video on a processor.
+- Without that download, voice quality (DNSMOS) misses a muffled (low-passed) voice, and its bands were set from damage simulated on two real dubs
   (clean dubs: at most 0.25 below the original; robotic/distorted stretches: 0.4-2.3 below). Poor moved from
   1.0 / 0.9 to 2.5 / 1.5 on 2026-11-01 (graded real dubs reached 2.2 / 1.2 and were fine), so most simulated damage
   is now Check, not Poor. A simulated robotic voice (8 s quantised to 16 levels) is flagged on only 9 of 17 tune dubs. The
@@ -478,3 +565,6 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   replace the background.
 - Compare mode was verified with fake share links (real Whisper), in the browser, and on two real EN→ES Perso dubs of
   one video; not yet on a real Windows machine.
+- The macOS app was built and checked on one Mac (2026-11-12, an M2 Pro on macOS 15.7: signature, one evaluation,
+  start and stop; an earlier copy was used by hand there). The GitHub workflow that does the same has never run, there
+  is no Intel build, and thresholds were all set on Windows.

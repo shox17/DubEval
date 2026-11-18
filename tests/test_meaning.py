@@ -125,6 +125,32 @@ class DownOllama:
         raise requests.ConnectionError()
 
 
+class CrashingOllama(FakeOllama):
+    """Ollama whose runner crashes (HTTP 500) until at most `fits` layers are asked onto the graphics card."""
+    def __init__(self, fits: int, content: str):
+        super().__init__(content=content)
+        self.fits = fits
+
+    def post(self, url, json=None, timeout=None):
+        ok = json["options"].get("num_gpu", 99) <= self.fits
+        self.status = 200 if ok else 500
+        return super().post(url, json, timeout)
+
+
+def test_the_local_judge_steps_down_when_the_model_doesnt_fit_the_graphics_card():
+    english = {**answer_line(1, semantic=9), **{f"{c}_reason": "" for c in tj.CRITERIA}}
+    ask = lambda session: tj.judge_translation([{"start": 0, "end": 1, "text": "Hi"}], [{"start": 0, "end": 1, "text": "안녕"}],
+                                               "en", "ko", session=session, provider="ollama")
+    half = CrashingOllama(fits=30, content=json.dumps({"lines": [english]}))
+    assert ask(half)["measured"]
+    assert [body["options"].get("num_gpu") for _, body in half.calls] == [None, 24]      # Ollama's own split, then half
+    cpu = CrashingOllama(fits=0, content=json.dumps({"lines": [english]}))
+    assert ask(cpu)["measured"] and [body["options"].get("num_gpu") for _, body in cpu.calls] == [None, 24, 0]
+    never = FakeOllama(status=500)
+    r = ask(never)
+    assert r["measured"] is False and "returned an error" in r["reason"] and len(never.calls) == 3
+
+
 @pytest.mark.parametrize("session, reason", [
     (SlowOllama(), "didn't answer within"),
     (DownOllama(), "Start Ollama"),
@@ -184,15 +210,15 @@ def test_screen_rows_are_good_when_every_line_is_close():
 
 
 @pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
-def test_with_a_judge_a_low_screen_line_is_information_only(lang):
-    # The judge reads every line more precisely; a low screen line must not make the dub Needs review on its own.
+def test_with_a_judge_the_screen_has_no_row_and_no_moments(lang):
+    # The judge reads every line more precisely; a low screen line must not make the dub Needs review on its own. It was
+    # an information-only row then, and a row that decides nothing hid the ones that do: now it isn't shown.
     r = results_with_lines()
     r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
     r["translation_judge"] = judged({"lines": [answer_line(n) for n in (1, 2, 3, 4)]}, "claude-opus-5-5", "Claude",
                                     pipeline.judge_lines(r))
     rep = build_report(r, lang)
-    row = next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")
-    assert row["level"] == "info" and "{" not in row["message"] + row["thresholds"]
+    assert not [m for s in rep["sections"] for m in s["metrics"] if m["id"] == "meaning_screen"]
     assert not [i for i in rep["problem_intervals"] if i["category"] == "meaning_drift"]
 
 
@@ -239,6 +265,46 @@ def test_a_chosen_judge_never_hands_over(monkeypatch):
     monkeypatch.setattr(tj, "_run_judge", lambda p, *a, **k: calls.append(p) or tj.not_measured("r.judge.no_credit", model="Claude"))
     r = tj.judge_translation([{"start": 0, "end": 1, "text": "Hi"}], [{"start": 0, "end": 1, "text": "안녕"}], "en", "ko")
     assert calls == ["claude"] and r["reason_key"] == "r.judge.no_credit"
+
+
+@pytest.mark.parametrize("why", ["r.judge.no_credit", "r.judge.bad_key"])
+def test_the_start_pages_choice_hands_over_and_says_so(monkeypatch, why):
+    """The app preselects the first judge with a key: a key out of credit or rejected moves on to the next saved one."""
+    calls, switched = [], []
+    answers = {"claude": tj.not_measured(why, model="Claude"),
+               "gemini": tj._result({"lines": [answer_line(1)]}, "gemini-3.5-flash", "Gemini")}
+    monkeypatch.setenv("DUBEVAL_JUDGE", "auto")
+    monkeypatch.setattr(tj, "claude_available", lambda: True)
+    monkeypatch.setattr(tj, "gemini_key", lambda: "k")
+    monkeypatch.setattr(tj, "_run_judge", lambda p, *a, **k: calls.append(p) or answers[p])
+    r = tj.judge_translation([{"start": 0, "end": 1, "text": "Hi"}], [{"start": 0, "end": 1, "text": "안녕"}], "en", "ko",
+                             provider="claude", on_switch=switched.append)
+    assert calls == ["claude", "gemini"] and switched == ["gemini"]
+    assert r["measured"] and r["provider"] == "gemini"
+    assert r["handed_over"] == {"from": "claude", "name": "Claude", "reason_key": why}
+
+
+def test_the_start_pages_choice_is_tried_first_even_when_it_is_not_first_in_order(monkeypatch):
+    calls = []
+    answers = {"gemini": tj.not_measured("r.judge.bad_key", model="Gemini"),
+               "claude": tj._result({"lines": [answer_line(1)]}, "claude-x", "Claude")}
+    monkeypatch.setattr(tj, "claude_available", lambda: True)
+    monkeypatch.setattr(tj, "gemini_key", lambda: "k")
+    monkeypatch.setattr(tj, "_run_judge", lambda p, *a, **k: calls.append(p) or answers[p])
+    r = tj.judge_translation([{"start": 0, "end": 1, "text": "Hi"}], [{"start": 0, "end": 1, "text": "안녕"}], "en", "ko",
+                             provider="gemini")
+    assert calls == ["gemini", "claude"] and r["handed_over"]["from"] == "gemini"
+
+
+def test_other_failures_of_the_start_pages_choice_do_not_hand_over(monkeypatch):
+    """Busy or timed out is not a key problem: the person sees that judge's reason, as before."""
+    calls = []
+    monkeypatch.setattr(tj, "claude_available", lambda: True)
+    monkeypatch.setattr(tj, "gemini_key", lambda: "k")
+    monkeypatch.setattr(tj, "_run_judge", lambda p, *a, **k: calls.append(p) or tj.not_measured("r.judge.busy"))
+    r = tj.judge_translation([{"start": 0, "end": 1, "text": "Hi"}], [{"start": 0, "end": 1, "text": "안녕"}], "en", "ko",
+                             provider="claude")
+    assert calls == ["claude"] and not r["measured"] and "handed_over" not in r
 
 
 # ---------------- which model the screen runs ----------------
@@ -295,7 +361,7 @@ def test_the_screen_isnt_graded_on_a_mostly_music_video(lang):
     assert not [i for i in rep["problem_intervals"] if i["category"] == "meaning_drift"]
 
 
-def test_the_screen_stays_on_a_video_with_speech_and_as_information_when_a_judge_ran():
+def test_the_screen_stays_on_a_video_with_speech_and_goes_when_a_judge_ran():
     r = results_with_lines(translation_judge=JUDGE_OFF)
     r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
     rep = build_report(r, "en")
@@ -304,4 +370,4 @@ def test_the_screen_stays_on_a_video_with_speech_and_as_information_when_a_judge
     r = results_with_lines(timing_alignment=MOSTLY_MUSIC)
     r["meaning_screen"] = meaning.screen(pipeline.judge_lines(r), encode=fake_encode)
     r["translation_judge"] = judged(GOOD_ANSWER, "claude-opus-5-5", "Claude", pipeline.judge_lines(r))
-    assert next(m for s in build_report(r, "en")["sections"] for m in s["metrics"] if m["id"] == "meaning_screen")["level"] == "info"
+    assert not [m for s in build_report(r, "en")["sections"] for m in s["metrics"] if m["id"] == "meaning_screen"]

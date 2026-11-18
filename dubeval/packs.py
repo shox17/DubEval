@@ -3,10 +3,12 @@
     meaning      the offline meaning screen: BGE-M3 as an int8 ONNX model + its tokenizer (Xenova/bge-m3, MIT)
     gpu          faster speech recognition on an NVIDIA GPU: cuBLAS from NVIDIA's own package on PyPI (Windows only)
     large_model  better speech recognition for less common languages: faster-whisper large-v3-turbo (MIT)
-    local_judge  the translation check on this computer: Ollama (CPU + Vulkan, MIT) and Qwen3 8B (Apache-2.0)
+    local_judge  the translation check on this computer: Ollama (CPU + Vulkan, MIT) and Gemma 4 12B (Apache-2.0)
                  (dubeval/local_judge.py; Ollama's files are taken out of its release zip with range requests)
     lip_sync     the lip-sync check: ByteDance's StableSyncNet from LatentSync 1.5, unchanged (CreativeML OpenRAIL++-M);
                  dubeval/lip_sync.py runs it with the two small graphs bundled in dubeval/models/
+    voice_quality  the better voice-quality model: Meta's Audiobox Aesthetics, unchanged (CC BY 4.0);
+                 dubeval/voice_quality.py runs it with the graph bundled in dubeval/models/ and uses DNSMOS without it
 
 Every file has a pinned source (a fixed revision or version) and a SHA-256 checked before anything is used; a
 download that stops half-way resumes where it left off. A pack is installed into its own folder only once every file
@@ -23,7 +25,7 @@ import zlib
 from pathlib import Path
 from typing import Callable, Optional
 
-from dubeval import asr, lip_sync, local_judge, meaning, network
+from dubeval import asr, lip_sync, local_judge, meaning, network, voice_quality
 
 log = logging.getLogger(__name__)
 
@@ -86,10 +88,21 @@ PACKS["lip_sync"] = {
          "sha256": "dccc464554b85ed939ae5cf63000e5803d4b21d8c7dae2260544a10aeb1ac483"},
     ],
 }
+AUDIOBOX = f"{HF}/facebook/audiobox-aesthetics/resolve/9b1dd8e5df9af7216e836a98974fe3b82c56ded6"
+PACKS["voice_quality"] = {
+    "folder": lambda: voice_quality.PACK_DIR,
+    "source": "facebook/audiobox-aesthetics (Meta)",
+    "license": "CC BY 4.0",
+    "files": [
+        {"url": f"{AUDIOBOX}/model.safetensors", "name": voice_quality.WEIGHTS, "bytes": 415472992,
+         "sha256": "a5a3c2412649cc2384ec525ffd5180ce6c4778f43bed6108e0a1303de04d014e"},
+    ],
+}
 PACKS["local_judge"] = {
     "folder": lambda: MODELS_DIR / "ollama",
-    "source": "Ollama 0.40.9 (CPU + Vulkan) and Qwen3 8B (Ollama registry)", "license": "MIT (Ollama), Apache-2.0 (Qwen3)",
-    "windows_only": True,
+    "source": f"Ollama 0.40.9 (CPU + Vulkan on Windows, Metal on a Mac) and {local_judge.MODEL_NAME} (Ollama registry)",
+    "license": "MIT (Ollama), Apache-2.0 (Gemma 4)",
+    "supported": local_judge.supported,                     # Windows, or a Mac with Apple silicon
     "files": local_judge.pack_files(),
 }
 LARGE_MODEL = "large-v3-turbo"           # the recognizer name the large_model pack provides
@@ -115,6 +128,8 @@ def available(pack_id: str) -> bool:
     pack = PACKS[pack_id]
     if pack.get("windows_only") and os.name != "nt":
         return False
+    if "supported" in pack and not pack["supported"]():
+        return False
     return nvidia_gpu() if pack.get("needs_nvidia") else True
 
 
@@ -130,13 +145,14 @@ def _installed_files(pack: dict) -> dict:
 
 
 def state(pack_id: str) -> str:
-    """installed | partial (a download to resume) | absent."""
+    """installed | outdated (an earlier version's files, e.g. the model it used then: not used until updated) |
+    partial (a download to resume) | absent."""
     pack = PACKS[pack_id]
     folder = Path(pack["folder"]())
     try:
         listed = json.loads((folder / "pack.json").read_text(encoding="utf-8"))["files"]
         if all((folder / name).stat().st_size == info["bytes"] for name, info in listed.items()):
-            return "installed"
+            return "installed" if set(_installed_files(pack)) <= set(listed) else "outdated"
     except (OSError, ValueError, KeyError, TypeError):
         pass
     return "partial" if _staging(folder).is_dir() and any(_staging(folder).iterdir()) else "absent"
@@ -293,7 +309,7 @@ def install(pack_id: str, progress: Callable[[str, float], None] = lambda messag
         except (Stopped, ValueError):
             raise
         except Exception as e:                              # network trouble: keep the partial file for next time
-            log.warning("Download of %s failed: %s", f["url"], e)
+            log.warning("Download of %s failed: %s", f.get("url") or f["zip"], e)   # a zip's member has no url
             raise RuntimeError(network.describe(e, DOWNLOAD_FAILED)) from e
         done_before += f["bytes"]
     progress("Installing...", 0.98)
@@ -321,6 +337,8 @@ def remove(pack_id: str) -> None:
         local_judge.stop()                                  # its server holds the files open
     elif pack_id == "lip_sync":
         lip_sync.unload()                                   # the loaded models keep the checkpoint open
+    elif pack_id == "voice_quality":
+        voice_quality.unload()                              # the loaded model keeps the weights file open
     folder = Path(PACKS[pack_id]["folder"]())
     shutil.rmtree(folder, ignore_errors=True)
     shutil.rmtree(_staging(folder), ignore_errors=True)
@@ -341,6 +359,8 @@ def _changed(pack_id: str) -> None:
         translation_judge._ollama_seen.clear()
     elif pack_id == "lip_sync":
         lip_sync.unload()
+    elif pack_id == "voice_quality":
+        voice_quality.unload()
 
 
 # The Models list (Settings → Models): every model DubEval uses, grouped by what it does, built in or downloadable.
@@ -349,9 +369,10 @@ CATALOG = (
     ("speech", "whisper_base", "Whisper base", "builtin"),
     ("speech", "large_model", "Whisper large-v3-turbo", "pack"),
     ("meaning", "meaning", "BGE-M3 (int8)", "pack"),
-    ("meaning", "local_judge", "Qwen3 8B (Ollama)", "pack"),
+    ("meaning", "local_judge", f"{local_judge.MODEL_NAME} (Ollama)", "pack"),
     ("voice", "speaker", "WeSpeaker ResNet34", "builtin"),
     ("voice", "dnsmos", "DNSMOS P.835", "builtin"),
+    ("voice", "voice_quality", "Audiobox Aesthetics", "pack"),
     ("voice", "face", "MediaPipe Face Landmarker", "builtin"),
     ("voice", "lip_sync", "LatentSync StableSyncNet", "pack"),
     ("speed", "gpu", "NVIDIA cuBLAS", "pack"),
@@ -368,7 +389,7 @@ def _size(path: Optional[Path]) -> Optional[int]:
 
 def _builtin_bytes(model_id: str) -> Optional[int]:
     """Where a built-in model is on this computer, measured; None when unknown (e.g. not downloaded yet)."""
-    from dubeval import speaker, voice_quality
+    from dubeval import speaker
     from dubeval.evaluate import FACE_MODEL_PATH
     from dubeval.paths import BUNDLED_MODELS
     if model_id == "whisper_base":

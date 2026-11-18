@@ -122,6 +122,291 @@ models were tried as replacements: Gemma 3 4B did worse (1 of 23), and Gemma 3 1
 computer (an 8 GB graphics card) it ran partly on the processor at about 3 words a second, several minutes per dub
 check. Qwen3 8B stays the local model.
 
+## A new local model: Gemma 4 12B (2026-11-13)
+
+The October set was never saved, so a new one was written by hand the same way, on 8 real dub transcripts (6 English
+to Korean, 2 English to Spanish; 233 lines over the 20 copies judged): 12 changed copies with 6 wrong numbers, 12
+reversed meanings, 12 lines left out and 12 harmless rewordings (`tools/judge_planted_test.py`; the set is other
+people's dubs and stays local). A changed line already flagged in the unchanged copy can't show a catch and isn't
+counted, which is why the totals differ between judges. One run each.
+
+| | Gemma 4 12B, Windows (8 GB NVIDIA) | Gemma 4 12B, Mac (M2 Pro) | Gemma 4 E4B, Windows | Gemini (reference) |
+|---|---|---|---|---|
+| Wrong number | 5 of 5 | 5 of 5 | 3 of 6 | 5 of 6 |
+| Reversed meaning | 11 of 11 | 11 of 11 | 9 of 12 | 11 of 11 |
+| Line left out | 12 of 12 | 12 of 12 | 0 of 12 | 11 of 11 |
+| **All** | **28 of 28** | **28 of 28** | **12 of 30** | **27 of 28** |
+| Harmless rewording flagged | 0 of 11 | 0 of 11 | 0 of 11 | 2 of 11 |
+| Untouched lines newly flagged | 1 | 1 | 5 | 4 |
+| Requests that failed | 0 | 0 | 0 | 1 (busy) |
+| Time for the 233 lines | 2,601 s (11.2 s a line) | 1,590 s (6.8 s a line) | 832 s (3.6 s a line) | 1,387 s |
+
+**Qwen3 8B gave no result on this set**: on the first transcript (6 lines) it wrote over 14,000 tokens without
+finishing, and the run was stopped. **Gemma 4 12B became the local model** (`local_judge.MODEL`): the GGUF build
+`gemma4:12b-it-q4_K_M`, 8.0 GB, about 6.9 GB of graphics memory while it runs; the registry's default `gemma4:12b`
+asks for Ollama's MLX engine on a Mac, which DubEval's runtime leaves out. Gemma 4 E4B is faster but never noticed a
+line that was left out, so it isn't offered as a smaller choice.
+
+What this doesn't show: how it grades real dubs. These are planted mistakes, one run, two languages; it hasn't been
+run on the graded test set against the reviewer's meaning labels, and Uzbek still has no readable transcript to test.
+
+## Voice similarity without the quiet-background rule (2026-11-13)
+
+Until now a line counted only where the original's background was quiet, which left 16 of the 20 test dubs without a
+result. Three label-free tests on those dubs (all listed as voice-clone dubs), then one check by ear:
+
+**1. Is the music the problem?** Five dubs, every line of 2 s or more, as recorded and with the voice separated from
+the background first (Hybrid Demucs): 0.44 and 0.45, 0.21 and 0.21, 0.60 and 0.65, 0.23 and 0.24, 0.57 and 0.57. The
+music wasn't changing the scores; the rule was hiding them.
+
+**2. What do different voices score?** Each original's lines against the dub lines of a video with another original:
+363 pairs, median 0.04, 90% under 0.16, 99% under 0.25, the highest 0.34.
+
+**3. Does the model know the original's speakers?** Each original line against the other original line most like it
+(the median is `original_self`):
+
+| Dub (service) | Original with itself | Dub with the original | Reads as |
+|---|---|---|---|
+| p013 (Perso) | 0.75 | 0.61 | the same voice |
+| p014 (ElevenLabs, the same original) | 0.75 | 0.59 | the same voice |
+| p015 (Descript, the same original) | 0.75 | 0.08 | another voice |
+| p022 | 0.81 | 0.60 | the same voice |
+| p006 | 0.85 | 0.45 | the same voice |
+| p018 | 0.72 | 0.22 | another voice |
+| p011, p012 (one film clip) | 0.45 | 0.21, 0.22 | can't tell |
+| p019 (3 lines) | 0.12 | 0.27 | can't tell |
+| p009 (2 lines) | 0.51 | 0.46 | the same voice (a match that high needs no second proof) |
+
+**The rule now** (`report.VOICE_SAME` 0.40, `VOICE_DIFFERENT` 0.30, `intervals.VOICE_KNOWN` 0.60): 40% or more is the
+same voice; under that it is graded (another voice, or partly alike) only when the original matches itself at 60% or
+more, and is otherwise not graded, with both numbers in the row. On the 20 test dubs, with nothing else measured
+again: 12 graded (4 before), of them 10 the same voice and 2 another voice; 6 can't tell; 2 have fewer than two lines
+of 2 s. No verdict changed. One earlier result fell away: p021 read 0.42 on the 2 lines the old rule let through, and
+reads 0.08 over all 5 lines with an original that matches itself at only 0.32.
+
+**By ear (2026-11-13).** The owner listened to the two dubs the rule calls "another voice", p015 (Descript) and
+p018 (Perso), each next to its original, and found both a different voice from the original speaker: the rule was
+right on both. Nobody has listened to the ten "same voice" dubs or the six "can't tell" ones.
+
+**What this doesn't show.** Two answers by ear, both on the "another voice" side. Ten dubs set the bands. Voice separation was also tried for voice quality on the same five dubs: it
+gave every dub a grade (5 of 5, against 3), but removed a simulated robotic voice (0 of 5 caught, against 2 of 2 as
+recorded) and changed two answers, so it wasn't adopted.
+
+## A voice-quality model for speech over music: Audiobox Aesthetics (2026-11-13)
+
+DNSMOS left 8 of the 20 test dubs without a voice-quality grade (the original's own voice scored under 1.6 of 5 over
+its music) and its scores moved by more than 2 points within one dub. Three tests, none with a person's labels:
+
+**1. Next to DNSMOS, five dubs** (one clean, four with music), 8 s of damage in one stretch of each. "Noticed": the
+score fell by 3 or more times its usual movement between stretches of the undamaged dub.
+
+| | DNSMOS (speech score) | Audiobox (production quality) |
+|---|---|---|
+| Movement of "dub minus original" between undamaged stretches | 0.09 clean, 0.55-0.87 with music (of 5) | 0.14-0.30 (of 10) |
+| Robotic voice (quantised to 16 levels) noticed | 1 of 5 | 4 of 5 (5 of 5 on its second score) |
+| Muffled voice (low-passed at 2 kHz) noticed | 0 of 5 | 5 of 5 |
+| Clipped voice (driven 8x into the limit) noticed | 0 of 5 | 5 of 5 |
+
+**2. Bands, all 20 dubs**, with the graph DubEval ships. Over 329 undamaged stretches the dub's production quality
+was at most 0.83 below the original's and under 0.8 below its own usual; its second score at most 1.0 below its usual.
+With the bands chosen (1.0 below the original or below the dub's usual, or 1.2 on the second score):
+
+| Damage (8 s in one stretch of each dub) | Caught |
+|---|---|
+| Robotic, 16 levels | 20 of 20 |
+| Robotic, 32 levels | 14 of 20 |
+| Muffled, low-passed at 2 kHz | 17 of 20 |
+| Muffled, low-passed at 4 kHz | 2 of 20 |
+| Clipped, 8x | 17 of 20 |
+| Clipped, 3x | 0 of 20 |
+| Undamaged stretches flagged | 0 of 329 |
+
+**3. The 20 dubs as they are**, voice quality alone measured again: Audiobox grades 20 of 20 (DNSMOS 12), every one
+Good. The two dubs DNSMOS marked Needs review (p019, p022) are Good; on p022 the reviewer's last votes on both
+DNSMOS moments were "false alarm". No verdict changed.
+
+**What this doesn't show.** The bands were chosen on the same 20 dubs that show no false alarm, so the margin is
+thin (at 0.6 below the dub's usual, 7 undamaged stretches would be flagged). The damage is artificial and strong; mild
+damage is mostly missed, and no real dub with a bad voice has been tested. Poor (2.5) is a first guess. On a laptop
+processor it takes about 0.25 s per stretch, about 20 s per minute of video.
+
+## The 20 test dubs with everything of 2026-11-13 together
+
+One full run of the test set after the day's changes (the reports' new layout, no lip-movement estimate, Gemma 4 12B
+as the judge, the new voice similarity, Audiobox Aesthetics for voice quality), against the run of 2026-11-12, whose
+judge was Gemini. 40 minutes on an 8 GB NVIDIA laptop; no request of the local judge failed.
+
+| | 2026-11-12 (Gemini) | 2026-11-13 (Gemma 4 12B, local) |
+|---|---|---|
+| Verdict the same as the reviewer's | 12 of 20 (5 stricter, 3 gentler) | 14 of 20 (5 stricter, 1 gentler) |
+| Meaning grade the same as the reviewer's meaning label | 4 of 16 (8 stricter, 4 gentler) | 7 of 16 (8 stricter, 1 gentler) |
+| Line length the same as the reviewer's length label | 7 of 15 | 7 of 15 |
+| Voice quality graded | 12 of 20 | 20 of 20 |
+| Voice similarity graded | 4 of 20 | 12 of 20 |
+
+Both verdicts that changed (p002, p003: Needs review to Poor, as the reviewer has them) came from the judge: Gemma
+graded their meaning Poor where Gemini had said Needs review. No verdict changed because of a voice measure. Never
+Good against Poor in either run.
+
+**Still wrong, the same way as before.** On 8 of the 16 dubs with a readable transcript the meaning grade is stricter
+than the reviewer's (the reviewer says the meaning is good, the judge flags lines), with either judge; one of them,
+p021, is Poor to the tool and Needs review to the reviewer for that reason alone. The four Uzbek dubs still have no
+readable transcript, so three dubs the reviewer calls Good can't be called Good. One short dub the reviewer calls Poor
+(p005, 6.7 s of speech) stays Needs review.
+
+## Why the translation check is stricter than the reviewer (2026-11-13)
+
+On 8 of the 16 dubs with a readable transcript the meaning grade is stricter than the reviewer's label, with Gemini
+and with Gemma alike. Gemma flags 27 lines on those 8 dubs (39 on all 16). Each was read, and then recognized a
+second time on its own with the small recognizer (`data/validation/judge_strictness/`, local):
+
+| The 27 flagged lines | Lines | A second recognition |
+|---|---|---|
+| One side has no speech (the dub "left out" or "added" a line) | 9 | found speech on the silent side on 7 |
+| Both sides speak, and the words change when recognized again | 12 | e.g. `대경 잡으려고` became `배경 잡으려고`, the right translation |
+| Both sides speak, the words are stable | 6 | 3 are fair translations the judge marked down, 2 hide one misheard key word, 1 is a countdown cut short both times |
+
+So about 21 of the 27 flags come from speech recognition, about 3 from the judge being strict with a fair
+translation, and at most 2 are translation errors a person might accept as such. The judge marked none of the 27 as
+possibly misheard, though several hold words that aren't words (`과일 백스탄`, `비념`, `틀라이들`).
+
+**Two simple rules were tried and rejected** (the grade recomputed from the saved scores): leaving one-sided lines out
+of the grade, and counting them only where the voice detector agrees that one track is silent. Both lower agreement
+with the reviewer from 7 to 6 of 16, because the same kind of line is what marks the dubs the reviewer calls Poor
+(p001, p002).
+
+A second recognition of each flagged line before it counts was built next and didn't help (below). The "about 21 of
+27" above was too confident: words that change on a second recognition don't show that the second reading is right.
+
+## A second listen for flagged lines: built, measured, left off (2026-11-15)
+
+**What it does** (`pipeline.listen_again`, off unless `DUBEVAL_SECOND_LISTEN` names a recognizer): every line the judge
+scores 6 or lower is recognized again on its own, both tracks, 0.4 s wider than the line; where the words differ, the
+same judge reads the line once more, and the line takes the second judgement only when that one keeps the meaning
+(above 6) and is better overall. A cleared line is listed with the possibly misheard ones, with both readings.
+
+**Measured** on the saved run of 2026-11-13 (Gemma 4 12B; 40 flagged lines on 14 of the 16 judged dubs):
+
+| Second listen with | Heard differently | Cleared | Meaning grade the same as the reviewer's (was 7 of 16) |
+|---|---|---|---|
+| `base`, on the processor | 34 of 40 | 4 | 5 of 16 |
+| `large-v3-turbo` (the run's own recognizer) | 37 of 40 | 9 | 7 of 16 (p006 right now, p002 wrong now) |
+
+With `base`, two verdicts the tool had right become wrong (p001, p002: Poor to Needs review; the reviewer says Poor), so
+verdict agreement would fall from 14 to 12 of 20. With either recognizer p019 and p021 stay Poor for meaning.
+
+**Why it doesn't work:**
+
+- **A line heard alone often comes out as other wrong words.** `My flight suit.` against a silent dub came back as
+  `어.. 이 개쇼..` (`base`) and `읍! 기칫!` (large). Short clips also draw the recognizer's stock phrases
+  (`다음 영상에서 만나요.`, `감사합니다.`, `I'll see you next time.`). Two wrong readings can even agree: `size?` against a
+  silent dub came back from `base` as `Bye!` and `빠이빠이`, and the line was cleared.
+- **It can hide a real error.** p002's dub leaves a line in English. Told the line is Korean, the large recognizer
+  wrote it out in Korean (`정말. 더 더? 댓글에 남겨주세요.`): an untranslated line read as a translation.
+- **The judge isn't steady.** Asked again about nearly the same words, Gemma moved a line from 7 to 4 (p001), and gave
+  10 to a dub line whose original side was still silent (p001: that clear is what took the verdict off Poor).
+- **Where it is right, it removes what made the grade right.** p002's dub does say `네` where the first reading heard
+  nothing (both recognizers agree). Without that false "left out" line the dub has one serious line, the untranslated
+  one, and the rule needs three (or most lines) for Poor.
+
+The large recognizer's nine clears read as real corrections (`새로운 맛` for "new tastes" where the original was first
+heard as "new cases"; `넣자` for `놓자`; a dub line the first reading had cut short), but they change no grade the
+reviewer disagrees with except p006.
+
+**What the labels can and can't settle.** On these 20 dubs the stricter meaning grade changes one verdict only (p021);
+the other dubs where it is stricter are Needs review to the reviewer for other reasons. Recomputed from the saved
+scores, a line flag at 5 or 4 instead of 6 changes no verdict (14 of 20 each time) and moves the meaning grade to 8
+and 10 of 16. Sixteen dub-level labels can't tell a right line from a wrong one: the next step is the reviewer's
+answer on the flagged lines themselves (real problem or false alarm, by ear), then any rule can be scored on lines.
+
+**The line review** (`tools/label_lines.py`, prepared 2026-11-15, not answered yet): the 40 lines the check marked
+down in that run and 20 it passed (picked at random, fixed seed), from 16 dubs. The page plays the same moment of the
+original and of the dub and asks three things per line: is the original written down right, is the dub written down
+right, and does the dub say what the original says. It doesn't say which lines were marked down, and shows the judge's
+scores for a line only after the three answers. The sheet and clips stay local (`data/validation/line_review/`).
+
+## Other recognizers for the languages Whisper reads badly (2026-11-15)
+
+Two small tests, nothing changed in DubEval. There is no Uzbek script to score against, so the number is the offline
+meaning model's similarity between each dub line and the original's words at that time (higher is better), next to a
+reading of the text. Scripts and transcripts: `data/validation/uzbek_recognition/`, `data/validation/omnilingual/`.
+
+**Whisper models trained on Uzbek** (CTranslate2, loaded by the recognizer DubEval has), the four Uzbek dubs, whole track:
+
+| Model | Size | Meaning against the original | Reading |
+|---|---|---|---|
+| Whisper `large-v3-turbo` (today) | 1.6 GB | 0.61 | guesses Kazakh, Azerbaijani or Persian; `Bugim Rosso sooqa` |
+| rubaistt v2 medium (`islomov/rubaistt_v2_medium`, Apache-2.0) | 1.5 GB | 0.76 | `bugun rosa sovuq a? ha, ancha salqin ekan.` |
+| Kotib `uzbek_stt_v1` (Apache-2.0) | 3.1 GB | 0.79 | nearly the same text as rubaistt |
+| UniVoice (Apache-2.0) | 0.8 GB | 0.78 | no punctuation; skipped 20 s of one dub |
+| Whisper turbo trained on Uzbek (MIT) | 1.6 GB | 0.72 | more mistakes, one runaway repetition |
+
+They return one block of text per 30 s, not lines, and can't tell which language is spoken. Splitting their timed words
+into sentences at `. ? !` gave lines that sat on detected speech (95 to 98% of their time with rubaistt, 75% on two
+dubs with Kotib) and paired with the original's lines. Not checked by a person who reads Uzbek, and three of the four
+dubs are one video.
+
+**Meta's Omnilingual ASR** (1,600+ languages, Apache-2.0), its CTC models as ONNX on the processor, against Whisper on
+the same stretches of speech (cut at pauses), 10 dubs:
+
+| Dub language | Whisper `large-v3-turbo` | Omnilingual CTC 300M | Omnilingual CTC 1B | Trained on the language |
+|---|---|---|---|---|
+| Korean (4 dubs) | 0.78 | 0.70 | 0.73 | |
+| Spanish (2) | 0.79 | 0.74 | 0.72 | |
+| Uzbek (4) | 0.67 | 0.63 | 0.68 | 0.76 (rubaistt) |
+
+The CTC models write what they hear letter by letter, with no punctuation and no knowledge of the language: Korean
+comes out misspelled (`우주백키스탄에서운`, `공확`), Uzbek in mixed Latin and Cyrillic letters, short sounds as Chinese or
+Arabic characters. They don't invent text over a short noise, where Whisper wrote `Gracias por ver el video.` Speed on
+this laptop's processor: 499 s of sound in 35 s (300M) and 87 s (1B). **Not tested:** the LLM versions, which are told
+the language and carry Meta's best numbers; the smallest is about 6.5 GB and needs PyTorch or its own decoding loop.
+
+## Today's recognizers, language by language (2026-11-15)
+
+Whisper `large-v3-turbo` (GPU) and `base` on 25 read sentences per language from FLEURS (Google, CC BY 4.0), 36
+languages, scored against the sentences' own text: the share of characters read wrong with the language given (lower
+case, no punctuation), and how often the model names the clip's language by itself. Scripts and numbers:
+`data/validation/languages/`.
+
+| Wrong characters, language given | `large-v3-turbo` | `base` |
+|---|---|---|
+| Under 5% | 22 languages: Spanish 0.4, Italian 0.6, German 0.8, Russian 1.1, Dutch 1.2, Portuguese 1.3, Polish 1.7, Turkish 2.1, Malay 2.2, Indonesian 2.3, Ukrainian 2.3, French 2.5, English 2.6, Romanian 2.9, Arabic 3.1, Korean 3.4, Swedish 3.4, Vietnamese 3.7, Greek 3.9, Czech 4.3, Tagalog 4.7, Japanese 4.9 | 4: Spanish 2.4, English 4.2, Italian 4.6, German 4.7 |
+| 5 to 10% | 7: Persian 5.1, Kazakh 5.7, Hungarian 5.8, Urdu 8.0, Chinese 8.9, Swahili 9.1, Hindi 9.5 | 7: Portuguese 5.3, Russian 5.4, Turkish 7.4, Polish 8.5, Indonesian 9.4, Malay 9.6, Korean 9.9 |
+| Over 10% | 7: Azerbaijani 11.0, Thai 12.9, Hebrew 14.7, Mongolian 37.4, Bengali 38.9, Tamil 39.5, Uzbek 82.5 | 25, from Ukrainian 10.3 and French 10.9 to Hindi, Bengali and Mongolian near 100 |
+
+**Naming the language.** `large-v3-turbo` names every clip right in 29 of the 36 languages, `base` in 18. The large
+model never names Uzbek (0 of 25: Kazakh 16, Tibetan 8) or Mongolian (0 of 25), names Bengali on 3 of 25 (Hindi,
+Gujarati), and mixes neighbours: Malay as Indonesian (6), Urdu as Hindi (6), Hindi as Urdu (4). Told a clip is Uzbek,
+it still writes it in Cyrillic letters with Kazakh spelling, which is most of the 82.5%.
+
+**In the report.** A dub or original in a language the model used read more than 10% wrong here gets a note under
+the verdict (`report.WEAK_RECOGNITION_PCT`, `languages.RECOGNITION_ERRORS`), with a pointer to the large model when
+that one reads the language well. It grades nothing.
+
+**What this doesn't show.** Read sentences in a quiet room are easier than a dub with music. 25 clips a language is a
+rough number, the first clips of each archive come from few speakers, numbers written as digits count as errors
+against spelled-out text, and scoring by characters is strict for scripts with several spellings of one sound.
+
+## The large recognizer without a graphics card (2026-11-15)
+
+Until this test `large-v3-turbo` was used only with an NVIDIA card and everyone else got `base`, which read 4 of 36
+languages well (above). After it, the large model is the default wherever it is downloaded (`asr.pick_default`). Timed on this laptop's processor (Intel Core Ultra 7 255H, 16 cores, 8-bit, a 96 s Korean track):
+
+| Model, where | Seconds per minute of sound | Times faster than real time |
+|---|---|---|
+| `base`, processor | 5 | 12.7 |
+| `large-v3-turbo`, processor, 4 threads (the default) | 18 | 3.4 |
+| `large-v3-turbo`, processor, 8 threads | 16 | 3.8 |
+| `large-v3-turbo`, processor, 16 threads | 19 | 3.1 |
+
+A whole evaluation of a 29 s dub on the processor (translation check off) took 79 s with the large model and 30 s with
+`base`: recognition runs on both tracks and again for the language and for skipped stretches. It reads as well on
+the processor as on the card on three of four languages tried (25 FLEURS sentences each, wrong characters, processor
+against card): Arabic 3.2 / 3.1, French 2.4 / 2.5, Japanese 4.9 / 4.9. Korean read 7.3 against 3.4: one sentence of
+the 25 was cut short at 8-bit precision; at full precision Korean read 3.8, 1.7 times slower. `base` reads Korean at
+9.9. **Not measured:** the Mac (it wasn't reachable) and an older or smaller processor.
+Scripts: `data/validation/speed/`.
+
 ## Lip sync (2026-10-29)
 
 The lip-sync check (StableSyncNet, `dubeval/lip_sync.py`) on p022, a real Perso English to Korean dub the reviewer

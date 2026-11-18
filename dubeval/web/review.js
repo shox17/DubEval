@@ -363,7 +363,10 @@ function detailPanel(data, store) {
     return h("div", { class: "issue" },
       h("div", { class: "row" }, badge(rep, iv.severity), h("strong", {}, iv.check_label || iv.category_label),
         h("span", { class: "grow" }), h("span", { class: "muted mono" }, `${fmtTime(iv.start)} – ${fmtTime(iv.end)}`)),
-      h("p", {}, iv.description),
+      h("p", {}, iv.problem ?? iv.description),
+      iv.problem && iv.doubt ? h("p", { class: "muted small" }, rep.labels[`doubt_${iv.doubt}`]) : null,
+      iv.problem && iv.suggestion ? h("div", { class: "suggested" },
+        h("span", { class: "muted small" }, t("w.detail.suggested")), h("p", {}, iv.suggestion)) : null,
       h("div", { class: "row votes" }, h("span", { class: "muted small" }, t("w.vote.ask")),
         voteBtn("real", t("w.vote.real")), voteBtn("false_alarm", t("w.vote.false_alarm"))));
   }
@@ -424,9 +427,12 @@ function detailPanel(data, store) {
         ...issues.map(([iv, i]) => issueRow(iv, i)));
     } else {
       const iv = rep.problem_intervals[item.i];
-      fill(el, issueRow(iv, item.i),
-        h("dl", { class: "texts" }, h("dt", {}, rep.labels.original), h("dd", {}, speechIn(data.original_segments, iv) || "–"),
-          h("dt", {}, rep.labels.dub), h("dd", {}, speechIn(data.dub_segments, iv) || "–")));
+      const moment = (rep.moments || [])[iv.moment];
+      const here = moment ? [item.i, ...moment.intervals.filter(i => i !== item.i)] : [item.i];
+      const range = moment || iv;
+      fill(el, ...here.map(i => issueRow(rep.problem_intervals[i], i)),
+        h("dl", { class: "texts" }, h("dt", {}, rep.labels.original), h("dd", {}, speechIn(data.original_segments, range) || "–"),
+          h("dt", {}, rep.labels.dub), h("dd", {}, speechIn(data.dub_segments, range) || "–")));
     }
   }
   show(null);
@@ -437,7 +443,7 @@ function detailPanel(data, store) {
 // The review flow: every flagged moment in time order, one at a time; go(i) shows moment i. Returns null
 // when there is nothing to review.
 function reviewFlow(rep, go) {
-  const n = rep.problem_intervals.length;
+  const n = (rep.moments || rep.problem_intervals).length;
   if (!n) return null;
   const el = h("div", { class: "review-flow" });
   let cur = -1;                                      // -1: not started
@@ -499,7 +505,14 @@ function sections(rep, fixes) {
         const row = h("details", { class: `metric ${m.level}`, open: fixes && fixes[m.id] ? true : null },
           h("summary", {}, h("span", { class: "label" }, m.label), badge(rep, m.level),
             h("span", { class: "display muted" }, m.display ?? ""), fixLink(fixes, m.id)),
-          h("p", {}, m.message), m.thresholds ? h("p", { class: "muted small" }, m.thresholds) : null);
+          h("p", {}, m.message),
+          // The scores inside a row, each number under its heading: an average and a count of lines look alike.
+          m.parts ? h("table", { class: "subscores" },
+            h("thead", {}, h("tr", {}, h("th", {}, rep.labels.score), h("th", {}, rep.labels.average),
+              h("th", {}, rep.labels.low_lines))),
+            h("tbody", {}, m.parts.map(p => h("tr", { class: p.level }, h("td", {}, p.label),
+              h("td", {}, p.display), h("td", {}, p.low_display ?? String(p.low)))))) : null,
+          m.thresholds ? h("p", { class: "muted small" }, m.thresholds) : null);
         mine.push([m.id, row]);
         return row;
       }));
@@ -521,22 +534,25 @@ function sections(rep, fixes) {
   };
 }
 
-// What needs a person, first: Poor, then Check. Each part's graded results that aren't Good (open the part to see how
-// it's measured), then every moment to look at (click: the players and the timeline go there).
+// What needs a person, first: Poor, then Needs review. In each: the problems on the timeline (click: the players and
+// the timeline go there), then the other things to look at, then the results about the whole dub that aren't Good
+// (click: its part opens). The one number shown counts the timeline's problems, as the review flow does; a second
+// count of rows beside it read as a different total.
 function whatToCheck(rep, onMeasure, onMoment) {
   const measures = rep.sections.flatMap(s => s.metrics.filter(m => ATTENTION.includes(m.level)));
   const moments = rep.things_to_check || [];
   if (!measures.length && !moments.length) return h("p", { class: "muted" }, rep.labels.nothing);
   const SHOWN = 3;                                   // items per level before "Show more"
-  const group = lv => {
-    const ms = measures.filter(m => m.level === lv), ts = moments.filter(x => x.severity === lv);
-    if (!ms.length && !ts.length) return null;
-    const items = [
-      ...ms.map(m => h("li", {}, h("button", { type: "button", class: "item", onclick: () => onMeasure(m.id) },
-        h("span", { class: "head" }, h("strong", {}, m.label)), h("span", { class: "why" }, m.message)))),
-      ...ts.map(x => h("li", {}, h("button", { type: "button", class: "item", onclick: () => onMoment(x) },
-        h("span", { class: "head" }, x.start != null ? h("span", { class: "time" }, fmtTime(x.start)) : null,
-          h("strong", {}, x.category)), h("span", { class: "why" }, x.message))))];
+  // A report saved before things had a kind: one with a problem's range is a moment, another with a time was misheard.
+  const kindOf = x => x.kind || (x.interval ? "moment" : x.start != null ? "misheard" : "general");
+  const misheard = moments.filter(x => kindOf(x) === "misheard");
+  const thing = x => h("li", {}, h("button", { type: "button", class: "item", onclick: () => onMoment(x) },
+    h("span", { class: "head" }, x.start != null ? h("span", { class: "time" }, fmtTime(x.start)) : null,
+      h("strong", {}, x.category),
+      x.doubt === "asr_or_real" ? h("span", { class: "scope" }, t("w.review.may_be_misheard")) : null),
+    h("span", { class: "why" }, x.problem ?? x.message),
+    x.also?.length ? h("span", { class: "why also" }, `${rep.labels.also}: ${x.also.join(", ")}`) : null));
+  const folded = (items, head, cls) => {
     const list = h("ol", { class: "check-list" }, items.slice(0, SHOWN));
     let open = false;
     const toggle = items.length > SHOWN ? h("button", { type: "button", class: "link show-more", onclick: () => {
@@ -544,11 +560,25 @@ function whatToCheck(rep, onMeasure, onMoment) {
       list.replaceChildren(...(open ? items : items.slice(0, SHOWN)));
       toggle.textContent = open ? t("w.review.show_less") : t("w.review.show_more", { n: items.length - SHOWN });
     } }, t("w.review.show_more", { n: items.length - SHOWN })) : null;
-    return h("div", { class: `check-group ${lv}` },
-      h("div", { class: "group-head" }, badge(rep, lv), h("span", { class: "group-count" }, String(items.length))),
-      list, toggle);
+    return h("div", { class: `check-group ${cls}` }, h("div", { class: "group-head" }, head), list, toggle);
   };
-  return [group("poor"), group("check")];
+  const group = lv => {
+    const ms = measures.filter(m => m.level === lv);
+    const ts = moments.filter(x => x.severity === lv && kindOf(x) !== "misheard");
+    if (!ms.length && !ts.length) return null;
+    const timed = ts.filter(x => x.interval);
+    const items = [
+      ...[...timed, ...ts.filter(x => !x.interval)].map(thing),
+      ...ms.map(m => h("li", {}, h("button", { type: "button", class: "item", onclick: () => onMeasure(m.id) },
+        h("span", { class: "head" }, h("span", { class: "scope" }, t("w.review.whole_dub")), h("strong", {}, m.label)),
+        h("span", { class: "why" }, m.message))))];
+    return folded(items, [badge(rep, lv), timed.length ? h("span", { class: "group-count" },
+      t(timed.length === 1 ? "w.review.timed_one" : "w.review.timed_many", { n: timed.length })) : null], lv);
+  };
+  // Lines the translation check thinks were misheard: listed for a listen, never counted, not on the timeline.
+  const doubted = misheard.length ? folded(misheard.map(thing),
+    [h("strong", {}, rep.labels.misheard ?? t("w.review.may_be_misheard"))], "misheard") : null;
+  return [group("poor"), group("check"), doubted];
 }
 
 // The result's title; a click turns it into a field (Enter or leaving it saves, Escape cancels).
@@ -618,11 +648,13 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
     tl = timeline(data, s => ctl.seek(s), item => { tl.select(item); detail.show(item); });
     // The review flow shows each moment (selected on the timeline, its card, the videos at its start) and plays
     // nothing by itself: Play or Space does.
-    flow = reviewFlow(rep, i => {
+    flow = reviewFlow(rep, n => {
+      const moment = (rep.moments || [])[n];                         // a report saved before moments: one per problem
+      const i = moment ? moment.intervals[0] : n;
       tl.select({ kind: "issue", i });
       detail.show({ kind: "issue", i });
       if (ctl.playing) ctl.toggle();
-      ctl.seek(rep.problem_intervals[i].start);
+      ctl.seek((moment || rep.problem_intervals[i]).start);
     });
     for (const side of ["original", "dub"])
       api(`/api/jobs/${jobId}/peaks/${side}${q}`).then(pk => alive && tl.setPeaks(side, pk)).catch(() => {});
@@ -641,6 +673,8 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
     for (const v of [ctl.original, ctl.dub]) for (const ev of ["play", "pause", "ended"]) v.addEventListener(ev, label);
 
     const parts = sections(rep, data.fixes);
+    // The checks that didn't run, together by reason (a report saved before the groups: one per check).
+    const skipped = rep.skipped ?? rep.not_measured.map(n => ({ labels: [n.label], reason: n.reason }));
     // A moment that is one of the timeline's problems is selected there too; any other goes to its time.
     const goTo = x => {
       const i = x.interval ? rep.problem_intervals.findIndex(iv => iv.start === x.interval.start
@@ -658,7 +692,12 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
             embedded ? null : exportButton(jobId))),
         h("p", { class: "muted" }, [p.source_language || "?", "→", p.target_language || "?",
           p.duration_sec ? `· ${fmtTime(p.duration_sec)}` : ""].join(" ")),
-        h("p", { class: "headline" }, o.headline), h("p", { class: "muted small" }, rep.counts_text)),
+        h("p", { class: "headline" }, o.summary ?? o.headline),
+        o.summary && o.sure?.length ? h("ul", { class: "sure-notes" }, o.sure.map(note => h("li", {}, note))) : null),
+      // Many checks skipped for one reason (the dub's language wasn't recognized): said once, here, with what to do.
+      ...skipped.filter(g => g.banner).map(g => h("section", { class: "card skipped-banner" },
+        h("div", { class: "row" }, h("strong", {}, g.title), h("span", { class: "muted small" }, g.labels.join(" · "))),
+        h("p", {}, g.reason), g.action ? h("p", { class: "action" }, g.action) : null)),
       h("section", { class: "editor card" },
         h("div", { class: "screens" },
           h("figure", {}, ctl.original, h("figcaption", {}, rep.labels.original)),
@@ -676,12 +715,14 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
           whatToCheck(rep, id => parts.open(id), goTo)),
         detail.el),
       h("div", { class: "details-head" }, h("h2", {}, t("w.review.details")),
-        h("span", { class: "muted small" }, t("w.review.details_hint"))),
+        h("span", { class: "muted small" }, rep.counts_text),
+        h("span", { class: "grow" }), h("span", { class: "muted small" }, t("w.review.details_hint"))),
       ...parts.cards,
       rep.not_measured.length ? h("details", { class: "card section fold" },
         h("summary", {}, h("h2", {}, rep.labels.not_measured), h("span", { class: "grow" }),
           h("span", { class: "fold-count muted" }, String(rep.not_measured.length))),
-        h("ul", {}, rep.not_measured.map(n => h("li", {}, h("strong", {}, n.label), " — ", n.reason)))) : null);
+        h("ul", {}, skipped.map(g => h("li", {}, h("strong", {}, g.labels.join(", ")), " — ", g.reason,
+          g.action ? h("div", { class: "muted small" }, g.action) : null)))) : null);
     document.addEventListener("keydown", onKey);
   }).catch(e => {
     if (alive) fill(root, h("p", { class: "error" }, e.message),

@@ -101,15 +101,16 @@ def test_a_model_shipped_with_the_app_is_used_before_any_download(monkeypatch, t
     assert asr._local_model("base") is None
 
 
-# ----- "auto": the large model on a GPU when it is downloaded, else base -----
+# ----- "auto": the large model when it is downloaded, with or without a GPU, else base -----
 
 @pytest.mark.parametrize("kind, downloaded, device, expected", [
     ("faster-whisper", True, "cuda", "large-v3-turbo"),
-    ("faster-whisper", True, "cpu", "base"),             # too slow on a CPU to be the default
+    ("faster-whisper", True, "cpu", "large-v3-turbo"),   # slower there, but base reads few languages well
+    ("faster-whisper", False, "cpu", "base"),
     ("faster-whisper", False, "cuda", "base"),           # not downloaded: never fetched behind the person's back
     ("openai-whisper", True, "cuda", "base"),
 ])
-def test_auto_picks_the_large_model_only_on_a_gpu_when_it_is_downloaded(kind, downloaded, device, expected):
+def test_auto_picks_the_large_model_wherever_it_is_downloaded(kind, downloaded, device, expected):
     assert asr.pick_default(kind, downloaded, device) == expected
 
 

@@ -106,3 +106,25 @@ LANGUAGES = {
     "su": "sundanese",
     "yue": "cantonese",
 }
+
+# How badly each recognizer reads each language: the share of characters wrong (%) on 25 read sentences per language
+# from FLEURS, with the language given (2026-11-15, docs/validation.md). A model or language not listed wasn't measured.
+# The report warns above report.WEAK_RECOGNITION_PCT. Measure again when a recognizer changes (data/validation/languages).
+RECOGNITION_ERRORS = {
+    "large-v3-turbo": {"ar": 3.1, "az": 11.0, "bn": 38.9, "cs": 4.3, "de": 0.8, "el": 3.9, "en": 2.6, "es": 0.4,
+                       "fa": 5.1, "fr": 2.5, "he": 14.7, "hi": 9.5, "hu": 5.8, "id": 2.3, "it": 0.6, "ja": 4.9,
+                       "kk": 5.7, "ko": 3.4, "mn": 37.4, "ms": 2.2, "nl": 1.2, "pl": 1.7, "pt": 1.3, "ro": 2.9,
+                       "ru": 1.1, "sv": 3.4, "sw": 9.1, "ta": 39.5, "th": 12.9, "tl": 4.7, "tr": 2.1, "uk": 2.3,
+                       "ur": 8.0, "uz": 82.5, "vi": 3.7, "zh": 8.9},
+    "base": {"ar": 13.6, "az": 24.0, "bn": 101.6, "cs": 19.8, "de": 4.7, "el": 19.4, "en": 4.2, "es": 2.4, "fa": 31.0,
+             "fr": 10.9, "he": 28.1, "hi": 88.4, "hu": 23.0, "id": 9.4, "it": 4.6, "ja": 20.8, "kk": 55.6, "ko": 9.9,
+             "mn": 102.7, "ms": 9.6, "nl": 13.2, "pl": 8.5, "pt": 5.3, "ro": 15.1, "ru": 5.4, "sv": 14.3, "sw": 37.2,
+             "ta": 55.0, "th": 44.1, "tl": 14.1, "tr": 7.4, "uk": 10.3, "ur": 20.4, "uz": 75.6, "vi": 16.7,
+             "zh": 33.0},
+}
+LARGE_MODEL = "large-v3-turbo"           # the better of the two, a download (asr.LARGE)
+
+
+def recognition_error(model, lang):
+    """The measured share of characters (%) `model` reads wrong in `lang` (a Whisper code), or None if not measured."""
+    return RECOGNITION_ERRORS.get(model or "", {}).get(lang or "")
