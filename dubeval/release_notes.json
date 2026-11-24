@@ -1,4 +1,58 @@
 {
+  "0.1.8": {
+    "en": [
+      "Every report now has a quality score out of 100 beside the verdict, with the points each check lost and why. When part of a dub couldn't be measured, the score is marked provisional; with too little measured, there is no score.",
+      "Evaluations now wait in line: start as many as you like, and they run one at a time and start by themselves. You can take one out of the line, or add it back later.",
+      "While an evaluation runs, its progress shows on DubEval's taskbar or Dock icon, the computer doesn't go to sleep, and a notification tells you when it's done. Quitting asks first if evaluations are still running or waiting.",
+      "New in Export: Problem clips. Each problem becomes a short side-by-side clip of the original and the dub, played twice (first with the original's sound, then the dub's), with a page that says what's wrong at each one.",
+      "The progress screen shows how long is left, worked out from this computer's earlier evaluations.",
+      "Fewer moments to go through: a check that passed no longer lists moments (except long silences, wrong-language stretches and loudness jumps), and findings about the same line are shown as one moment.",
+      "Two limits were moved after a person graded 39 real dubs: Speech timing is now Poor below 45% (was 55%), and Loudness match beyond 10 dB (was 6). Past evaluations are shown with the new limits.",
+      "Stop now stops an evaluation within a second, even while the videos are being prepared.",
+      "On Windows, an update installs without any questions and starts DubEval again by itself.",
+      "Language names are shown in the language of the interface, the interface language can be changed in the sidebar, and Settings → Storage shows how much space evaluations use.",
+      "The offline meaning check has been removed: it found only about 1 in 4 of the translation errors an AI checker finds. If you downloaded it, its 585 MB are freed. To check translations without sending anything online, use the local translation checker in Settings → Models."
+    ],
+    "ko": [
+      "모든 보고서에 판정과 함께 100점 만점의 품질 점수가 표시되고, 검사별로 깎인 점수와 그 이유를 보여 줍니다. 더빙의 일부를 측정하지 못하면 점수에 잠정이라고 표시되고, 측정한 것이 너무 적으면 점수를 내지 않습니다.",
+      "이제 평가가 차례를 기다립니다: 원하는 만큼 시작하면 한 번에 하나씩 실행되고 순서가 되면 저절로 시작됩니다. 대기열에서 평가를 빼거나 나중에 다시 넣을 수 있습니다.",
+      "평가가 실행되는 동안 작업 표시줄이나 Dock의 DubEval 아이콘에 진행 상황이 표시되고, 컴퓨터가 잠자기 상태로 들어가지 않으며, 끝나면 알림이 옵니다. 실행 중이거나 기다리는 평가가 있으면 종료하기 전에 먼저 묻습니다.",
+      "내보내기에 문제 클립이 추가되었습니다. 문제마다 원본과 더빙을 나란히 놓은 짧은 클립을 두 번 재생하고(처음에는 원본 소리, 다음에는 더빙 소리), 각 문제가 무엇인지 설명하는 페이지도 함께 만듭니다.",
+      "진행 화면에 남은 시간이 표시됩니다. 이 컴퓨터에서 했던 이전 평가를 바탕으로 계산합니다.",
+      "살펴볼 순간이 줄었습니다: 통과한 검사는 더 이상 순간을 나열하지 않고(긴 무음, 다른 언어 구간, 갑작스러운 음량 변화는 예외), 같은 대사에 대한 발견은 하나의 순간으로 보여 줍니다.",
+      "39개의 실제 더빙을 사람이 평가한 결과에 따라 두 기준을 바꿨습니다: 발화 타이밍은 이제 45% 미만일 때 미흡(이전 55%), 음량 일치는 10 dB를 넘을 때 미흡(이전 6 dB)입니다. 지난 평가도 새 기준으로 보여 줍니다.",
+      "이제 중지를 누르면 영상을 준비하는 중에도 1초 안에 평가가 멈춥니다.",
+      "Windows에서 업데이트가 아무것도 묻지 않고 설치되고, DubEval을 저절로 다시 시작합니다.",
+      "언어 이름이 화면 언어로 표시되고, 화면 언어는 사이드바에서 바꿀 수 있으며, 설정 → 저장 공간에서 평가가 차지하는 공간을 볼 수 있습니다.",
+      "오프라인 의미 검사를 없앴습니다: AI 검사기가 찾는 번역 오류 중 약 4분의 1만 찾았습니다. 다운로드했다면 585 MB가 확보됩니다. 아무것도 온라인으로 보내지 않고 번역을 검사하려면 설정 → 모델의 로컬 번역 검사기를 쓰세요."
+    ],
+    "pt": [
+      "Todo relatório agora tem uma nota de qualidade de 0 a 100 ao lado do resultado, com os pontos que cada verificação perdeu e por quê. Quando parte de uma dublagem não pôde ser medida, a nota é marcada como provisória; com muito pouco medido, não há nota.",
+      "As avaliações agora esperam na fila: inicie quantas quiser, e elas rodam uma de cada vez e começam sozinhas. Você pode tirar uma da fila ou colocá-la de volta depois.",
+      "Enquanto uma avaliação roda, o progresso aparece no ícone do DubEval na barra de tarefas ou no Dock, o computador não entra em repouso e uma notificação avisa quando termina. Ao sair, o app pergunta antes se ainda há avaliações rodando ou esperando.",
+      "Novidade em Exportar: Clipes dos problemas. Cada problema vira um clipe curto com o original e a dublagem lado a lado, tocado duas vezes (primeiro com o som do original, depois com o da dublagem), com uma página que diz o que está errado em cada um.",
+      "A tela de progresso mostra quanto tempo falta, calculado a partir das avaliações anteriores deste computador.",
+      "Menos momentos para revisar: uma verificação aprovada não lista mais momentos (exceto silêncios longos, trechos no idioma errado e saltos de volume), e o que foi encontrado na mesma fala aparece como um só momento.",
+      "Dois limites mudaram depois que uma pessoa avaliou 39 dublagens reais: Momento da fala agora é Ruim abaixo de 45% (antes 55%), e Volume acima de 10 dB (antes 6). As avaliações anteriores aparecem com os novos limites.",
+      "Parar agora interrompe uma avaliação em menos de um segundo, mesmo enquanto os vídeos estão sendo preparados.",
+      "No Windows, uma atualização é instalada sem nenhuma pergunta e abre o DubEval de novo sozinha.",
+      "Os nomes dos idiomas aparecem no idioma da interface, o idioma da interface pode ser trocado na barra lateral, e Configurações → Armazenamento mostra quanto espaço as avaliações ocupam.",
+      "A verificação de sentido offline foi removida: ela encontrava só cerca de 1 em 4 dos erros de tradução que um verificador de IA encontra. Se você a baixou, os seus 585 MB foram liberados. Para verificar traduções sem enviar nada pela internet, use o verificador de tradução local em Configurações → Modelos."
+    ],
+    "es": [
+      "Cada informe tiene ahora una puntuación de calidad sobre 100 junto al veredicto, con los puntos que perdió cada comprobación y por qué. Cuando una parte del doblaje no se pudo medir, la puntuación se marca como provisional; si se midió demasiado poco, no hay puntuación.",
+      "Las evaluaciones ahora esperan en cola: inicia todas las que quieras, y se ejecutan de una en una y empiezan solas. Puedes sacar una de la cola o volver a ponerla más tarde.",
+      "Mientras se ejecuta una evaluación, su progreso aparece en el icono de DubEval en la barra de tareas o en el Dock, el ordenador no entra en reposo y una notificación te avisa cuando termina. Al salir, la app pregunta antes si aún hay evaluaciones en curso o en espera.",
+      "Novedad en Exportar: Clips de los problemas. Cada problema se convierte en un clip corto con el original y el doblaje uno al lado del otro, que se reproduce dos veces (primero con el sonido del original y luego con el del doblaje), con una página que dice qué está mal en cada uno.",
+      "La pantalla de progreso muestra cuánto falta, calculado a partir de las evaluaciones anteriores de este ordenador.",
+      "Menos momentos que revisar: una comprobación que pasó ya no enumera momentos (salvo silencios largos, tramos en el idioma equivocado y saltos de volumen), y lo encontrado en la misma frase se muestra como un solo momento.",
+      "Dos límites cambiaron después de que una persona calificara 39 doblajes reales: Momento del habla ahora es Deficiente por debajo del 45% (antes 55%), y Volumen por encima de 10 dB (antes 6). Las evaluaciones anteriores se muestran con los nuevos límites.",
+      "Detener ahora para una evaluación en menos de un segundo, incluso mientras se preparan los videos.",
+      "En Windows, una actualización se instala sin hacer ninguna pregunta y vuelve a abrir DubEval sola.",
+      "Los nombres de los idiomas se muestran en el idioma de la interfaz, el idioma de la interfaz se puede cambiar en la barra lateral, y Ajustes → Almacenamiento muestra cuánto espacio ocupan las evaluaciones.",
+      "Se ha quitado la comprobación de sentido sin conexión: encontraba solo alrededor de 1 de cada 4 errores de traducción que encuentra un verificador de IA. Si la descargaste, sus 585 MB quedan libres. Para comprobar traducciones sin enviar nada por internet, usa el verificador de traducción local en Ajustes → Modelos."
+    ]
+  },
   "0.1.7": {
     "en": [
       "DubEval for Mac (Apple silicon) is here: signed by ESTsoft Corp. and checked by Apple, so it opens like any other app, and it updates itself from now on.",

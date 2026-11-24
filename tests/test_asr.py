@@ -140,3 +140,40 @@ def test_the_fine_voice_detector_keeps_short_gaps(monkeypatch):
     y = np.zeros(48000, dtype=np.float32)
     assert asr.voice_activity(y) == asr.voice_activity(y, fine=True) == [[1.0, 2.0]]
     assert seen == [(2000, 400), (100, 30)]         # its defaults join anything closer than 2 s: blind to a short gap
+
+
+def test_on_a_mac_the_recognizer_uses_the_performance_cores(monkeypatch):
+    # M2 Pro, 2026-11-18: 8 performance cores read a minute in 20 s instead of 29, with the same words.
+    import subprocess
+    import sys
+    asked = []
+
+    class Out:
+        returncode, stdout = 0, "8\n"
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(subprocess, "run", lambda args, **kw: asked.append(args) or Out())
+    asr.cpu_threads.cache_clear()
+    try:
+        assert asr.cpu_threads() == 8
+        assert asked[0] == ["/usr/sbin/sysctl", "-n", "hw.perflevel0.physicalcpu"]
+    finally:
+        asr.cpu_threads.cache_clear()
+
+
+def test_elsewhere_or_when_the_mac_wont_say_the_recognizer_keeps_its_default(monkeypatch):
+    import subprocess
+    import sys
+    monkeypatch.setattr(sys, "platform", "win32")
+    asr.cpu_threads.cache_clear()
+    assert asr.cpu_threads() == 0               # more threads changed nothing on an Intel laptop
+
+    def broken(*a, **kw):
+        raise OSError("no sysctl")
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(subprocess, "run", broken)
+    asr.cpu_threads.cache_clear()
+    try:
+        assert asr.cpu_threads() == 0
+    finally:
+        asr.cpu_threads.cache_clear()

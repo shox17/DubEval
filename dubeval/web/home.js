@@ -4,6 +4,16 @@
 // Delete only). Cards come from /api/evaluations; the list refreshes while an evaluation is running.
 import { api, confirmAlert, go, h, openModal, state, t } from "./app.js";
 
+// No translation checker set up (a new install has no key): said where an evaluation starts, with the way to set one
+// up. The check weighs most in the score and was off with only a grey line by the Start button to say so.
+export function noCheckerNotice() {
+  if ((state.info.judges || []).length) return null;
+  return h("section", { class: "card skipped-banner no-checker", role: "note" },
+    h("strong", {}, t("w.nocheck.title")), h("p", {}, t("w.nocheck.text")),
+    h("p", { class: "row" }, h("a", { class: "button", href: "#/settings/keys" }, t("w.start.no_check_key")),
+      h("a", { class: "button", href: "#/settings/models" }, t("w.start.no_check_local"))));
+}
+
 export const PREFILL_KEY = "dubeval.prefill";        // what the banner was given ({upload, name} or {link}): the dub
 const POLL_MS = 2000;
 
@@ -28,7 +38,6 @@ const ICONS = {
   upload: ["M12 16V4", "m7 9 5-5 5 5", "M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"],
   one: ["M4 5h16v11H4z", "M8 20h8", "M12 16v4"],
   compare: ["M4 5h7v14H4z", "M13 5h7v14h-7z"],
-  history: ["M3 12a9 9 0 1 0 3-6.7L3 8", "M3 3v5h5", "M12 7v5l3 2"],
   search: ["m21 21-4.34-4.34", "M11 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"],
   more: ["M5 12h.01", "M12 12h.01", "M19 12h.01"],
   grid: ["M4 4h6v6H4z", "M14 4h6v6h-6z", "M4 14h6v6H4z", "M14 14h6v6h-6z"],
@@ -44,6 +53,14 @@ function savedView() {
 }
 
 // A language's name in the page's language, from its code; the English name the report kept otherwise.
+// When a draft was saved, as the cards' dates read: the time today, else the date and time.
+function savedAt(seconds) {
+  const d = new Date(seconds * 1000), pad = n => String(n).padStart(2, "0");
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return d.toDateString() === new Date().toDateString() ? time
+    : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${time}`;
+}
+
 function langName(code, fallback) {
   if (code) {
     try { return new Intl.DisplayNames([state.lang], { type: "language" }).of(code) || fallback || code; } catch { /* below */ }
@@ -222,7 +239,7 @@ export function renderHome(root) {
   }
 
   // One card: picture (with a chip top-left and the length bottom-right), then the name, one line under it and "...".
-  function cardEl({ key, name, thumb, chip, chipClass, length, meta, open, menuItems }) {
+  function cardEl({ key, name, thumb, chip, chipClass, length, score, meta, open, menuItems }) {
     const nameEl = renaming === key
       ? h("input", { class: "proj-rename", maxlength: "200", value: name, "aria-label": t("w.home.rename") })
       : h("div", { class: "proj-name", title: name }, name);
@@ -234,7 +251,9 @@ export function renderHome(root) {
     const el = h("div", { class: "proj-card", tabindex: "0", role: "button", "aria-label": t("w.home.open", { name }) },
       h("div", { class: "proj-thumb" }, img,
         chip ? h("span", { class: `proj-chip ${chipClass || ""}` }, chip) : null,
-        length ? h("span", { class: "proj-dur" }, length) : null),
+        length ? h("span", { class: "proj-dur" }, length) : null,
+        // the quality score on the picture, like the length: in the line under it, it pushed the date out of sight
+        score ? h("span", { class: "proj-score" }, score) : null),
       h("div", { class: "proj-row" }, h("div", { class: "proj-info" }, nameEl, h("div", { class: "proj-meta", title: meta }, meta)),
         more));
     el.addEventListener("click", e => { if (!e.target.closest(".proj-rename")) open(el); });
@@ -245,28 +264,35 @@ export function renderHome(root) {
   function draftCard(d) {
     const name = d.name || t("w.home.untitled");
     const chip = { draft: t("w.home.draft"), running: t("w.home.running", { pct: Math.round((d.progress || 0) * 100) }),
-      failed: t("w.home.failed"), stopped: t("w.home.stopped") }[d.state];
-    const meta = d.state === "running" ? (d.dubs > 1 ? t("w.home.compared", { n: d.dubs }) : t("w.home.not_run"))
-      : d.state === "draft" ? t("w.home.not_run") : t("w.home.retry");
+      queued: d.queue_position ? t("w.home.queued_n", { n: d.queue_position }) : t("w.home.queued"), failed: t("w.home.failed"), stopped: t("w.home.stopped") }[d.state];
+    const live = d.state === "running" || d.state === "queued";
+    const saved = d.updated ? t("w.home.saved", { time: savedAt(d.updated) }) : null;
+    const meta = live ? (d.dubs > 1 ? t("w.home.compared", { n: d.dubs }) : t("w.home.not_run"))
+      : d.state === "draft" ? (saved ? t("w.home.draft_saved", { time: savedAt(d.updated) }) : t("w.home.not_run"))
+        : t("w.home.retry");
     const del = () => confirmDelete(t("w.home.delete_draft_title"), t("w.home.delete_draft_text", { name }),
       () => api(`/api/drafts/${encodeURIComponent(d.id)}`, { method: "DELETE" }));
     return cardEl({ key: `d:${d.id}`, name, thumb: d.thumbnail, chip,
-      chipClass: { running: "run", failed: "bad", stopped: "bad" }[d.state] || "muted", meta,
-      open: () => go(d.state === "running" ? `#/job/${d.job_id}` : `#/draft/${d.id}`),
-      // A running evaluation can't be deleted from here (stop it on its progress screen first).
-      menuItems: d.state === "running" ? [[t("w.home.open", { name }), () => go(`#/job/${d.job_id}`)]] : [[t("w.home.delete"), del]] });
+      chipClass: { running: "run", queued: "run", failed: "bad", stopped: "bad" }[d.state] || "muted", meta,
+      open: () => go(live ? `#/job/${d.job_id}` : `#/draft/${d.id}`),
+      // A running or waiting evaluation can't be deleted from here (stop it on its progress screen first).
+      menuItems: live ? [[t("w.home.open", { name }), () => go(`#/job/${d.job_id}`)]] : [[t("w.home.delete"), del]] });
   }
 
   function evaluationCard(c) {
     const name = c.title || t("w.home.untitled");
     const langs = [langName(c.source_language_code, c.source_language), langName(c.target_language_code, c.target_language)]
       .filter(Boolean).join(" → ");
+    // A comparison's verdict and score are its first place's: the card says whose ("A · 89 / 100").
+    const whose = text => (text && c.kind === "comparison" && c.lead_dub ? t("w.home.of_dub", { d: c.lead_dub, text }) : text);
+    const score = whose(c.score ? t(c.score.provisional ? "w.home.score_provisional" : "w.home.score", { score: c.score.value })
+      : null);
     const meta = [c.kind === "comparison" ? t("w.home.compared", { n: c.dubs }) : langs, (c.created || "").slice(0, 10)]
       .filter(Boolean).join(" · ");
     const key = `e:${c.id}`;
     const el = cardEl({ key, name, thumb: `/api/evaluations/${encodeURIComponent(c.id)}/thumb`,
-      chip: c.verdict ? t(`verdict.${c.verdict}`) : null, chipClass: `verdict-${c.verdict}`,
-      length: fmtLength(c.duration_sec), meta, open: card => openEvaluation(c, card),
+      chip: whose(c.verdict ? t(`verdict.${c.verdict}`) : null), chipClass: `verdict-${c.verdict}`,
+      length: fmtLength(c.duration_sec), score, meta, open: card => openEvaluation(c, card),
       menuItems: [
         [t("w.home.rename"), () => { renaming = key; paint(); }],
         [t("w.home.delete"), () => confirmDelete(t("w.home.delete_title"), t("w.home.delete_text", { name }),
@@ -293,6 +319,7 @@ export function renderHome(root) {
     const all = data.drafts.length + data.evaluations.length;
     const shown = drafts.length + done.length;
     count.textContent = all ? (query ? t("w.home.count", { shown, all }) : String(all)) : "";
+    searchBtn.hidden = viewBtn.hidden = !all;                // nothing to search or lay out yet
     grid.replaceChildren(...(shown ? [...drafts.map(draftCard), ...done.map(evaluationCard)]
       : [h("div", { class: "projects-empty" }, all ? t("w.home.no_match") : t("w.home.empty"))]));
   }
@@ -307,15 +334,15 @@ export function renderHome(root) {
     } catch (e) {
       if (alive) grid.replaceChildren(h("p", { class: "error" }, e.message));
     }
-    if (alive && data.drafts.some(d => d.state === "running")) timer = setTimeout(load, POLL_MS);
+    if (alive && data.drafts.some(d => d.state === "running" || d.state === "queued")) timer = setTimeout(load, POLL_MS);
   }
 
   root.append(h("div", { class: "home" },
     banner(isAlive),
+    noCheckerNotice(),
     h("div", { class: "home-cards" },
       toolCard(ICONS.one, t("w.help.evaluate"), t("w.home.one_desc"), "#/new"),
-      toolCard(ICONS.compare, t("w.help.compare"), t("w.home.compare_desc"), "#/new/compare"),
-      toolCard(ICONS.history, t("h.title"), t("w.home.history_desc"), "#/history")),
+      toolCard(ICONS.compare, t("w.help.compare"), t("w.home.compare_desc"), "#/new/compare")),
     h("div", { class: "projects-head" }, h("h3", {}, t("w.nav.evaluations")), count, h("span", { class: "grow" }), searchBtn, viewBtn),
     searchBox, grid), menu);
   load();

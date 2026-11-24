@@ -15,14 +15,16 @@ from typing import Callable, Optional
 
 from dubeval.evaluate import base_lang, whisper_language
 from dubeval.i18n import DEFAULT_UI_LANGUAGE, t as i18n_t
-from dubeval.intervals import VOICE_CE_DROP, VOICE_FLOOR, VOICE_KNOWN, VOICE_OVRL_DROP, VOICE_PQ_DROP, VOICE_SIG_DROP, build_intervals, group_moments, local_text as _local,     voice_window_levels
+from dubeval.intervals import VOICE_CE_DROP, VOICE_FLOOR, VOICE_KNOWN, VOICE_OVRL_DROP, VOICE_PQ_DROP, VOICE_SIG_DROP, build_intervals, group_moments, total_seconds, local_text as _local,     voice_window_levels
 
 # Thresholds, in one place so the report can print exactly what it applied.
 SAME_VIDEO_PCT = (60, 25)                # matching frames at the best shift (bands in dubeval/pairing.py)
 COVERAGE_PCT = (98.0, 90.0)              # share of the original found in the dub
 LENGTH_PCT = (5.0, 15.0)                 # |dub - original| / original
-LOUDNESS_DB = (3.0, 6.0)                 # |20 log10(rms ratio)|: a person graded a dub 5.1 dB off Good, and none of
-                                         # the graded Poor dubs was off by more than 1.7 dB (2026-11-01; was 2 / 4)
+LOUDNESS_DB = (3.0, 10.0)                # |20 log10(rms ratio)|: a person graded a dub 5.1 dB off Good, and none of
+                                         # the graded Poor dubs was off by more than 1.7 dB (2026-11-01; was 2 / 4).
+                                         # Poor moved 6 → 10 (owner's decision, 2026-11-24): a dub 6.6 dB louder,
+                                         # Poor for that alone, was graded Needs review
 SILENCE_PTS = (5.0, 15.0)                # extra silence in the dub, percentage points
 CLIPPING_PCT = (0.01, 0.1)               # share of samples at full scale
 # Speaking pace per dub language: chars/s for ko/ja/zh, words/s for en/es. A language without a rule is not graded.
@@ -44,7 +46,9 @@ LINE_FIT_SHARE = (90.0, 50.0)            # share of lines that fit: Good from th
                                          # graded dub it made Poor, 4 of 10 lines off, a person graded Needs review)
 LINE_OVERRUN_SHARE = 10.0                # lines running into the next one: Check up to this share, Poor above
 LINE_POOR_MIN = 3                        # Poor needs at least this many lines off (one line of two isn't Poor)
-OVERLAP_PCT = (75.0, 55.0)               # speech-timing overlap; a real Perso EN→KO dub scores ~81%
+OVERLAP_PCT = (75.0, 45.0)               # speech-timing overlap; a real Perso EN→KO dub scores ~81%. Poor moved
+                                         # 55 → 45 (owner's decision, 2026-11-24, on 39 graded dubs): every dub at
+                                         # 45-55% (47-54%) was Needs review on timing to the reviewer, none Poor
 SCRIPT_PCT = (80.0, 50.0)                # accuracy against a script
 MEANING_SCORE = (4, 3)                   # LLM judge, 1-5
 # The translation rubric (translation_judge.CRITERIA, each line 1-10): a line at or below RUBRIC_FLAG has a problem worth a
@@ -55,8 +59,6 @@ RUBRIC_POOR = 4
 RUBRIC_POOR_LINES = 3                    # meaning is Poor with this many serious lines, or when most lines are serious;
                                          # one or two are Check (labelled dubs: a cut countdown or two swapped sentences
                                          # made dubs Poor that the reviewer graded Good for meaning)
-SCREEN_LOW = 0.6                         # meaning screen: a line below this similarity may not mean the same
-                                         # (real correct lines: median 0.81, 95% above 0.59; wrong pairs: median 0.49)
 # Voice similarity (typical line, 0-1), set on 2026-11-13 from 10 real dubs and 363 line pairs of different videos
 # (docs/validation.md): cloned dubs scored 0.45-0.61, dubs with another voice 0.08-0.24, two different people under
 # VOICE_STRANGERS in 99% of pairs (0.34 at most). Never Poor: a new voice can be deliberate.
@@ -81,10 +83,56 @@ WEAK_RECOGNITION_PCT = 10.0              # a note under the verdict when the spe
 SURE_ANYWAY = ("clipping", "same_video", "coverage", "file_check", "sound_sync", "speech_found")
 
 LEVELS = ("good", "check", "poor")
-HEADLINE_NAMES = 3                       # measures the headline names before "and N more"
+# The quality score (0-100, owner's decisions 2026-11-20 and 2026-11-21): a summary shown next to the verdict, never
+# instead of it, and never part of the compare decision rule. Each graded check scores SCORE_POINTS by level; a section
+# scores the average of its checks; the score is the sections' weighted sum. The video file must pass and has no
+# weight. The number is the one worked out: no cap held a Needs review dub at 89 any more (its 97 had to be explained as
+# "97 before the limit"); only a dub with every check Good scores 100. In a Poor verdict a Poor result costs a fixed
+# amount by how serious it is (POOR_COSTS, POOR_SEVERITY), whatever its share: one Poor check is often a dealbreaker
+# its weight doesn't show (a crackling dub kept 97).
+# A check that wasn't measured is one of three kinds (_absent): it doesn't apply to this dub ("na": left out, its points
+# shared), it couldn't be measured ("missing": left out and shared too, but the score says how much of what applies it
+# covers, and is provisional under COVERAGE_MIN), or the dub itself made it impossible ("dub": counts as 0, never
+# shared; a dub without speech scored 90+ on the checks that still passed). The weights are reasoned, not measured:
+# check them against people's grades before relying on a number.
+SCORE_WEIGHTS = {"translation": 30, "alignment": 25, "speech": 15, "timing_audio": 15, "pairing": 10, "lipsync": 5}
+SCORE_POINTS = {"good": 100, "check": 50, "poor": 0}   # "check": only for a check with no number to place (see _scale)
+SCORE_CHECK_MAX = 99                    # a Needs review check never scores as much as a Good one
+# What a Poor result costs at the least, in a Poor verdict, by how serious it is (2026-11-22, as translation QA grades
+# errors critical / major / minor). Three levels instead of a number per check: the evidence is thin, so each check is
+# put in a level by a stated reason, and a level's number can move when graded dubs show it should.
+#   unusable: nothing deliverable (no speech in the dub, the wrong language, another video, a file without sound or
+#             that can't be read). The reviewer graded the dub without speech and the wrong-language dub Poor.
+#   serious:  a viewer notices and it must be fixed (the default: translation, timing, lines, lip sync, sound sync,
+#             distortion, voice quality, clarity, pace, length, coverage). Translation stays here, not higher: the
+#             reviewer agreed with 4 of its 5 Poor results on the test dubs, but on p019 the checker was wrong.
+#   minor:    the mix can fix it (loudness, silence). The reviewer graded a dub 5.1 dB off Good, and silence goes Poor
+#             when a dub's background music was removed.
+POOR_COSTS = {"unusable": 100, "serious": 40, "minor": 20}
+POOR_SEVERITY = {"speech_found": "unusable", "language": "unusable", "same_video": "unusable", "file_check": "unusable",
+                 "loudness_match": "minor", "silence": "minor"}         # every other check that can be Poor: serious
+POOR_COST = POOR_COSTS["serious"]
+# Rows that only inform (never graded): measured or not, they never count, nor lower the coverage.
+INFO_ONLY = ("speech_offsets", "time_shift")
+COVERAGE_MIN = 80                       # % of what applies that must be measured, or the score is provisional
+# Under this % there is no score at all: 3 test dubs whose language wasn't recognized had 26-30% measured and showed
+# "99 / 100 (provisional)", a number built on a quarter of the checks. A dub without a translation checker (70%) keeps one.
+SCORE_MIN_COVERAGE = 50
+# Speech checks a dub without any speech can't have: not measured for that reason counts as 0 ("dub").
+DUB_SPEECH_CHECKS = ("clarity", "speech_overlap", "line_length", "line_overrun", "speech_rate",
+                     "translation_check", "meaning", "numbers", "language", "voice_quality", "voice_similarity")
+# A section counts only when this check of it was graded: without the translation check, the offline meaning screen and
+# the numbers check (which can't be Poor, or only notice a changed number) would grade Translation's 30% on their own and
+# lift the score; the score is then provisional and says why (owner's decision, 2026-11-20).
+SCORE_REQUIRES = {"translation": ("translation_check", "meaning")}     # "meaning": results saved before the rubric
+HEADLINE_NAMES = 3                      # measures the headline names before "and N more"
 SKIP_BANNER_MIN = 3                      # this many checks skipped for one reason are announced at the top of the result
 # The measure a moment is counted under in the headline, when it isn't the one named in the moment's "check".
 MOMENTS_OF = {"translation_check": "meaning"}     # results saved before the translation check was one row
+# Moments a check that passed still lists: each is a local event its row's number doesn't measure (the dub silent
+# where the original speaks, a stretch in the original's language, a jump in volume). On the 20 test dubs one Good
+# language row hid 10 s of the original's English; the reviewer voted both loudness jumps real.
+LISTED_WHEN_PASSED = frozenset({"long_silence", "wrong_language", "loudness_jump"})
 ICONS = {"good": "✅", "check": "⚠️", "poor": "❌", "info": "ℹ️", "not_measured": "·"}
 Tr = Callable[..., str]
 
@@ -107,20 +155,45 @@ def _band_min(value: float, bands: tuple[float, float]) -> str:
     return "good" if value >= bands[0] else "check" if value >= bands[1] else "poor"
 
 
+def _lname(tr: Tr, code: Optional[str], start: bool = False) -> str:
+    """A language's name in the report's language ("es" -> "스페인어"), not Whisper's English one; start: capitalized."""
+    from dubeval.languages import display_name
+    return display_name(code or "", tr("r.lang_code"), start)
+
+
+def _cap(text: str) -> str:
+    """The first letter capitalized (a language name that begins a row: "espanhol" -> "Espanhol")."""
+    return text[:1].upper() + text[1:]
+
+
 def _pl(tr: Tr, key: str, n: int, **params) -> str:
     """The singular (key_one) or plural (key_many) text for a count."""
     return tr(f"{key}_{'one' if n == 1 else 'many'}", n=n, **params)
 
 
-def _metric(tr: Tr, mid: str, level: str, message: str, value=None, display: str = "", graded: str = "") -> dict:
-    """One report row. value is None when not measured."""
+def _metric(tr: Tr, mid: str, level: str, message: str, value=None, display: str = "", graded: str = "", *,
+            points: Optional[float] = None) -> dict:
+    """One report row. value is None when not measured. points: where the result sits between the Poor limit (0) and
+    the Good limit (100), what the quality score gives it when it needs review (_check_points)."""
     return {"id": mid, "label": tr(f"r.m.{mid}"), "level": level, "value": value,
-            "display": display or ("—" if value is None else str(value)), "message": message, "thresholds": graded}
+            "display": display or ("—" if value is None else str(value)), "message": message, "thresholds": graded,
+            "score_points": points}
 
 
-def _na(tr: Tr, mid: str, reason: str) -> dict:
-    """A measure that couldn't be measured, with the reason."""
-    return _metric(tr, mid, "not_measured", reason)
+def _scale(value: float, good: float, poor: float) -> float:
+    """Where a value sits from the Poor limit (0) to the Good limit (100), either way round (lower or higher better)."""
+    return round(min(100.0, max(0.0, 100 * (value - poor) / (good - poor))), 1)
+
+
+def _share_ok(ok: int, total: int) -> Optional[float]:
+    """The share of lines (or stretches) without a problem, as points; None when there are none."""
+    return round(100 * ok / total, 1) if total else None
+
+
+def _na(tr: Tr, mid: str, reason: str, short: str = "") -> dict:
+    """A measure that couldn't be measured, with the reason (short: a few words for the row; else nothing, since a
+    dash there said nothing and the reason is in the row and the Not measured list)."""
+    return {**_metric(tr, mid, "not_measured", reason), "display": short}
 
 
 # ---------------- sections ----------------
@@ -169,7 +242,8 @@ def _pairing(tr: Tr, pr: Optional[dict]) -> list[dict]:
         msg += " " + tr("r.pair.cut")
     level = "good" if cov >= COVERAGE_PCT[0] else "check" if cov >= COVERAGE_PCT[1] else "poor"
     rows.append(_metric(tr, "coverage", level, msg, cov, tr("r.pair.disp_coverage", pct=f"{cov:.0f}"),
-                        tr("r.g.coverage", good=f"{COVERAGE_PCT[0]:.0f}", check=f"{COVERAGE_PCT[1]:.0f}")))
+                        tr("r.g.coverage", good=f"{COVERAGE_PCT[0]:.0f}", check=f"{COVERAGE_PCT[1]:.0f}"),
+                        points=_scale(cov, *COVERAGE_PCT)))
     return rows
 
 
@@ -189,12 +263,14 @@ def _sound_sync(tr: Tr, sync: Optional[dict]) -> list[dict]:
     level = sound_sync_level(sync)
     if level is None:
         key = "r.sync.na_short" if sync.get("reason") == "short" else "r.sync.na_shared"
-        return [_na(tr, "sound_sync", tr(key, sec=f"{SYNC_MIN_SEC:g}"))]
+        # a dub that replaces the background, or a clip too short: nothing to measure the sound against (not a gap)
+        return [{**_na(tr, "sound_sync", tr(key, sec=f"{SYNC_MIN_SEC:g}")), "absent": "na"}]
     shift = sync["shift_sec"]
     msg = tr("r.sync.good") if level == "good" else tr("r.sync.late" if shift > 0 else "r.sync.early",
                                                          sec=f"{abs(shift):.1f}")
-    return [_metric(tr, "sound_sync", level, msg, shift, f"{shift:+.2f} s",
-                    tr("r.g.sound_sync", check=f"{SOUND_SYNC_SEC[0]:g}", poor=f"{SOUND_SYNC_SEC[1]:g}"))]
+    return [_metric(tr, "sound_sync", level, msg, shift, tr("r.sec", sec=f"{shift:+.2f}"),
+                    tr("r.g.sound_sync", check=f"{SOUND_SYNC_SEC[0]:g}", poor=f"{SOUND_SYNC_SEC[1]:g}"),
+                    points=_scale(abs(shift), *SOUND_SYNC_SEC))]
 
 
 def _timing_audio(tr: Tr, ac: dict, sr: dict, lang: str, lang_name: str) -> list[dict]:
@@ -210,8 +286,10 @@ def _timing_audio(tr: Tr, ac: dict, sr: dict, lang: str, lang_name: str) -> list
         else:
             way = "longer" if diff > 0 else "shorter"
             msg = tr(f"r.length.{way}_{'ok' if level == 'good' else 'bad'}", diff=f"{abs(diff):.1f}", pct=f"{pct:.1f}")
-        rows.append(_metric(tr, "length_match", level, msg, round(pct, 1), f"{diff:+.2f} s ({pct:.1f}%)",
-                            tr("r.g.length", good=f"{LENGTH_PCT[0]:g}", check=f"{LENGTH_PCT[1]:g}")))
+        rows.append(_metric(tr, "length_match", level, msg, round(pct, 1),
+                            tr("r.sec_pct", sec=f"{diff:+.2f}", pct=f"{pct:.1f}"),
+                            tr("r.g.length", good=f"{LENGTH_PCT[0]:g}", check=f"{LENGTH_PCT[1]:g}"),
+                            points=_scale(pct, *LENGTH_PCT)))
     else:
         rows.append(_na(tr, "length_match", tr("r.length.na")))
 
@@ -225,7 +303,8 @@ def _timing_audio(tr: Tr, ac: dict, sr: dict, lang: str, lang_name: str) -> list
             way = "louder" if db > 0 else "quieter"
             msg = tr(f"r.loud.{way}_{'ok' if level == 'good' else 'bad'}", db=f"{abs(db):.1f}")
         rows.append(_metric(tr, "loudness_match", level, msg, db, f"{db:+.1f} dB",
-                            tr("r.g.loudness", good=f"{LOUDNESS_DB[0]:g}", check=f"{LOUDNESS_DB[1]:g}")))
+                            tr("r.g.loudness", good=f"{LOUDNESS_DB[0]:g}", check=f"{LOUDNESS_DB[1]:g}"),
+                            points=_scale(abs(db), *LOUDNESS_DB)))
     else:
         rows.append(_na(tr, "loudness_match", tr("r.loud.na")))
 
@@ -234,21 +313,23 @@ def _timing_audio(tr: Tr, ac: dict, sr: dict, lang: str, lang_name: str) -> list
     before, after = f"{ac['original_silence_ratio']:.1%}", f"{ac['dubbed_silence_ratio']:.1%}"
     msg = (tr("r.silence.ok", orig=before, dub=after) if level == "good"
            else tr("r.silence.bad", pts=f"{extra:.0f}", orig=before, dub=after))
-    rows.append(_metric(tr, "silence", level, msg, round(extra, 1), f"{before} → {after}",
-                        tr("r.g.silence", good=f"{SILENCE_PTS[0]:g}", check=f"{SILENCE_PTS[1]:g}")))
+    rows.append(_metric(tr, "silence", level, msg, round(extra, 1), tr("r.silence.display", dub=after, orig=before),
+                        tr("r.g.silence", good=f"{SILENCE_PTS[0]:g}", check=f"{SILENCE_PTS[1]:g}"),
+                        points=_scale(max(0.0, extra), *SILENCE_PTS)))
 
     clip = ac.get("dubbed_clipping_pct")
     if clip is not None:
         level = _band_max(clip, CLIPPING_PCT)
         msg = tr("r.clip.ok") if level == "good" else tr("r.clip.bad", pct=f"{clip:.2f}")
-        rows.append(_metric(tr, "clipping", level, msg, clip, f"{clip:.3f}%",
-                            tr("r.g.clipping", good=f"{CLIPPING_PCT[0]:g}", check=f"{CLIPPING_PCT[1]:g}")))
+        rows.append(_metric(tr, "clipping", level, msg, clip, tr("r.clip.none") if clip == 0 else f"{clip:.3f}%",
+                            tr("r.g.clipping", good=f"{CLIPPING_PCT[0]:g}", check=f"{CLIPPING_PCT[1]:g}"),
+                            points=_scale(clip, *CLIPPING_PCT)))
 
     if ac.get("noise_envelope") is not None:
         from dubeval.intervals import NOISE_FLOOR_RISE_DB, NOISE_MIN_SEC, noise_moments
         found = len(noise_moments(ac))
         rows.append(_metric(tr, "noise", "check" if found else "good", _pl(tr, "r.noise.check", found) if found else tr("r.noise.ok"),
-                            found, tr("r.noise.display", n=found), tr("r.g.noise", rise=f"{NOISE_FLOOR_RISE_DB:g}", sec=f"{NOISE_MIN_SEC:g}")))
+                            found, _pl(tr, "r.noise.display", found), tr("r.g.noise", rise=f"{NOISE_FLOOR_RISE_DB:g}", sec=f"{NOISE_MIN_SEC:g}")))
 
     rows.append(_pace(tr, sr.get("dubbed_speech_rate"), lang, lang_name))
     return rows
@@ -265,7 +346,8 @@ def _pace(tr: Tr, rate: Optional[dict], lang: str, lang_name: str) -> dict:
         return _na(tr, "speech_rate", tr("r.pace.no_rule", lang=lang_name or lang or "?", rate=shown))
     level = _band_max(rate["value"], bands)
     return _metric(tr, "speech_rate", level, tr(f"r.pace.{level}", rate=shown), rate["value"], shown,
-                   tr("r.g.pace", good=f"{bands[0]:g}", check=f"{bands[1]:g}", unit=unit))
+                   tr("r.g.pace", good=f"{bands[0]:g}", check=f"{bands[1]:g}", unit=unit),
+                   points=_scale(rate["value"], *bands))
 
 
 def _voice(tr: Tr, vq: Optional[dict]) -> dict:
@@ -282,13 +364,15 @@ def _voice(tr: Tr, vq: Optional[dict]) -> dict:
     levels = voice_window_levels(vq)
     level = "poor" if "poor" in levels else "check" if "check" in levels else "good"
     flagged = sum(1 for lv in levels if lv != "good")
-    shown = f"{dub:.1f} / {orig:.1f}" + (f" · {flagged}/{len(levels)}" if flagged else "")
+    shown = tr("r.vq.display", dub=f"{dub:.1f}", orig=f"{orig:.1f}", scale=vq.get("scale") or 5) \
+        + (f" · {flagged}/{len(levels)}" if flagged else "")
     msg = tr("r.vq.good", dub=f"{dub:.1f}", orig=f"{orig:.1f}", scale=vq.get("scale") or 5) if level == "good" else \
         _pl(tr, f"r.vq.{level}", flagged, total=len(levels))
     graded = tr("r.g.vq_pq", drop=f"{VOICE_PQ_DROP[0]:g}", poor=f"{VOICE_PQ_DROP[1]:g}", second=f"{VOICE_CE_DROP:g}") \
         if audiobox else tr("r.g.vq", sig=f"{VOICE_SIG_DROP[0]:g}", ovr=f"{VOICE_OVRL_DROP[0]:g}",
                             sig_poor=f"{VOICE_SIG_DROP[1]:g}", ovr_poor=f"{VOICE_OVRL_DROP[1]:g}", floor=f"{VOICE_FLOOR:g}")
-    return _metric(tr, "voice_quality", level, msg, diff, shown, graded)
+    return _metric(tr, "voice_quality", level, msg, diff, shown, graded,
+                   points=_share_ok(len(levels) - flagged, len(levels)))
 
 
 def _similarity(tr: Tr, vs: Optional[dict]) -> dict:
@@ -298,7 +382,10 @@ def _similarity(tr: Tr, vs: Optional[dict]) -> dict:
     if not vs:
         return _na(tr, "voice_similarity", tr("r.vq.old"))
     if not vs.get("measured"):
-        return _na(tr, "voice_similarity", tr(vs.get("reason_key") or "r.vs.error"))
+        row = _na(tr, "voice_similarity", tr(vs.get("reason_key") or "r.vs.error"))
+        if vs.get("reason_key") in ("r.vs.not_compared_human", "r.vs.not_compared_stock"):
+            row["absent"] = "na"          # another voice on purpose: the check isn't part of this dub's job
+        return row
     med, n, own = vs["median"], len(vs["lines"]), vs.get("original_self")
     pc = lambda x: f"{max(0.0, x) * 100:.0f}%"
     say = {"sim": pc(med), "n": n, "same": pc(VOICE_SAME), "strangers": pc(VOICE_STRANGERS)}
@@ -308,7 +395,8 @@ def _similarity(tr: Tr, vs: Optional[dict]) -> dict:
         return _metric(tr, "voice_similarity", "good", tr("r.vs.good", **say), med, tr("r.vs.display", **say), graded)
     if own is not None and own < VOICE_KNOWN:
         # the model can't match this video's own speakers with themselves, so a low number says nothing about the dub
-        return _na(tr, "voice_similarity", tr("r.vs.unsure", own=pc(own), known=pc(VOICE_KNOWN), **say))
+        return _na(tr, "voice_similarity", tr("r.vs.unsure", own=pc(own), known=pc(VOICE_KNOWN), **say),
+                   tr("r.vs.cant_tell"))
     kind = "different" if med < VOICE_DIFFERENT else "partly"
     known = tr("r.vs.known", own=pc(own)) if own is not None else ""     # results saved before original_self
     return _metric(tr, "voice_similarity", "check", (tr(f"r.vs.{kind}", **say) + " " + known).strip(), med,
@@ -332,16 +420,15 @@ def _speech(tr: Tr, sr: dict, lang: str, lang_name: str, vq: Optional[dict] = No
         if detected == expected:
             level = "good" if (prob or 0) >= LANGUAGE_PROB else "check"
             msg = tr(f"r.lang.{level}", lang=lang_name, prob=sure)
-            shown = tr("r.lang.display", lang=lang_name, prob=sure)
+            shown = tr("r.lang.display", lang=_cap(lang_name), prob=sure)
         else:
-            level, msg = "poor", tr("r.lang.poor", lang=lang_name, detected=detected)
-            shown = tr("r.lang.display", lang=detected, prob=sure)
+            level, msg = "poor", tr("r.lang.poor", lang=lang_name, detected=_lname(tr, detected))
+            shown = tr("r.lang.display", lang=_lname(tr, detected, start=True), prob=sure)
         graded = tr("r.g.language", prob=f"{LANGUAGE_PROB:.0%}")
         if subs_match is not None and level != "good":
-            from dubeval.intervals import _language_name
             match = f"{subs_match:.0%}"
-            level, msg = "good", tr("r.lang.subs", lang=lang_name, match=match, detected=_language_name(detected))
-            shown = tr("r.lang.subs_display", lang=lang_name, match=match)
+            level, msg = "good", tr("r.lang.subs", lang=lang_name, match=match, detected=_lname(tr, detected))
+            shown = tr("r.lang.subs_display", lang=_cap(lang_name), match=match)
         if subs_match is not None:
             graded = tr("r.g.language_subs", prob=f"{LANGUAGE_PROB:.0%}", match=f"{SUBTITLE_MATCH:.0%}")
         rows.append(_metric(tr, "language", level, msg, detected, shown, graded))
@@ -355,20 +442,22 @@ def _speech(tr: Tr, sr: dict, lang: str, lang_name: str, vq: Optional[dict] = No
         n = len(clarity.get("unclear_segments", []))
         msg = tr(f"r.clarity.{level}", pct=f"{pct:.0f}%", unclear=f"{100 - pct:.0f}%", n=n)
         rows.append(_metric(tr, "clarity", level, msg, pct, tr("r.clarity.display", pct=f"{pct:.0f}%"),
-                            tr("r.g.clarity", good=f"{CLARITY_PCT[0]:g}", check=f"{CLARITY_PCT[1]:g}")))
+                            tr("r.g.clarity", good=f"{CLARITY_PCT[0]:g}", check=f"{CLARITY_PCT[1]:g}"),
+                            points=_scale(pct, *CLARITY_PCT)))
 
     rows.append(_voice(tr, vq))
     rows.append(_similarity(tr, vs))
     if sr.get("accuracy_pct") is not None:
         acc = sr["accuracy_pct"]
         rows.append(_metric(tr, "script_accuracy", _band_min(acc, SCRIPT_PCT), tr("r.script", acc=f"{acc:.0f}%"),
-                            acc, f"{acc:.0f}%", tr("r.g.script", good=f"{SCRIPT_PCT[0]:g}", check=f"{SCRIPT_PCT[1]:g}")))
+                            acc, f"{acc:.0f}%", tr("r.g.script", good=f"{SCRIPT_PCT[0]:g}", check=f"{SCRIPT_PCT[1]:g}"),
+                            points=_scale(acc, *SCRIPT_PCT)))
     return rows
 
 
 # Measures that read the dub's recognized speech: not graded when that speech can't be trusted.
 SPEECH_DEPENDENT = ("clarity", "speech_overlap", "speech_offsets", "line_length", "line_overrun", "speech_rate",
-                    "meaning_screen", "meaning", "completeness", "names_numbers", "mistranslations",
+                    "meaning", "completeness", "names_numbers", "mistranslations",
                     "translation_check", "numbers")
 
 
@@ -412,8 +501,7 @@ def _apply_speech_problem(tr: Tr, sections: list[dict], problem: Optional[dict],
     if not problem:
         return
     if problem["kind"] == "unrecognized":
-        from dubeval.intervals import _language_name
-        detected = _language_name(problem["detected"])
+        detected = _lname(tr, problem["detected"])
         reason = tr("r.speech.unreliable", lang=lang_name, detected=detected)
         timing = tr("r.speech.unreliable_timing", lang=lang_name, detected=detected) if silences_checked else reason
         for s in sections:
@@ -428,6 +516,10 @@ def _apply_speech_problem(tr: Tr, sections: list[dict], problem: Optional[dict],
                                        "cause": "unrecognized"}
         return
     side = "dub" if problem["kind"] == "no_dub_speech" else "original"
+    for s in sections:
+        for m in s["metrics"]:
+            if m["level"] == "not_measured" and m["id"] in DUB_SPEECH_CHECKS:
+                m["absent"] = "dub" if side == "dub" else "na"
     speech = next((s for s in sections if s["id"] == "speech"), None)
     if speech is not None:
         level = "poor" if side == "dub" else "check"       # no voice in the dub: nothing was dubbed
@@ -441,15 +533,24 @@ def _alignment(tr: Tr, ta: dict) -> list[dict]:
     if ov is None:
         return [_na(tr, "speech_overlap", tr("r.align.na"))]
     level = _band_min(ov, OVERLAP_PCT)
-    n = len(ta.get("mismatches", []))
-    msg = tr(f"r.align.{level}", ov=f"{ov:.0f}%") + (" " + _pl(tr, "r.align.spots", n) if n else "")
+    from dubeval.intervals import LONG_SILENCE_SEC, listed_mismatches
+    listed = listed_mismatches(ta)           # the moments it lists; shorter ones aren't (word timings move that much)
+    if level == "good":                      # a row that passed lists only its long silences (report._drop_passed)
+        listed = [m for m in listed if m["kind"] == "original_only" and m["end"] - m["start"] >= LONG_SILENCE_SEC[0]]
+    n = len(listed)
+    # Needs review with nothing listed: say why the timeline shows none, or the reader looks for moments that aren't there
+    more = _pl(tr, "r.align.spots", n) if n else tr("r.align.no_spots") if level != "good" else ""
+    msg = tr(f"r.align.{level}", ov=f"{ov:.0f}%") + (" " + more if more else "")
     rows = [_metric(tr, "speech_overlap", level, msg, ov, tr("r.align.display", ov=f"{ov:.0f}%"),
-                    tr("r.g.align", good=f"{OVERLAP_PCT[0]:g}", check=f"{OVERLAP_PCT[1]:g}"))]
+                    tr("r.g.align", good=f"{OVERLAP_PCT[0]:g}", check=f"{OVERLAP_PCT[1]:g}"),
+                    points=_scale(ov, *OVERLAP_PCT))]
     so, eo = ta.get("start_offset_sec"), ta.get("end_offset_sec")
     if so is not None and eo is not None:
         msg = tr("r.offsets", start=f"{abs(so):.1f}", start_way=tr("r.later" if so >= 0 else "r.earlier"),
                  end=f"{abs(eo):.1f}", end_way=tr("r.later" if eo >= 0 else "r.earlier"))
-        rows.append(_metric(tr, "speech_offsets", "info", msg, so, f"{so:+.1f} s / {eo:+.1f} s"))
+        way = lambda x: tr("r.offset.same") if abs(x) < 0.05 else \
+            tr("r.offset.late" if x > 0 else "r.offset.early", sec=f"{abs(x):.1f}")
+        rows.append(_metric(tr, "speech_offsets", "info", msg, so, tr("r.offsets.display", start=way(so), end=way(eo))))
     return rows
 
 
@@ -472,7 +573,7 @@ def _line_fit(tr: Tr, sa: Optional[dict]) -> list[dict]:
     graded = tr("r.g.line_length", min=f"{LINE_MIN_SEC:g}", band=f"{LINE_BAND_PCT:g}", diff=f"{LINE_MIN_DIFF_SEC:g}",
                 good=f"{LINE_FIT_SHARE[0]:g}", check=f"{LINE_FIT_SHARE[1]:g}", count=LINE_POOR_MIN)
     if not lines:
-        return [_na(tr, "line_length", tr("r.line.na", min=f"{LINE_MIN_SEC:g}"))]
+        return [{**_na(tr, "line_length", tr("r.line.na", min=f"{LINE_MIN_SEC:g}")), "absent": "na"}]   # no line to grade
     long_ = sum(1 for ln in lines if line_off(ln) and ln["diff_pct"] > 0)
     short = sum(1 for ln in lines if line_off(ln) and ln["diff_pct"] < 0)
     n, bad = len(lines), long_ + short
@@ -482,7 +583,8 @@ def _line_fit(tr: Tr, sa: Optional[dict]) -> list[dict]:
         level = "check"
     msg = tr("r.line.good" if not bad else "r.line.bad", ok=n - bad, n=n, bad=bad, long=long_, short=short,
              band=f"{LINE_BAND_PCT:g}")
-    rows = [_metric(tr, "line_length", level, msg, round(share, 1), tr("r.line.display", ok=n - bad, n=n), graded)]
+    rows = [_metric(tr, "line_length", level, msg, round(share, 1), tr("r.line.display", ok=n - bad, n=n), graded,
+                    points=_scale(share, *LINE_FIT_SHARE))]
     all_lines = sa.get("lines") or []
     over = [ln for ln in all_lines if ln["overrun_sec"] > 0]
     o_share = len(over) / len(all_lines) * 100 if all_lines else 0.0
@@ -491,7 +593,7 @@ def _line_fit(tr: Tr, sa: Optional[dict]) -> list[dict]:
                         tr("r.overrun.none") if not over else _pl(tr, "r.overrun.some", len(over)),
                         len(over), _pl(tr, "r.overrun.display", len(over)),
                         tr("r.g.line_overrun", sec=f"{LINE_OVERRUN_SEC:g}", share=f"{LINE_OVERRUN_SHARE:g}",
-                           count=LINE_POOR_MIN)))
+                           count=LINE_POOR_MIN), points=_scale(o_share, 0.0, LINE_OVERRUN_SHARE)))
     return rows
 
 
@@ -503,29 +605,6 @@ def judge_reason(tr: Tr, tj: Optional[dict]) -> str:
     return tj.get("reason") or tr("r.judge.off")
 
 
-def screen_low_lines(ms: Optional[dict]) -> list[dict]:
-    """The lines the offline meaning screen found below SCREEN_LOW."""
-    return [ln for ln in (ms or {}).get("lines") or [] if ln["similarity"] < SCREEN_LOW] if (ms or {}).get("measured") else []
-
-
-def _meaning_screen(tr: Tr, ms: Optional[dict]) -> list[dict]:
-    """The offline line-by-line meaning comparison, shown when no translation check ran: Good or Check, never Poor.
-    (When a check ran it reads each line more precisely, and most of the planted-copy false alarms came from the
-    screen, docs/validation.md: the screen then has no row.)"""
-    if ms is None:
-        return []                                         # results from before the screen existed
-    graded = tr("r.g.meaning_screen", min=f"{SCREEN_LOW:g}")
-    if not ms.get("measured"):
-        return [_metric(tr, "meaning_screen", "not_measured", tr(ms.get("reason_key") or "r.screen.error"), None, "",
-                        graded)]
-    n, low = len(ms["lines"]), len(screen_low_lines(ms))
-    median = f"{ms['median']:.2f}"
-    msg = tr("r.screen.good", median=median) if not low else tr("r.screen.low", low=low, n=n, min=f"{SCREEN_LOW:g}")
-    level = "check" if low else "good"
-    return [_metric(tr, "meaning_screen", level, msg, ms["median"],
-                    tr("r.screen.display", low=low, n=n, median=median), graded)]
-
-
 def _numbers(tr: Tr, nc: Optional[dict]) -> list[dict]:
     """The numbers each dub line says against its original line (dubeval/numbers.py): Good or Check, never Poor
     (speech recognition can mishear a number). No row when neither side says a number."""
@@ -533,8 +612,10 @@ def _numbers(tr: Tr, nc: Optional[dict]) -> list[dict]:
                   and nc.get("reason_key") != "r.num.unrecognized"):
         return []                                         # results from before the check, or no numbers at all
     graded = tr("r.g.numbers")
-    if not nc.get("measured"):
-        return [_metric(tr, "numbers", "not_measured", tr(nc.get("reason_key") or "r.num.words"), None, "", graded)]
+    if nc.get("reason_key") == "r.num.unrecognized":
+        return [_metric(tr, "numbers", "not_measured", tr("r.num.unrecognized"), None, "", graded)]
+    if not nc.get("measured"):        # numbers said as words on one side: information, not a check that failed to run
+        return [_metric(tr, "numbers", "info", tr("r.num.words"), None, tr("r.num.words_display"), graded)]
     changed, n = len(nc["lines"]), nc["compared"]
     msg = _pl(tr, "r.num.good", n) if not changed else _pl(tr, "r.num.check", changed, total=n)
     return [_metric(tr, "numbers", "check" if changed else "good", msg, changed,
@@ -595,16 +676,20 @@ def _rubric(tr: Tr, tj: dict, lang: str) -> list[dict]:
         else tr("r.tr.display_ok", avg=meaning["value"])
     graded = tr("r.g.translation", poor=RUBRIC_POOR, flag=RUBRIC_FLAG, count=RUBRIC_POOR_LINES, model=tj["model"]) \
         + (" " + tr("r.g.second_listen") if listened.get("measured") else "")
-    row = _metric(tr, "translation_check", level, " ".join(x for x in msg if x), meaning["value"], shown, graded)
+    row = _metric(tr, "translation_check", level, " ".join(x for x in msg if x), meaning["value"], shown, graded,
+                  points=_share_ok(sum(1 for j in lines if worst(j) > RUBRIC_FLAG), len(lines)))
     return [{**row, "parts": parts}]
 
 
-def _translation(tr: Tr, tj: Optional[dict], lang: str, ms: Optional[dict] = None) -> list[dict]:
+def _translation(tr: Tr, tj: Optional[dict], lang: str, had_screen: bool = False) -> list[dict]:
     """The translation check's row (results saved before the rubric show meaning, completeness, names and numbers, and
-    mistranslations), or, when no check ran, the reason and the offline screen in its place. The screen has no row
-    when a check ran: it was information only there, and a row that decides nothing hid the ones that do."""
+    mistranslations), or, when no check ran, the reason. (The offline meaning screen that once stood in was removed on
+    2026-11-20: it found 6 of the 25 lines Gemini scored low, docs/validation.md.) had_screen: the results were saved
+    with that screen, whose row and moments are no longer shown; the row says so, or reopening an old evaluation would
+    look as if its flagged lines had been fixed."""
     if not tj or not tj.get("measured"):
-        return [_na(tr, "translation_check", judge_reason(tr, tj))] + _meaning_screen(tr, ms)
+        reason = judge_reason(tr, tj) + (" " + tr("r.tr.screen_removed") if had_screen else "")
+        return [_na(tr, "translation_check", reason)]
     if tj.get("rubric"):
         return _rubric(tr, tj, lang)
     score = tj["meaning_score"]
@@ -662,8 +747,9 @@ def _lip_sync(tr: Tr, sync: dict) -> list[dict]:
     good, poor = LIP_SYNC_PCT
     graded = tr("r.g.lip_sync", n=MAX_MOMENTS, sec=f"{MATCH_FRAMES / FPS:.2f}", good=good, poor=poor)
     if not sync.get("measured"):
-        return [_metric(tr, "lip_sync", "not_measured", tr(sync["reason_key"], **sync.get("reason_params", {})),
-                        graded=graded)]
+        # too few faces to check, or an original whose own lips don't line up (narrated, recut): nothing to compare
+        return [{**_metric(tr, "lip_sync", "not_measured", tr(sync["reason_key"], **sync.get("reason_params", {})),
+                           graded=graded), "absent": "na"}]
     n, dub, orig = sync["moments"], sync["dub_match"], sync["original_match"]
     pct = dub / n * 100 if n else sync["dub_match_pct"]          # from the counts: 27 of 30 is exactly 90%
     level = "good" if pct >= good else "poor" if pct <= poor else "check"
@@ -674,7 +760,7 @@ def _lip_sync(tr: Tr, sync: dict) -> list[dict]:
     elif level != "good":
         msg += " " + tr(f"r.sync_lips.{level}_hint")
     return [_metric(tr, "lip_sync", level, msg, sync["dub_match_pct"], tr("r.sync_lips.display", dub=dub, orig=orig, n=n),
-                    graded)]
+                    graded, points=_scale(pct, good, poor))]
 
 
 def _lipsync(tr: Tr, ls: dict, is_lipsync: Optional[bool]) -> list[dict]:
@@ -685,12 +771,14 @@ def _lipsync(tr: Tr, ls: dict, is_lipsync: Optional[bool]) -> list[dict]:
     if ls.get("sync"):
         return _lip_sync(tr, ls["sync"])
     if ls.get("reason_key") == "r.lips.no_download":
-        why = tr("r.lips.no_download")
+        key = "no_download"
     elif ls.get("measured") and ("valid" in ls or "pearson_correlation" in ls):
-        why = tr("r.lips.estimate_removed")               # saved when the estimate still ran
+        key = "estimate_removed"               # saved when the estimate still ran
     else:
-        why = tr("r.lips.not_lipsynced") if is_lipsync is False else tr("r.lips.skipped")
-    return [{**_na(tr, "lip_sync", why), "off": True}]
+        key = "not_lipsynced" if is_lipsync is False else "skipped"
+    return [{**_na(tr, "lip_sync", tr(f"r.lips.{key}"), tr(f"r.lips.short.{key}")), "off": True,
+             # a dub without re-drawn lips has no lip sync to check; the check being off or not downloaded is a gap
+             "absent": "na" if key == "not_lipsynced" else "missing"}]
 
 
 # ---------------- things to check ----------------
@@ -702,6 +790,15 @@ def _cap_moments(intervals: list[dict], metrics: list[dict]) -> None:
     for iv in intervals:
         if iv["severity"] == "poor" and level.get(_row_of(iv["check"], level)) != "poor":
             iv["severity"] = "check"
+
+
+def _drop_passed(intervals: list[dict], metrics: list[dict]) -> list[dict]:
+    """The moments of a check that passed are left out (LISTED_WHEN_PASSED apart): a Good speech-timing row (82% lined
+    up) listed two "Needs review · Speech timing" moments, and a row that allows some lines off listed the one it
+    allowed. 9 of 73 findings on the 20 test dubs: 8 short timing mismatches and a 0.1 s distortion."""
+    level = {m["id"]: m["level"] for m in metrics}
+    return [iv for iv in intervals if iv["category"] in LISTED_WHEN_PASSED
+            or level.get(_row_of(iv["check"], level)) != "good"]
 
 
 def _row_of(check: str, rows) -> str:
@@ -862,16 +959,14 @@ def _weak_recognition(r: dict) -> list[dict]:
 
 def _apply_little_speech(tr: Tr, sections: list[dict], unsure: list[dict], judged: bool = False) -> None:
     """Rewrites the rows that read recognized words line by line on a mostly-music video, where those words move with any
-    change in the sound. Known-problem test: 7 of 12 line-length and 5 of 19 meaning-similarity false alarms were on the
-    one such dub. judged: the translation check ran, so meaning similarity is information only and stays."""
+    change in the sound. Known-problem test: 7 of 12 line-length false alarms were on the one such dub."""
     music = next((u for u in unsure if u["kind"] == "little_speech"), None)
     if not music:
         return
     keys = {"line_length": "r.line.music", "line_overrun": "r.line.music"}
-    if not judged:
-        keys["meaning_screen"] = "r.screen.music"
     for s in sections:
-        s["metrics"] = [{**_na(tr, m["id"], tr(keys[m["id"]], pct=music["pct"])), "not_graded": True, "cause": "little_speech"}
+        s["metrics"] = [{**_na(tr, m["id"], tr(keys[m["id"]], pct=music["pct"])), "not_graded": True, "cause": "little_speech",
+                        "absent": "na"}
                         if m["id"] in keys and m["level"] != "not_measured" else m for m in s["metrics"]]
 
 
@@ -910,15 +1005,219 @@ def _named(tr: Tr, rows: list[dict], intervals: list[dict]) -> str:
         seconds, first = flagged.get(mid, (0.0, iv["start"]))
         flagged[mid] = (seconds + iv["end"] - iv["start"], min(first, iv["start"]))
     ranked = sorted(rows, key=lambda m: -flagged.get(m["id"], (0.0, 0.0))[0])       # stable: ties keep the report's order
-    names = [tr("r.headline.from", label=m["label"], time=_short_time(flagged[m["id"]][1])) if m["id"] in flagged
+    names = [tr("r.headline.from", label=m["label"], time=fmt_time(flagged[m["id"]][1])) if m["id"] in flagged
              else m["label"] for m in ranked[:HEADLINE_NAMES]]
     more = len(ranked) - len(names)
     return ", ".join(names) + (" " + tr("r.headline.more", n=more) if more else "")
 
 
-def _short_time(sec: float) -> str:
-    """A moment as m:ss, as the review screen's list shows it."""
-    return f"{int(sec // 60)}:{int(sec % 60):02d}"
+def _absent(m: dict) -> Optional[str]:
+    """Why a check has no level, for the score: "na" (doesn't apply to this dub), "dub" (the dub itself made it
+    impossible to measure) or "missing" (anything else: a tool, a setting or a download was missing, the speech couldn't
+    be recognized). None for a graded check."""
+    if m["level"] in LEVELS:
+        return None
+    return m.get("absent") or "missing"
+
+
+def _score(tr: Tr, sections: list[dict], level: str) -> dict:
+    """The quality score out of 100 and how each section adds to it (SCORE_WEIGHTS, SCORE_POINTS, POOR_COST, the kinds of
+    not measured in _absent): value is None when no weighted section has a counted check. Each section and counted check
+    also gets its share of the score (section["score"], metric["score_share"]) so a page can show it where the check is."""
+    by_id = {s["id"]: s for s in sections}
+    parts, exact = [], {}
+    missing_required, not_measured = [], []            # the translation check not run; checks that couldn't be measured
+    applicable_w = measured_w = 0.0
+    for sid, weight in sorted(SCORE_WEIGHTS.items(), key=lambda kv: -kv[1]):
+        metrics = (by_id.get(sid) or {}).get("metrics", [])
+        rows = [m for m in metrics if m["level"] in LEVELS or (m["level"] == "not_measured" and m["id"] not in INFO_ONLY)]
+        applies = [m for m in rows if _absent(m) != "na"]
+        counted = [m for m in applies if _absent(m) in (None, "dub")]     # graded, or 0 because of the dub
+        need = SCORE_REQUIRES.get(sid)
+        req = [m for m in rows if need and m["id"] in need]
+        ready = need is None or any(_absent(m) in (None, "dub") for m in req)
+        doesnt_apply = not applies or (need is not None and req and all(_absent(m) == "na" for m in req))
+        if doesnt_apply:
+            counted, ready = [], True
+        elif not ready:
+            missing_required.append({"section": sid, "check": need[0], "weight": weight})
+            counted = []
+        if not doesnt_apply:
+            applicable_w += weight
+            measured_w += weight * len(counted) / len(applies) if counted else 0.0
+            not_measured += [m for m in applies if m not in counted] if counted else []
+        exact[sid] = sum(0.0 if _absent(m) == "dub" else _check_points(m) for m in counted) / len(counted) \
+            if counted else None
+        parts.append({"id": sid, "label": tr(f"rsec.{sid}"), "weight": weight, "checks": len(counted),
+                      "points": round(exact[sid], 1) if counted else None, "counted": ready, "applies": not doesnt_apply})
+    used = sum(p["weight"] for p in parts if p["points"] is not None)
+    lost, costs = [], 0.0                     # costs: what Poor results cost beyond their share (POOR_COSTS)
+    for p in parts:
+        measured = p["points"] is not None and used
+        p["share"] = round(100 * p["weight"] / used, 1) if measured else None       # its weight among what was measured
+        p["contribution"] = round(p["weight"] * exact[p["id"]] / used, 1) if measured else None
+        if measured:
+            p["display"] = tr("r.score.section", share=_pts(p["share"]), got=_pts(p["contribution"]))
+            p["of_display"] = tr("r.score.of", share=_pts(p["share"]), got=_pts(p["contribution"]))  # under the heading
+        elif not p["counted"]:
+            p["display"] = tr("r.score.part_needs", check=tr(f"r.m.{SCORE_REQUIRES[p['id']][0]}"))
+        elif not p["applies"]:
+            p["display"] = tr("r.score.part_doesnt_apply")
+        else:
+            p["display"] = tr("r.score.part_na")     # where its weight went is in the message
+        section = by_id.get(p["id"])
+        if section is not None:
+            section["score"] = {"weight": p["weight"], "share": p["share"], "points": p["points"],
+                                "display": p["display"]}
+        rows = [m for m in (section or {}).get("metrics", [])
+                if m["level"] in LEVELS or (m["level"] == "not_measured" and m["id"] not in INFO_ONLY)]
+        each = 100 * p["weight"] / used / p["checks"] if measured and p["checks"] else None     # exact, not rounded
+        p["items"] = []
+        for m in rows:
+            kind = _absent(m)
+            share = round(each, 1) if each is not None and kind in (None, "dub") else None
+            own = (0.0 if kind == "dub" else _check_points(m)) if share is not None else None
+            exact_got = each * own / 100 if share is not None else None
+            got = round(exact_got, 1) if share is not None else None
+            out = m["level"] in LEVELS and not p["counted"]
+            # from the exact points, not the rounded ones: the list then adds up to 100 minus the score (11.2 once
+            # stood over an 89.0)
+            loss = round(each - exact_got, 1) if share is not None else 0.0
+            poor_cost = m["level"] == "poor" and share is not None and level == "poor"
+            cost, severity = _poor_cost(m["id"])
+            if m["level"] == "poor" and share is not None and each < cost and level == "poor":
+                costs += cost - each
+                loss = float(cost)
+            detail = tr("r.score.item", share=f"{share:g}", got=f"{got:g}") if share is not None else None
+            p["items"].append({"id": m["id"], "label": m["label"], "level": m["level"], "share": share, "points": got,
+                               "absent": kind, "detail": detail,    # the share alone, for a page with the level as a badge
+                               "display": f"{tr('badge.' + m['level'])} · {detail}" if detail and kind is None
+                               else tr("r.score.item_zero") if kind == "dub"
+                               else tr("r.score.item_out") if out
+                               else tr("r.score.item_doesnt_apply") if kind == "na" else tr("r.score.item_na")})
+            m["score_share"] = share
+            m["score_points"] = own                                   # its own points out of 100, as counted
+            # On the row only when it lost some: "2.6 of 2.6" on every Good row hid the few that lost points.
+            m["score_display"] = (tr("r.score.lost", lost=_pts(loss)) if poor_cost
+                                  else tr("r.score.share", share=_pts(share), got=_pts(got)) if share is not None and loss > 0
+                                  else tr("r.score.item_out") if out else None)
+            if share is not None and loss > 0:
+                why = (_why_poor(tr, m, cost, severity) if poor_cost
+                       # Poor in a Needs review verdict (DubEval unsure of it): only its share, and the line says why
+                       else tr("r.score.why_poor_unsure", result=m.get("display") or "") if m["level"] == "poor"
+                       else tr("r.score.why_zero") if kind == "dub" else m.get("display") or "")
+                lost.append({"id": m["id"], "label": m["label"], "level": m["level"], "lost": loss, "why": why,
+                             "severity": severity if poor_cost else None,
+                             "display": tr("r.score.lost", lost=_pts(loss))})
+    for section in sections:                  # the video file and any other unweighted section: not in the sum
+        if section["id"] not in SCORE_WEIGHTS and any(m["level"] in LEVELS for m in section["metrics"]):
+            section["score"] = {"weight": 0, "share": None, "points": None, "display": tr("r.score.section_out")}
+            for m in section["metrics"]:      # ...but a Poor result there (a broken file) still costs its share
+                if m["level"] == "poor" and level == "poor":
+                    cost, severity = _poor_cost(m["id"])
+                    costs += cost
+                    m["score_display"] = tr("r.score.lost", lost=_pts(cost))
+                    lost.append({"id": m["id"], "label": m["label"], "level": "poor", "lost": float(cost),
+                                 "severity": severity, "why": _why_poor(tr, m, cost, severity),
+                                 "display": tr("r.score.lost", lost=_pts(cost))})
+    lost.sort(key=lambda x: -x["lost"])
+    rule = _score_rule(tr)
+    coverage = round(100 * measured_w / applicable_w) if applicable_w else None
+    if not used:
+        return {"value": None, "parts": parts, "lost": [], "display": tr("r.score.na"), "message": tr("r.score.na_why"),
+                "rule": rule, "rule_short": _score_rule(tr, short=True), "measured_weight": 0, "coverage": coverage,
+                "provisional": bool(missing_required)}
+    if coverage is not None and coverage < SCORE_MIN_COVERAGE:      # too little to stand for the dub: no number
+        return {"value": None, "parts": parts, "lost": [], "display": tr("r.score.too_little_display"),
+                "message": tr("r.score.too_little", pct=coverage, min=SCORE_MIN_COVERAGE), "rule": rule,
+                "rule_short": _score_rule(tr, short=True), "measured_weight": used, "coverage": coverage,
+                "provisional": True}
+    raw = sum(p["weight"] * exact[p["id"]] for p in parts if p["points"] is not None) / used   # exact, not the rounded parts
+    value = max(0, round(raw - costs))
+    if level != "good":                       # only a dub whose checks are all Good scores 100 (99.6 rounded up once)
+        value = min(value, 99)
+    low = coverage is not None and coverage < COVERAGE_MIN
+    provisional = bool(missing_required) or low
+    total = round(sum(x["lost"] for x in lost), 1)     # the lines as shown, so the heading is their sum
+    left_na = [p for p in parts if not p["applies"]]
+    left_missing = [p for p in parts if p["applies"] and p["counted"] and p["points"] is None]
+    partly = [m["label"] for m in not_measured]          # checks of a measured section that couldn't be measured
+    zero = [m["label"] for p in parts for m in (by_id.get(p["id"]) or {}).get("metrics", [])
+            if p["points"] is not None and _absent(m) == "dub"]
+    message = " ".join(x for x in [
+        *(tr("r.score.provisional", check=tr(f"r.m.{x['check']}"), section=tr(f"rsec.{x['section']}"),
+             weight=x["weight"]) for x in missing_required),
+        # one "provisional" is enough: the missing translation check already says it (and its 30 points are the gap)
+        tr("r.score.provisional_coverage", pct=coverage, min=COVERAGE_MIN) if low and not missing_required else "",
+        _score_left_out(tr, left_missing, "r.score.from"),
+        _score_left_out(tr, left_na, "r.score.na_from"),
+        tr("r.score.coverage", pct=coverage) if coverage is not None and coverage < 100
+        and not (low and not missing_required) else "",
+        _pl(tr, "r.score.also_missing", len(partly), checks=_and(tr, partly)) if partly else "",
+        tr("r.score.dub_zero", checks=_and(tr, zero)) if zero else "",
+        # the sections add up to raw; Poor results cost more than their share, so the score is lower: say by how much
+        tr("r.score.poor_extra", extra=_pts(costs), raw=_pts(raw), score=value) if costs else "",
+        tr("r.score.all") if coverage == 100 and not left_na and not zero else ""] if x)
+    return {"value": value, "raw": round(raw, 1), "poor_cost": round(costs, 1), "coverage": coverage,
+            "provisional": provisional, "measured_weight": used, "parts": parts, "lost": lost,
+            "lost_total": total if lost else 0,
+            # the heading over the list, with the sum done: 100 minus what was lost is the score
+            # "(rounded)" when 100 minus the points lost isn't the score itself (100 − 11.1 = 88.9 → 89)
+            "lost_display": tr("r.score.lost_total" if round(100 - total, 1) == value else "r.score.lost_total_rounded",
+                               lost=_pts(total), score=value) if lost else None,
+            "lost_how": (tr("r.score.lost_how", cost=POOR_COSTS["serious"], critical=POOR_COSTS["unusable"],
+                            minor=POOR_COSTS["minor"]) if costs else tr("r.score.lost_how_check")) if lost else None,
+            "extra_display": tr("r.score.lost", lost=_pts(costs)) if costs else None,   # the table's last row
+            "display": tr("r.score.value_provisional" if provisional else "r.score.value", score=value),
+            "message": message, "rule": rule, "rule_short": _score_rule(tr, short=True)}
+
+
+def _poor_cost(mid: str) -> tuple[int, str]:
+    """What a Poor result of this check costs at the least in a Poor verdict, and its level (POOR_SEVERITY)."""
+    severity = POOR_SEVERITY.get(mid, "serious")
+    return POOR_COSTS[severity], severity
+
+
+def _why_poor(tr: Tr, m: dict, cost: int, severity: str) -> str:
+    """Why a Poor result lost what it did: its result, and how serious it is."""
+    key = {"unusable": "r.score.why_poor_unusable", "minor": "r.score.why_poor_minor"}.get(severity, "r.score.why_poor")
+    return tr(key, result=m.get("display") or "", cost=cost)
+
+
+def _check_points(m: dict) -> float:
+    """A graded check's points out of 100: Good 100, Poor 0, Needs review by where its result sits between the two
+    limits (score_points, from _scale or _share_ok), kept under SCORE_CHECK_MAX; a check with no number gets 50."""
+    if m["level"] != "check" or m.get("score_points") is None:
+        return SCORE_POINTS[m["level"]]
+    return min(float(m["score_points"]), SCORE_CHECK_MAX)
+
+
+def _pts(x: float) -> str:
+    """Score points as every report and the page show them: one decimal, so a column of them lines up (23.0 of 26.3)."""
+    return f"{x:.1f}"
+
+
+def _score_left_out(tr: Tr, left: list[dict], key: str) -> str:
+    """Why the section shares are bigger than their weights: the sections left out (key: "r.score.from" for those that
+    couldn't be checked, "r.score.na_from" for those that don't apply to this dub), and their weight."""
+    if not left:                              # only a section that needs a check was left out: its sentence says so
+        return ""
+    return tr(f"{key}_one" if len(left) == 1 else f"{key}_many",
+              sections=_and(tr, [p["label"] for p in left]), weight=sum(p["weight"] for p in left))   # points
+
+
+def _and(tr: Tr, names: list[str]) -> str:
+    """Names in a sentence: "A", "A and B", "A, B and C" (in the report's language)."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + tr("r.score.and") + names[-1]
+
+
+def _score_rule(tr: Tr, short: bool = False) -> str:
+    """How the score is worked out, with the weights, the Poor cost and the coverage rule (short: one line)."""
+    weights = ", ".join(tr("r.score.weight", section=tr(f"rsec.{sid}"), weight=w)
+                        for sid, w in sorted(SCORE_WEIGHTS.items(), key=lambda kv: -kv[1]))
+    return tr("r.score.rule_short" if short else "r.score.rule", good=SCORE_POINTS["good"], check=SCORE_POINTS["check"],
+              poor=SCORE_POINTS["poor"], weights=weights, cost=POOR_COSTS["serious"], critical=POOR_COSTS["unusable"],
+              minor=POOR_COSTS["minor"], coverage=COVERAGE_MIN, floor=SCORE_MIN_COVERAGE)
 
 
 def _headline(tr: Tr, level: str, metrics: list[dict], intervals: list[dict]) -> str:
@@ -942,18 +1241,29 @@ def build_report(r: dict, lang: str = DEFAULT_UI_LANGUAGE, dub: Optional[str] = 
     tr: Tr = lambda key, **p: i18n_t(key, lang, **p)
     ac, sr = r["acoustic_metrics"], r["speech_recognition"]
     project = _project(r)
-    code = project["target_language_code"] or ""
-    lang_name = project["target_language"] or code
     tj, meta = r.get("translation_judge"), r.get("metadata") or {}
-    if project["evaluated_video"]:
+    code = project["target_language_code"] or ""
+    # language names in the report's language: results keep Whisper's English names ("English → Spanish" in Korean)
+    share = (r.get("pipeline") or {}).get("input") or (r.get("pipeline") or {}).get("share") or {}
+    source_code = share.get("source_language_code") or meta.get("detected_source_language")
+    # (in English the names the results keep stay: a share link's "English (US)" says more than "English")
+    english = tr("r.lang_code") == "en"
+    if code and not (english and project["target_language"]):
+        project["target_language"] = _lname(tr, code, start=True)
+    if source_code and not (english and project["source_language"]):
+        project["source_language"] = _lname(tr, source_code, start=True)
+    lang_name = project["target_language"] if english or not code else _lname(tr, code)
+    if project["evaluated_video"] and project.get("perso_seq"):
         project["evaluated_video"] = tr("r.evaluated." + ("lipsync" if project["is_lipsync"] else "dub"))
+    else:
+        project["evaluated_video"] = None
     sections = ([{"id": "pairing", "metrics": _pairing(tr, r["pairing"])}] if "pairing" in r else []) + [
         {"id": "timing_audio", "metrics": _timing_audio(tr, ac, sr, code, lang_name)},
         {"id": "speech", "metrics": _speech(tr, sr, code, lang_name, r.get("voice_quality"), r.get("voice_similarity"),
                                             subtitles_confirm_language(r))},
         {"id": "alignment", "metrics": _alignment(tr, r.get("timing_alignment") or {})
          + _line_fit(tr, r.get("segment_alignment"))},
-        {"id": "translation", "metrics": _translation(tr, tj, lang, r.get("meaning_screen"))
+        {"id": "translation", "metrics": _translation(tr, tj, lang, bool((r.get("meaning_screen") or {}).get("measured")))
          + _numbers(tr, r.get("numbers")), "note": tr("r.note.translation")},
         {"id": "integrity", "metrics": _integrity(tr, r.get("video_integrity"))},
         {"id": "lipsync", "metrics": _lipsync(tr, r.get("lipsync_metrics") or {}, project["is_lipsync"])},
@@ -973,6 +1283,8 @@ def build_report(r: dict, lang: str = DEFAULT_UI_LANGUAGE, dub: Optional[str] = 
     clipping_poor = any(m["id"] == "clipping" and m["level"] == "poor" for m in metrics)
     found = build_intervals(r, tr, lang, clipping_poor=clipping_poor, dub=dub)
     _cap_moments(found["intervals"], metrics)
+    found["intervals"] = _drop_passed(found["intervals"], metrics)
+    found["problem_seconds"] = round(total_seconds(found["intervals"]), 1)
     moments = group_moments(found["intervals"])
     summary, sure = _headline(tr, level, metrics, found["intervals"]), _sure_lines(tr, unsure)
     return {
@@ -984,6 +1296,7 @@ def build_report(r: dict, lang: str = DEFAULT_UI_LANGUAGE, dub: Optional[str] = 
                     # headline: both in one text, for readers that show a single line
                     "summary": summary, "sure": sure, "headline": " ".join([summary, *sure]),
                     "counts": counts, "unsure": [u["kind"] for u in unsure]},
+        "score": _score(tr, sections, level),
         "sections": sections,
         "problem_intervals": found["intervals"],
         "possible_asr_errors": found["possible_asr_errors"],
@@ -1002,12 +1315,18 @@ def build_report(r: dict, lang: str = DEFAULT_UI_LANGUAGE, dub: Optional[str] = 
         "labels": {**{k: tr(f"r.label.{k}") for k in ("title", "overall", "things", "nothing", "not_measured", "method",
                                                       "judged_by", "project", "languages", "length", "evaluated",
                                                       "source", "original", "dub", "evidence", "note", "generated",
-                                                      "suggested", "also", "misheard", "attention", "passed",
+                                                      "suggested", "also", "misheard", "attention", "passed", "info",
+                                                      "tl_original", "tl_dub", "tl_moment",
                                                       "passed_note")},
                    "doubt_asr": tr("r.todo.maybe_asr"), "doubt_asr_or_real": tr("r.todo.maybe_asr_or_real"),
                    # the headings over the scores inside a row (the translation check's five)
                    "score": tr("r.label.score"), "average": tr("r.label.average"),
-                   "low_lines": tr("r.label.low_lines", flag=RUBRIC_FLAG)},
+                   "low_lines": tr("r.label.low_lines", flag=RUBRIC_FLAG),
+                   # a part as one line of the text report; its own values go in where the braces are
+                   "part_line": tr("r.label.part_line", label="{label}", avg="{avg}", low="{low}", flag=RUBRIC_FLAG),
+                   # the score's breakdown table
+                   **{f"score_{k}": tr(f"r.score.h.{k}") for k in ("title", "section", "got", "lost", "how", "none",
+                                                                    "extra")}},
         "badges": {lv: tr("badge." + ("na" if lv == "not_measured" else lv)) for lv in (*LEVELS, "info", "not_measured")},
         "counts_text": tr("verdict.counts", good=counts["good"], check=counts["check"], poor=counts["poor"],
                           na=counts["not_measured"]),
@@ -1033,6 +1352,23 @@ def render_text(rep: dict, width: int = 78) -> str:
     lines += wrap(o.get("summary") or o["headline"], " ", " ")
     for note in o.get("sure") or []:
         lines += wrap(note, " · ", "   ")
+    sc = rep.get("score")                     # reports saved before 0.1.8 have none
+    if sc:
+        lines += [thin, f" {lb['score_title'].upper()}:  {sc['display']}"]
+        lines += wrap(sc["message"], " ", " ")
+        lost = sc.get("lost") or []
+        if sc.get("value") is not None:       # "Too little measured": no list of points and no table of shares
+            lines.append(f" {sc.get('lost_display') or lb['score_lost']}" + ("" if lost else f": {lb['score_none']}"))
+            if sc.get("lost_how"):
+                lines += wrap(sc["lost_how"], "   ", "   ")
+            for x in lost:
+                lines.append(f"   {ICONS[x['level']]} {x['label']:<26} {x['display']:<14} {x.get('why', '')}")
+            lines.append(f"   {lb['score_section']:<26} {lb['score_got']}")
+            for part in sc["parts"]:
+                lines.append(f"   {part['label']:<26} {part.get('of_display') or part['display']}")
+            if sc.get("extra_display"):         # what Poor results cost beyond their share: the table then adds up
+                lines.append(f"   {lb['score_extra']:<26} {sc['extra_display']}")
+        lines += wrap(sc.get("rule_short") or sc["rule"], " ", " ")
     lines.append(thin)
     # What a person acts on comes first: the moments, then the measures that aren't Good in full. The rest follows in a
     # line each (a 7 s clip printed 1,700 words, most of them about what passed); every measure's explanation and
@@ -1045,7 +1381,7 @@ def render_text(rep: dict, width: int = 78) -> str:
         for n, item in enumerate(items, 1):
             when = fmt_time(item["start"]) + (f"–{fmt_time(item['end'])}" if item.get("end") is not None else "")
             first = item["problem"] if item.get("problem") else item["message"]      # reports saved before the parts
-            lines.extend(wrap(f"{n:>2}. {when or '—':<15} [{item['category']}] {first}", "  ", " " * 22))
+            lines.extend(wrap(f"{n:>2}. {when or '—':<15} [{_cap(item['category'])}] {first}", "  ", " " * 22))
             for part in _thing_lines(item, lb) if item.get("problem") else []:
                 lines.extend(wrap(part, " " * 22, " " * 24))
     if listed:
@@ -1064,8 +1400,8 @@ def render_text(rep: dict, width: int = 78) -> str:
             lines.append(short(m))
             lines += wrap(m["message"], "        ", "        ")
             for part in m.get("parts") or []:
-                lines += wrap(f"{part['label']}: {lb['average']} {part['display']} · {lb['low_lines']}: "
-                              f"{part.get('low_display', part['low'])}", "          ", "            ")
+                lines += wrap(lb["part_line"].replace("{label}", part["label"]).replace("{avg}", part["display"])
+                              .replace("{low}", str(part.get("low_display", part["low"]))), "          ", "            ")
             if m.get("thresholds"):
                 lines += wrap(m["thresholds"], "        · ", "          ")
             if s.get("note") and m is [x for x in s["metrics"] if x["level"] in ("poor", "check")][-1]:
@@ -1077,7 +1413,7 @@ def render_text(rep: dict, width: int = 78) -> str:
         lines += wrap(lb.get("passed_note", ""), "   ", "   ")
     info = [m for _, m in rows if m["level"] == "info"]
     if info:
-        lines.append(thin + f"\n {rep['badges']['info'].upper()}")
+        lines.append(thin + f"\n {lb['info'].upper()} ({len(info)})")
         lines += [short(m) for m in info]
     if rep["not_measured"]:
         lines.append(thin + f"\n {lb['not_measured'].upper()} ({len(rep['not_measured'])})")
@@ -1094,6 +1430,7 @@ def render_text(rep: dict, width: int = 78) -> str:
 
 
 _CSS = """
+.rule{white-space:pre-line}
 :root{--bg:#f7f7f8;--card:#fff;--ink:#1d1d1f;--muted:#6b6b76;--line:#e4e4e8;--good:#1f8a4c;--check:#b86e00;
 --poor:#c62828;--info:#5b5bd6;--na:#8a8a94;--good-bg:#e7f5ec;--check-bg:#fdf1de;--poor-bg:#fde8e8}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#111114;--card:#1b1b20;--ink:#ececf1;
@@ -1130,13 +1467,16 @@ td.l,td.v{width:auto}}
 """
 
 
-def timeline_svg(ta: dict, duration: float, labels: tuple[str, str] = ("Original", "Dub")) -> str:
-    """Two bars showing when each track speaks, with mismatches in red."""
+def timeline_svg(ta: dict, duration: float, labels: tuple[str, str] = ("Original", "Dub"),
+                 marks: Optional[list] = None, legend: tuple[str, str, str] = ()) -> str:
+    """Two bars showing when each track speaks, with the moments the report lists outlined in red (marks: (start, end)
+    pairs; every timing mismatch once, which drew 5 red marks beside a list of 3), and a legend under them."""
     if not duration or not (ta.get("original_speech") or ta.get("dubbed_speech")):
         return ""
     w, x0 = 900, 70
     sx = lambda t: x0 + (w - x0 - 10) * min(max(t, 0), duration) / duration
-    parts = [f'<svg viewBox="0 0 {w} 96" width="100%" role="img" aria-label="Speech timeline" '
+    height = 118 if legend else 96
+    parts = [f'<svg viewBox="0 0 {w} {height}" width="100%" role="img" aria-label="Speech timeline" '
              f'fill="currentColor" font-size="11">']
     for row, (label, key, color) in enumerate(((labels[0], "original_speech", "var(--info,#5b5bd6)"),
                                                (labels[1], "dubbed_speech", "var(--good,#1f8a4c)"))):
@@ -1145,11 +1485,18 @@ def timeline_svg(ta: dict, duration: float, labels: tuple[str, str] = ("Original
         parts.append(f'<rect x="{x0}" y="{y}" width="{w - x0 - 10}" height="22" rx="4" fill="var(--line,#8884)"/>')
         for s, e in ta.get(key, []):
             parts.append(f'<rect x="{sx(s):.1f}" y="{y}" width="{max(1.0, sx(e) - sx(s)):.1f}" height="22" fill="{color}"/>')
-    for m in ta.get("mismatches", []):
-        parts.append(f'<rect x="{sx(m["start"]):.1f}" y="6" width="{max(1.0, sx(m["end"]) - sx(m["start"])):.1f}" '
+    for start, end in marks or []:
+        parts.append(f'<rect x="{sx(start):.1f}" y="6" width="{max(1.0, sx(end) - sx(start)):.1f}" '
                      f'height="62" fill="none" stroke="var(--poor,#d63b3b)" stroke-width="2" rx="3"/>')
     for i in range(0, int(duration) + 1, max(1, int(duration // 8) or 1)):
         parts.append(f'<text x="{sx(i):.1f}" y="90" text-anchor="middle">{fmt_time(i)}</text>')
+    if legend:
+        x = x0
+        for text, swatch in zip(legend, ('fill="var(--info,#5b5bd6)"', 'fill="var(--good,#1f8a4c)"',
+                                         'fill="none" stroke="var(--poor,#d63b3b)" stroke-width="2"')):
+            parts.append(f'<rect x="{x}" y="104" width="12" height="10" rx="2" {swatch}/>'
+                         f'<text x="{x + 18}" y="113">{html.escape(text)}</text>')
+            x += 30 + 7 * len(text)
     parts.append("</svg>")
     return "".join(parts)
 
@@ -1171,6 +1518,27 @@ def render_html(rep: dict, results: Optional[dict] = None, original_src: str = "
            f"<div>{e(o.get('summary') or o['headline'])}</div>"
            + "".join(f"<div class=sure>{e(note)}</div>" for note in o.get("sure") or [])
            + f"<div class=muted>{e(rep['counts_text'])}</div></div></div>"]
+    sc = rep.get("score")                     # reports saved before 0.1.8 have none
+    if sc:
+        # The app's order: why, the points lost (with their sum), the sections; the rule folded.
+        scored = sc.get("value") is not None           # "Too little measured": the message alone, and the rule
+        out.append(f"<div class=card><h2>{e(lb['score_title'])} · {e(sc['display'])}</h2>"
+                   f"<div class=muted>{e(sc['message'])}</div>"
+                   + (f"<h3>{e(sc.get('lost_display') or lb['score_lost'])}</h3>"
+                      + (f"<div class=muted>{e(sc['lost_how'])}</div>" if sc.get("lost_how") else "")
+                      + ("<ul>" + "".join(f"<li><span class='badge b-{x['level']}'>{e(rep['badges'][x['level']])}</span> "
+                                          f"{e(x['label'])} <b>{e(x['display'])}</b> <span class=muted>"
+                                          f"{e(x.get('why', ''))}</span></li>" for x in sc["lost"]) + "</ul>"
+                         if sc.get("lost") else f"<div class=muted>{e(lb['score_none'])}</div>")
+                      + "<table class=scores><tr>"
+                      + "".join(f"<th>{e(lb[k])}</th>" for k in ("score_section", "score_got"))
+                      + "</tr>" + "".join(f"<tr><td>{e(x['label'])}</td><td>{e(x.get('of_display') or x['display'])}</td></tr>"
+                                          for x in sc["parts"])
+                      + (f"<tr><td>{e(lb['score_extra'])}</td><td>{e(sc['extra_display'])}</td></tr>"
+                         if sc.get("extra_display") else "")
+                      + "</table>" if scored else "")
+                   + f"<details><summary class=th>{e(lb['score_how'])}</summary>"
+                   f"<div class='th rule'>{e(sc['rule'])}</div></details></div>")
     if original_src and dubbed_src:
         out.append(f"<div class='card videos'><div><b>{e(lb['original'])}</b><video controls preload=metadata "
                    f"src='{e(original_src)}'></video></div><div><b>{e(lb['dub'])}</b><video controls preload=metadata "
@@ -1187,7 +1555,7 @@ def render_html(rep: dict, results: Optional[dict] = None, original_src: str = "
             parts = "".join(f"<div class='muted part'>{e(x)}</div>" for x in _thing_lines(item, lb)) \
                 if item.get("problem") else ""
             out.append(f"<tr><td class='v t'>{e(when) or '—'}</td><td><span class='badge b-{item['severity']}'>"
-                       f"{e(item['category'])}</span> {e(first)}{parts}</td></tr>")
+                       f"{e(_cap(item['category']))}</span> {e(first)}{parts}</td></tr>")
         out.append("</table>")
     if listed:
         things(listed)
@@ -1198,8 +1566,11 @@ def render_html(rep: dict, results: Optional[dict] = None, original_src: str = "
         things(misheard)
     out.append("</div>")
     if results:
+        marks = [(m["start"], m["end"]) for m in rep.get("moments") or rep.get("problem_intervals") or []
+                 if m.get("start") is not None and m.get("end") is not None]
         out.append("<div class=card>" + timeline_svg(results.get("timing_alignment") or {}, p.get("duration_sec") or 0,
-                                                     (lb["original"], lb["dub"])) + "</div>")
+                                                     (lb["original"], lb["dub"]), marks,
+                                                     (lb["tl_original"], lb["tl_dub"], lb["tl_moment"])) + "</div>")
     badge = lambda m: f"<span class='badge b-{m['level']}'>{e(rep['badges'][m['level']])}</span>"
     scores = lambda m: (f"<table class=scores><tr><th>{e(lb['score'])}</th><th>{e(lb['average'])}</th>"
                         f"<th>{e(lb['low_lines'])}</th></tr>" + "".join(
@@ -1207,23 +1578,27 @@ def render_html(rep: dict, results: Optional[dict] = None, original_src: str = "
                             f"<td>{e(x.get('low_display', x['low']))}</td></tr>" for x in m["parts"])
                         + "</table>" if m.get("parts") else "")
     graded = lambda m: f"<div class=th>{e(m['thresholds'])}</div>" if m.get("thresholds") else ""
+    share = lambda m: f"<div class='muted part'>{e(m['score_display'])}</div>" if m.get("score_display") else ""
     rows = [(s, m) for s in rep["sections"] for m in s["metrics"]]
     attention = [(s, m) for lv in ("poor", "check") for s, m in rows if m["level"] == lv]
     if attention:
         out.append(f"<div class=card><h2>{e(lb.get('attention', ''))}</h2><table>")
         for s, m in attention:
             out.append(f"<tr><td class=l>{e(m['label'])}<div class='muted part'>{e(s['title'])}</div></td>"
-                       f"<td class=v>{e(m['display'])}</td><td>{badge(m)} {e(m['message'])}{scores(m)}{graded(m)}</td></tr>")
+                       f"<td class=v>{e(m['display'])}{share(m)}</td><td>{badge(m)} {e(m['message'])}{scores(m)}{graded(m)}</td></tr>")
         out.append("</table>" + "".join(f"<div class=note>{e(s['note'])}</div>" for s in rep["sections"]
                                         if s.get("note") and any(x is s for x, _ in attention)) + "</div>")
     # What passed, and what is only for information: a line each; a click opens its explanation and how it's graded.
-    calm = [m for _, m in rows if m["level"] in ("good", "info")]
-    if calm:
-        count = sum(1 for m in calm if m["level"] == "good")
-        out.append(f"<div class=card><h2>{e(lb.get('passed', ''))} ({count})</h2>" + "".join(
-            f"<details class=row><summary><span class=l>{e(m['label'])}</span><span class=v>{e(m['display'])}</span>"
-            f"{badge(m)}</summary><div class=more>{e(m['message'])}{scores(m)}{graded(m)}</div></details>"
-            for m in calm) + "</div>")
+    row_html = lambda m: (f"<details class=row><summary><span class=l>{e(m['label'])}</span><span class=v>"
+                          f"{e(m['display'])}{share(m)}</span>{badge(m)}</summary><div class=more>{e(m['message'])}"
+                          f"{scores(m)}{graded(m)}</div></details>")
+    good = [m for _, m in rows if m["level"] == "good"]
+    info = [m for _, m in rows if m["level"] == "info"]
+    if good or info:                          # the count is the rows under it: "Passed (14)" once listed 17
+        out.append("<div class=card>"
+                   + (f"<h2>{e(lb.get('passed', ''))} ({len(good)})</h2>" + "".join(map(row_html, good)) if good else "")
+                   + (f"<h2 class=sub>{e(lb['info'])} ({len(info)})</h2>" + "".join(map(row_html, info)) if info else "")
+                   + "</div>")
     if rep["not_measured"]:
         out.append(f"<div class=card><h2>{e(lb['not_measured'])} ({len(rep['not_measured'])})</h2><ul>" + "".join(
             f"<li><b>{e(', '.join(g['labels']))}</b>: {e(g['reason'])}"

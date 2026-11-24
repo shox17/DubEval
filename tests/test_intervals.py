@@ -41,6 +41,28 @@ def test_a_long_range_does_not_swallow_a_short_one_inside_it():
     assert len(group_moments(found)) == 2
 
 
+def test_a_finding_without_a_line_inside_a_lines_finding_is_the_same_moment():
+    # Line 1 is 19% short and the dub is silent for its last second: one line, listed twice before.
+    short = {**item(4.2, 10.8, "line_length"), "line": 1}
+    gap = item(9.8, 10.8, "timing_mismatch")
+    later = item(36.0, 37.2, "timing_mismatch")
+    found = merge_intervals([short, gap, later], 90)
+    assert [(m["start"], m["end"]) for m in group_moments(found)] == [(4.2, 10.8), (36.0, 37.2)]
+
+
+def test_a_check_that_passed_lists_no_moments_but_local_events_stay():
+    # Speech timing 81% (Good): its 1 s mismatch is allowed, so it isn't a moment; a 2.5 s silence where the original
+    # speaks says something the row's number doesn't, so it stays.
+    r = make_results(timing_alignment={"mismatches": [{"start": 19.4, "end": 20.4, "kind": "dub_only"},
+                                                      {"start": 10.0, "end": 12.5, "kind": "original_only"}]})
+    rep = build_report(r, "en")
+    assert next(m for s in rep["sections"] for m in s["metrics"] if m["id"] == "speech_overlap")["level"] == "good"
+    assert [i["category"] for i in rep["problem_intervals"]] == ["long_silence"]
+    assert rep["problem_seconds"] == 2.5
+    mid = build_report(make_results(timing_alignment={"overlap_pct": 70.0}), "en")          # Needs review: listed
+    assert [i["category"] for i in mid["problem_intervals"]] == ["timing_mismatch"]
+
+
 def test_findings_about_one_line_are_one_moment():
     # A line 16% too long that also runs 0.8 s into the next line: one card, though the two ranges only touch.
     long = {**item(6.4, 14.4, "line_length"), "line": 2}

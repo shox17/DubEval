@@ -48,6 +48,7 @@ Thumbs.db
 # Desktop app (desktop/): dependencies and builds are made on each machine
 desktop/node_modules/
 desktop/dist/
+desktop/dist-test/
 desktop/resources/
 # The signing portal's address is internal: it stays in this local file (desktop/scripts/release-windows.js)
 desktop/codesign.local.json

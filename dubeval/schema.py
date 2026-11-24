@@ -31,6 +31,9 @@ class Metric(_Model):
     display: Optional[str] = Field(None, description="The value as shown to a person")
     message: str = Field(description="What was found, what it means for a viewer, what to do")
     thresholds: Optional[str] = Field(None, description="How the level is graded")
+    score_points: Optional[float] = Field(
+        None, description="Its points out of 100 in the quality score (Good 100, Poor 0, Needs review by where the "
+                          "result sits between the limits); null when it doesn't count")
     parts: Optional[list[dict]] = Field(
         None, description="The scores inside this measure (the translation check's five criteria), each "
                           "{id, label, level, value, display, low}")
@@ -92,6 +95,67 @@ class Overall(_Model):
     counts: Counts
 
 
+class ScoreItem(_Model):
+    """One check's share of the quality score: the section's share split evenly among its graded checks."""
+    id: str
+    label: str
+    level: str
+    share: Optional[float] = Field(None, description="Its share of the score, in %; None when not measured")
+    points: Optional[float] = Field(None, description="The points it adds")
+    detail: Optional[str] = Field(None, description="The share and points alone, without the level")
+    absent: Optional[str] = Field(None, description="Why it has no level: na (doesn't apply to this dub: no share, its "
+                                                    "points shared), missing (couldn't be measured: shared too, and the "
+                                                    "score's coverage drops) or dub (the dub itself made it impossible: "
+                                                    "counts as 0); None when graded")
+    display: str
+
+
+class ScorePart(_Model):
+    """One section's share of the quality score."""
+    id: str
+    label: str
+    of_display: Optional[str] = Field(None, description="Its points of the most it could get, under a heading that "
+                                                        "names the unit (22.5 of 31.6); None when not counted")
+    weight: int = Field(description="Its published weight out of 100 (report.SCORE_WEIGHTS)")
+    checks: int = Field(description="Checks counted in the section: graded, or 0 because of the dub")
+    applies: bool = Field(True, description="False when nothing in it applies to this dub: its weight is shared and "
+                                            "the coverage doesn't count it")
+    points: Optional[float] = Field(None, description="The section's own score, 0-100; None when nothing was graded")
+    share: Optional[float] = Field(None, description="Its weight among the sections that were measured, in %")
+    contribution: Optional[float] = Field(None, description="The points it adds to the score")
+    display: str
+    items: list[ScoreItem] = Field(default_factory=list, description="The section's checks, each with its share")
+
+
+class Score(_Model):
+    """The quality score out of 100: a summary next to the verdict, never instead of it, and never part of the
+    compare decision rule."""
+    value: Optional[int] = Field(None, description="0-100; None when no weighted check was graded")
+    raw: Optional[float] = Field(None, description="The weighted sum of the checks, before what Poor results cost "
+                                                   "beyond their share")
+    poor_cost: Optional[float] = Field(None, description="What Poor results cost beyond their own share (each costs at "
+                                                         "least report.POOR_COSTS by its POOR_SEVERITY): value = raw - poor_cost, "
+                                                         "rounded, never below 0, and at most 99 unless the verdict is Good")
+    coverage: Optional[int] = Field(None, description="How much of what applies to this dub was measured, in %: checks "
+                                                      "that don't apply are left out of it; under report.COVERAGE_MIN "
+                                                      "the score is provisional")
+    provisional: bool = Field(False, description="The translation check didn't run, or less than report.COVERAGE_MIN % "
+                                                 "of what applies was measured")
+    lost: list[dict] = Field(default_factory=list, description="The checks that lost points, biggest first: id, label, "
+                                                               "level, lost (a Poor one at least its report.POOR_COSTS), severity (a Poor one's: unusable, serious, minor), "
+                                                               "why (the check's result), display")
+    lost_total: Optional[float] = Field(None, description="All the points lost: 100 minus this is the score (up to "
+                                                          "rounding)")
+    lost_display: Optional[str] = Field(None, description="The heading over the list, with the sum")
+    lost_how: Optional[str] = Field(None, description="How a check loses points, in one sentence")
+    measured_weight: int = Field(description="The weight of the sections that were measured, out of 100")
+    parts: list[ScorePart]
+    display: str
+    message: str
+    rule: str = Field(description="How the score is worked out, with the weights")
+    rule_short: Optional[str] = Field(None, description="The same in one line, for the text report")
+
+
 class Project(_Model):
     """What was evaluated."""
     title: str
@@ -121,6 +185,7 @@ class Report(_Model):
     lang: Literal["en", "ko", "pt", "es"]
     project: Project
     overall: Overall
+    score: Optional[Score] = Field(None, description="The quality score out of 100 (reports since 0.1.8)")
     sections: list[Section]
     problem_intervals: list[Interval]
     possible_asr_errors: list[dict] = Field(description="Issues that are probably misheard words, not dub errors")

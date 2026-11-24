@@ -56,7 +56,7 @@ function justUpdated() {
   return last !== null || fs.existsSync(path.join(folder, "logs", "server.log"));
 }
 
-function init({ getWindow, isOwnPage, log }) {
+function init({ getWindow, isOwnPage, log, onInstall = () => {} }) {
   const send = () => { const w = getWindow(); if (w && !w.isDestroyed()) w.webContents.send("update:state", state); };
   const set = next => { state = next; send(); };
   // Only DubEval's own page may ask (the window shows nothing else, but the check costs nothing).
@@ -69,7 +69,10 @@ function init({ getWindow, isOwnPage, log }) {
   ipcMain.handle("update:restart", own(() => {
     // Not silent: the installer's own window shows its progress bar (an update skips its setup pages), then DubEval
     // starts again. Silent left the person with no window at all for minutes.
-    if (updater && state.phase === "ready") updater.quitAndInstall(false, true);
+    if (updater && state.phase === "ready") {
+      onInstall();                                     // the page already asked about evaluations: quit without asking
+      updater.quitAndInstall(false, true);
+    }
   }));
   if (!app.isPackaged) return;
   // macOS (since 0.1.7): the release's latest-mac.yml and .zip; Squirrel.Mac installs only an update signed with the

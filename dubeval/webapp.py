@@ -32,19 +32,19 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
-from dubeval import asr, feedback, history, jobs, library, packs, pipeline, settings, usage_stats
+from dubeval import (asr, clips, feedback, history, jobs, library, local_judge, packs, pipeline, settings, speed,
+                     usage_stats)
 from dubeval.compare import MAX_DUBS, build_ranking
-from dubeval.i18n import TEXT, UI_LANGUAGES, translate_message
+from dubeval.i18n import TEXT, UI_LANGUAGES, t, translate_message
 from dubeval.inputs import MAX_MEDIA_BYTES, TOO_BIG, is_link
 from dubeval.localweb import PAGE_CSP, REPORT_CSP, add_security_headers, bind, is_local_host, run
 from dubeval.paths import DATA_DIR
 from dubeval.perso_api import SHARE_HOSTS, PersoError, parse_share_url
 from dubeval.report import build_report
-from dubeval.meaning import available as meaning_available
 from dubeval.translation_judge import DUB_TYPES, available_judges
-from dubeval.languages import LANGUAGES as SPEECH_LANGUAGES
+from dubeval.languages import LANGUAGES as SPEECH_LANGUAGES, display_name
 from dubeval.release_notes import notes as release_notes
-from dubeval.version import REPOSITORY_URL, TOOL_VERSION
+from dubeval.version import DISCORD_URL, REPOSITORY_URL, TOOL_VERSION
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ UPLOAD_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 TOO_MANY_DUBS = f"Compare at most {MAX_DUBS} dubs at a time."
 NEED_ORIGINAL = "Choose the original video, or paste Perso share links (they include the original)."
 NO_LARGE_MODEL = "The large speech model isn't installed. Get it on the Downloads page."
-EXPORT_KINDS = ("html", "xlsx", "text", "json")
+EXPORT_KINDS = ("html", "xlsx", "text", "json", "clips")
 NO_EXPORT_KIND = "Choose at least one file to export."
 EMPTY_TITLE = "Type a title for this result."
 CANT_CONTINUE = "This evaluation can't continue. Start it again from its draft."
@@ -171,10 +171,23 @@ def _upload_path(spec: Optional[str]) -> Optional[str]:
         return (spec or "").strip() or None
     upload_id = spec[len("upload:"):]
     folder = Path(UPLOADS_DIR) / upload_id
-    files = [f for f in folder.iterdir() if f.is_file()] if UPLOAD_ID_RE.match(upload_id) and folder.is_dir() else []
+    files = [f for f in folder.iterdir() if f.is_file()] if UPLOAD_ID_RE.fullmatch(upload_id) and folder.is_dir() else []
     if not files:
         raise HTTPException(status_code=400, detail="That uploaded file is gone. Choose it again.")
     return str(files[0])
+
+
+def _input_name(spec) -> str:
+    """How a job's input is named on screen: an added file's own name, a path's file name, or the link itself."""
+    spec = str(spec or "").strip()
+    if spec.startswith("upload:"):
+        try:
+            return Path(_upload_path(spec)).name
+        except HTTPException:                        # the file is gone
+            return ""
+    if re.match(r"https?://", spec):
+        return spec if len(spec) <= 70 else spec[:67] + "…"
+    return Path(spec).name
 
 
 def _prune_uploads(keep: int = MAX_UPLOADS) -> None:
@@ -193,7 +206,7 @@ def _free_uploads(paths: list[Path]) -> None:
     root = Path(UPLOADS_DIR).resolve()
     for p in paths:
         d = Path(p).resolve().parent
-        if d.parent == root and UPLOAD_ID_RE.match(d.name):
+        if d.parent == root and UPLOAD_ID_RE.fullmatch(d.name):
             shutil.rmtree(d, ignore_errors=True)
 
 
@@ -283,9 +296,10 @@ def make_app(token: str) -> FastAPI:
                 "judges": available_judges(), "large_model": packs.state("large_model") == "installed",
                 "lip_sync": packs.state("lip_sync") == "installed",
                 "speech_auto": asr.default_model(),
-                "meaning_ready": meaning_available(),
-                "speech_languages": {code: name.title() for code, name in SPEECH_LANGUAGES.items()},
-                "whats_new": release_notes(TOOL_VERSION, lang), "repository": REPOSITORY_URL}
+                # in the page's language, so a Korean start page doesn't list "Spanish"
+                "speech_languages": {code: display_name(code, lang, start=True) for code in SPEECH_LANGUAGES},
+                "whats_new": release_notes(TOOL_VERSION, lang), "repository": REPOSITORY_URL,
+                "discord": DISCORD_URL, "clips_max": clips.MAX_CLIPS}
 
     def settings_view() -> dict:
         """Which keys are set (never the keys themselves) and which translation checker runs."""
@@ -293,7 +307,7 @@ def make_app(token: str) -> FastAPI:
         return {"keys": settings.status(), "judge": {
             "active": tj.judge_provider(), "available": tj.available_judges(),
             "choice": (os.getenv("DUBEVAL_JUDGE") or "auto").strip().lower(), "order": list(tj.JUDGES),
-            "local_model": tj.OLLAMA_MODEL}, "data_dir": str(Path(DATA_DIR).resolve()), "version": TOOL_VERSION,
+            "local_model": local_judge.MODEL_NAME if tj.OLLAMA_MODEL == local_judge.MODEL else tj.OLLAMA_MODEL}, "data_dir": str(Path(DATA_DIR).resolve()), "version": TOOL_VERSION,
             "usage_stats": usage_stats.status()}
 
     @app.put("/api/settings/usage-stats", dependencies=api)
@@ -319,6 +333,13 @@ def make_app(token: str) -> FastAPI:
                 job = pack_job(row["id"]) if row["kind"] == "pack" else None
                 row["job"] = job.id if job else None
         return out
+
+    @app.get("/api/settings/storage", dependencies=api)
+    def storage() -> dict:
+        """How much room each kind of data takes in the data folder (Settings → Storage): it showed only a button."""
+        parts = [("evaluations", Path(pipeline.RUNS_DIR)), ("uploads", Path(UPLOADS_DIR)), ("cache", Path(pipeline.CACHE_DIR))]
+        sizes = [{"id": key, "bytes": _folder_bytes(folder)} for key, folder in parts]
+        return {"parts": sizes, "total": _folder_bytes(Path(DATA_DIR))}
 
     @app.post("/api/settings/open-data", dependencies=api)
     def open_data(lang: Lang = "en") -> dict:
@@ -452,7 +473,7 @@ def make_app(token: str) -> FastAPI:
     @app.get("/api/uploads/link/{fetch_id}", dependencies=api)
     def upload_link_state(fetch_id: str, request: Request) -> dict:
         """How a link download is going: downloading (progress 0-1 when the size is known), done (upload) or failed."""
-        state = _fetches.get(fetch_id) if UPLOAD_ID_RE.match(fetch_id) else None
+        state = _fetches.get(fetch_id) if UPLOAD_ID_RE.fullmatch(fetch_id) else None
         if state is None:
             raise HTTPException(status_code=404, detail="No download with this number.")
         lang = (request.headers.get("accept-language") or "en")[:2]
@@ -490,13 +511,13 @@ def make_app(token: str) -> FastAPI:
             job = jobs.start_job(lambda report, cancel: pipeline.run_files_evaluation(
                 original, dubs[0], report=report, cancel_event=cancel, report_lang=body.lang, out_dir=folder,
                 history_mode="web", **{**options, **own}),
-                {"kind": "files", **params}, pipeline.file_stages())
+                {"kind": "files", **params}, pipeline.file_stages(), queued=True)
         else:
             # Each dub's own subtitle file comes with its settings (per_dub); body.dub_subtitles is one dub's.
             job = jobs.start_job(lambda report, cancel: pipeline.run_files_comparison(
                 original, dubs, folder, report_lang=body.lang, report=report, cancel_event=cancel, per_dub=per_dub,
                 names=_dub_names(body), **options),
-                {"kind": "comparison", **params}, pipeline.files_compare_stages(len(dubs)))
+                {"kind": "comparison", **params}, pipeline.files_compare_stages(len(dubs)), queued=True)
         return {"id": _started(body, job).id}
 
     def _started(body: EvaluationBody, job: jobs.Job) -> jobs.Job:
@@ -508,6 +529,7 @@ def make_app(token: str) -> FastAPI:
             library.start_draft(body.draft_id, job.id, job.params["folder"])
             job.params["draft_id"] = body.draft_id
         job.save()
+        _line_changed()
         return job
 
     @app.post("/api/jobs/{job_id}/continue", status_code=202, dependencies=api)
@@ -527,7 +549,11 @@ def make_app(token: str) -> FastAPI:
         except ValueError:
             raise HTTPException(status_code=409, detail=CANT_CONTINUE)
         usage_stats.record("feature_used", feature="continue")
-        return start(body)
+        started = start(body)
+        again = jobs.get_job(started["id"])
+        if again is not None and not job.params.get("removed"):
+            again.params["continued"] = True        # it reuses what was measured: its time isn't this computer's speed
+        return started
 
     # ----- the Evaluations list (home screen) -----
 
@@ -546,8 +572,9 @@ def make_app(token: str) -> FastAPI:
             except (OSError, ValueError):
                 pass
             return None
-        state = {"running": "running", "failed": "failed"}.get(job.status, "stopped")
-        return {**out, "state": state, "job_id": job.id, "progress": round(job.overall_fraction, 3)}
+        state = {"running": "running", "queued": "queued", "failed": "failed"}.get(job.status, "stopped")
+        return {**out, "state": state, "job_id": job.id, "progress": round(job.overall_fraction, 3),
+                "queue_position": jobs.queue_position(job)}
 
     @app.get("/api/evaluations", dependencies=api)
     def evaluation_list() -> dict:
@@ -668,19 +695,33 @@ def make_app(token: str) -> FastAPI:
         return {"id": job.id, "status": job.status, "stage": job.stage, "kind": job.params.get("kind", "files"),
                 "message": translate_message(job.message, lang), "progress": round(job.overall_fraction, 3),
                 "elapsed_sec": round(job.elapsed_sec, 1), "draft_id": job.params.get("draft_id"),
+                "remaining_sec": speed.remaining(job),
+                "queue_position": jobs.queue_position(job),      # 1 = next, while it waits in line
+                "waiting_for": _waiting_for(job),                # the evaluation running now, while this one waits
+                "waiting_after": jobs.waiting_count() if job.takes_turns and job.status == "running" else 0,
+                "removed": bool(job.params.get("removed")),      # taken out of the line before it started
                 "can_continue": job.status in ("cancelled", "interrupted", "failed") and "request" in job.params
                 and job.retry_helps,
                 "error": translate_message(job.error, lang) if job.error else None,
+                # what is being evaluated: the progress screen said only "Evaluating", with no way to tell which video
+                "dub_names": [_input_name(d) for d in job.params.get("dubs") or []],
                 "stages": [{"id": s, "state": job.stage_state(s)} for s in job.stages]}
 
     @app.post("/api/jobs/{job_id}/cancel", dependencies=api)
     def cancel(job_id: str) -> dict:
-        """Asks a running job to stop."""
+        """Asks a running job to stop; one waiting in line leaves it at once."""
         job = jobs.get_job(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="No job with this id.")
-        job.cancel_event.set()
+        jobs.cancel(job)
+        _line_changed()
         return {"id": job.id}
+
+    @app.get("/api/queue", dependencies=api)
+    def queue() -> dict:
+        """The evaluation running now and how many wait: the start page says "Add to queue" while one runs."""
+        running = jobs.running_evaluation()
+        return {"running": running.id if running else None, "waiting": jobs.waiting_count()}
 
     @app.get("/api/jobs/{job_id}/comparison", dependencies=api)
     def comparison(job_id: str, lang: Lang = "en") -> dict:
@@ -817,7 +858,8 @@ def make_app(token: str) -> FastAPI:
         """The finished job's results to save (Export): one file, or several in a ZIP, written in the page's language.
 
         kinds: a comma-separated choice of html (the report), xlsx (the problem list for Excel), text (the summary),
-        json (data).
+        json (data), clips (each moment as a side-by-side video with a page saying what's wrong: dubeval/clips.py; takes
+        a while, so the page waits with a note).
         """
         job = finished(job_id)
         wanted = [k for k in EXPORT_KINDS if k in kinds.split(",")]
@@ -834,9 +876,20 @@ def make_app(token: str) -> FastAPI:
             else:
                 path = folder / "export.zip"
                 with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-                    for f in files:
-                        z.write(f, f.name)
+                    for f in files:                   # clips keep their folder; a video doesn't compress, so it's stored
+                        z.write(f, f.relative_to(folder).as_posix(),
+                                compress_type=zipfile.ZIP_STORED if f.suffix == ".mp4" else zipfile.ZIP_DEFLATED)
                 filename = f"{name} - DubEval.zip"
+        except FileNotFoundError as e:
+            shutil.rmtree(folder, ignore_errors=True)
+            if str(e) == clips.NO_VIDEOS:              # the videos were deleted or moved: no clips can be made
+                raise HTTPException(status_code=409, detail=clips.NO_VIDEOS)
+            raise
+        except RuntimeError as e:
+            shutil.rmtree(folder, ignore_errors=True)
+            if str(e) == clips.CLIP_FAILED:
+                raise HTTPException(status_code=500, detail=clips.CLIP_FAILED)
+            raise
         except Exception:
             shutil.rmtree(folder, ignore_errors=True)
             raise
@@ -858,8 +911,8 @@ def make_app(token: str) -> FastAPI:
         on_home = {runs / c["id"] for c in library.evaluations()}
         kept = [r for r in records if r.get("report") and Path(r["report"]).resolve().parent in on_home]
         names = {}                                      # one comparison's names, for all its rows
-        summary["recent"] = [{k: r.get(k) for k in ("time", "mode", "title", "languages", "verdict", "poor", "check",
-                                                    "problem_seconds")}
+        summary["recent"] = [{k: r.get(k) for k in ("time", "mode", "title", "languages", "language_pair", "verdict",
+                                                    "poor", "check", "problem_seconds", "score", "score_provisional")}
                              | {"report": _report_ref(r.get("report")), "run": Path(r["report"]).parent.name}
                              | _which_dub(r.get("report"), names)
                              for r in history.summarize(kept, days=days, recent=None)["recent"]]
@@ -916,15 +969,30 @@ def _export_files(result: dict, lang: str, kinds: list[str], folder: Path) -> tu
         written = pipeline.save_comparison_files(comp, per_dub, folder, absolute_videos=True)
         reports = [(f"{d} · {comp['names'][d]}" if comp["names"][d] else d, per_dub[d]["report"]) for d in comp["dubs"]]
         title = comp["recommendation"].get("title")
+        each = [per_dub[d] for d in comp["dubs"]]
     else:
         r = {**result, "report": build_report(result, lang)}
         written = pipeline.save_report_files(r, folder, absolute_videos=True)
         reports, title = [(None, r["report"])], r["report"]["project"].get("title")
+        each = [r]
     files = [Path(p) for key, p in written.items() if key.split("_")[0] in kinds]
     if "xlsx" in kinds:
         files.append(_problems_xlsx(reports, lang, folder / "problems.xlsx"))
     order = {".html": 0, ".xlsx": 1, ".txt": 2, ".json": 3}
-    return sorted(files, key=lambda p: (order.get(p.suffix, 9), p.name)), title
+    files = sorted(files, key=lambda p: (order.get(p.suffix, 9), p.name))
+    if "clips" in kinds:                    # last: their page ("Problem clips.html"), then the clips in clips/, in order
+        files += clips.write_clips([_clip_source(res, label, rep, lang) for res, (label, rep) in zip(each, reports)],
+                                   folder, lang, title)
+    return files, title
+
+
+def _clip_source(res: dict, label: Optional[str], rep: dict, lang: str) -> dict:
+    """What clips.write_clips needs of one dub: its report, both files, how to find a moment in the dub, and the
+    problems about the whole dub (no time, so no clip)."""
+    run, pair = res.get("pipeline") or {}, res.get("pairing") or {}
+    return {"label": label, "report": rep, "original": run.get("input_video_path"), "dub": run.get("dubbed_video_path"),
+            "offset": pair.get("applied_offset_sec") or 0.0, "parts": pipeline.applied_parts(pair) if pair else None,
+            "general": [(row[2], row[3], row[4]) for row in problem_rows(rep, lang) if row[0] is None]}
 
 
 def _export_name(title: Optional[str]) -> str:
@@ -1012,12 +1080,12 @@ def _start_share_job(body: EvaluationBody, original: Optional[str], links: list[
                      dub_type=(own.dub_type if own and own.dub_type else body.dub_type) or None)
         return jobs.start_job(lambda report, cancel: pipeline.run_share_evaluation(
             links[0], report=report, cancel_event=cancel, out_dir=folder, history_mode="web", **common, **extra),
-            {"kind": "files", **params}, pipeline.share_stages())
+            {"kind": "files", **params}, pipeline.share_stages(), queued=True)
     per_dub = [{"dub_subtitles": _upload_path(o.subtitles), "dub_type": o.dub_type or None} for o in body.dub_options]
     return jobs.start_job(lambda report, cancel: pipeline.run_comparison(
         links[0], links[1], folder, more_urls=tuple(links[2:]), report=report, cancel_event=cancel,
         original_subtitles=_upload_path(body.original_subtitles), per_dub=per_dub, names=_dub_names(body), **common),
-        {"kind": "comparison", **params}, pipeline.compare_stages(len(links)))
+        {"kind": "comparison", **params}, pipeline.compare_stages(len(links)), queued=True)
 
 
 def _rename_in_history(folder: Path, title: str, reports: Sequence[Optional[str]] = ()) -> None:
@@ -1077,20 +1145,16 @@ def _rubric_lines(results: dict, lang: str) -> dict:
 def _fixes(results: dict) -> dict:
     """For report rows that weren't measured for a reason the person can fix here: where to fix it (a Settings tab).
 
-    {"translation_check": "keys"} when no translation checker works; {"meaning_screen": "models"} when the offline
-    meaning model isn't installed; {"language": "models"} when recognition couldn't make out the dub's language and
+    {"translation_check": "keys"} when no translation checker works; {"language": "models"} when recognition couldn't make out the dub's language and
     the large speech model isn't installed yet; {"lip_sync": "models"} when the lip check was asked for without its
     download; {"voice_quality": "models"} when the built-in voice-quality model couldn't grade a noisy original and the
     better one isn't installed."""
     from dubeval.intervals import VOICE_FLOOR
     from dubeval.report import speech_problem
     fixes = {}
-    tj, ms = results.get("translation_judge") or {}, results.get("meaning_screen") or {}
+    tj = results.get("translation_judge") or {}
     if tj.get("reason_key") in ("r.judge.no_key", "r.judge.bad_key", "r.judge.no_credit"):
         fixes["translation_check"] = "keys"
-    if ms.get("reason_key") == "r.screen.not_installed" and packs.available("meaning") \
-            and packs.state("meaning") != "installed":
-        fixes["meaning_screen"] = "models"
     problem = speech_problem(results)
     if problem and problem["kind"] == "unrecognized" and packs.state("large_model") != "installed":
         fixes["language"] = "models"
@@ -1129,7 +1193,109 @@ def _report_job_to_stats(job: jobs.Job) -> None:
         usage_stats.record("evaluation_finished", seconds=job.elapsed_sec, **common, **outcome)
 
 
-jobs.on_finish = _report_job_to_stats
+NOTIFY_LINE = "DubEval-notify: "            # read by the desktop app (desktop/main.js), which shows the notification
+PROGRESS_LINE = "DubEval-progress: "        # read by the desktop app too: the progress bar on its taskbar or Dock icon
+_last_progress: list = [None]               # what the last progress line said: a line is printed only when it changes
+
+
+def _progress_line(fraction: Optional[float], failed: bool = False) -> None:
+    """Tells the desktop app how far the running evaluation is (0..1), that the last one failed, or (None) that none
+    runs; only when the app asked for it (DUBEVAL_NOTIFY=1)."""
+    if os.getenv("DUBEVAL_NOTIFY") != "1":
+        return
+    note = {"progress": None if fraction is None else round(fraction, 2), "failed": failed,
+            "waiting": jobs.waiting_count()}
+    if note == _last_progress[0]:
+        return
+    _last_progress[0] = note
+    print(PROGRESS_LINE + json.dumps(note), flush=True)
+
+
+_progress_peak: dict = {}                   # the running evaluation's furthest progress: the icon's bar never steps back
+
+
+def _job_progress(job: jobs.Job) -> None:
+    """A running evaluation's progress, for the desktop app's icon (downloads of models don't show there). A stage's
+    own fraction can dip a little when its next step starts; the bar shows the furthest point reached."""
+    if job.takes_turns and job.status == "running":
+        furthest = max(job.overall_fraction, _progress_peak.get(job.id, 0.0))
+        _progress_peak.clear()
+        _progress_peak[job.id] = furthest
+        _progress_line(furthest)
+
+
+def _line_changed() -> None:
+    """An evaluation joined or left the line: the desktop app hears the new count at once (its Dock badge, and how many
+    quitting would stop), not at the running one's next progress report, which can be a minute away."""
+    running = jobs.running_evaluation()
+    if running is not None:
+        _job_progress(running)
+
+
+def _progress_after(job: jobs.Job) -> None:
+    """After an evaluation: the icon's bar starts again for the next one in line, turns red when this one failed
+    (Windows), else goes."""
+    if not job.takes_turns:
+        return
+    if jobs.waiting_count():
+        _progress_line(0.0)
+    else:
+        _progress_line(None, failed=job.status == "failed")
+
+
+def _notification(job: jobs.Job) -> Optional[dict]:
+    """What the desktop app's "finished" notification says for an evaluation that ended by itself, in the language it
+    was started in, and which screen a click opens; None for downloads and for runs the person stopped."""
+    if job.params.get("kind") not in ("files", "comparison") or job.status not in ("done", "failed"):
+        return None
+    lang = (job.params.get("request") or {}).get("lang") or "en"
+    result = job.result if isinstance(job.result, dict) else {}
+    if job.status == "failed":
+        return {"title": t("w.notify.failed", lang), "body": translate_message(job.error or "", lang),
+                "open": f"#/job/{job.id}"}
+    if "comparison" in result:
+        rec = result["comparison"].get("recommendation") or {}
+        return {"title": t("w.notify.compared", lang),
+                "body": t("w.notify.body", lang, title=rec.get("title") or "", result=rec.get("headline") or ""),
+                "open": f"#/compare/{job.id}"}
+    rep = result.get("report") or {}
+    return {"title": t("w.notify.done", lang),
+            "body": t("w.notify.body", lang, title=(rep.get("project") or {}).get("title") or "",
+                      result=(rep.get("overall") or {}).get("label") or ""),
+            "open": f"#/report/{job.id}"}
+
+
+def _waiting_for(job: jobs.Job) -> Optional[dict]:
+    """While an evaluation waits in line: the one running now (its id and what it evaluates), so the page can say what
+    it waits for and open it."""
+    if job.status != "queued":
+        return None
+    running = jobs.running_evaluation()
+    if running is None:
+        return None
+    names = [n for n in (_input_name(d) for d in running.params.get("dubs") or []) if n]
+    return {"id": running.id, "name": " · ".join(names) or None}
+
+
+def _job_finished(job: jobs.Job) -> None:
+    """After any job: usage stats (if allowed), this computer's speed (the time estimate), and the desktop app's
+    notification (only when the app asked for it with DUBEVAL_NOTIFY=1). None of it may change how the job ended."""
+    for step in (_report_job_to_stats, speed.record, _notify_app, _progress_after):
+        try:
+            step(job)
+        except Exception as e:
+            log.warning("After job %s (%s): %s", job.id, step.__name__, type(e).__name__)
+
+
+def _notify_app(job: jobs.Job) -> None:
+    """Tells the desktop app an evaluation ended, as one line on the server's output."""
+    note = _notification(job) if os.getenv("DUBEVAL_NOTIFY") == "1" else None
+    if note:
+        print(NOTIFY_LINE + json.dumps(note, ensure_ascii=False), flush=True)
+
+
+jobs.on_finish = _job_finished
+jobs.on_progress = _job_progress
 
 
 def _current_report(job, results: dict, lang: str, dub: Optional[str]) -> dict:
@@ -1148,6 +1314,18 @@ def _votes(rep: dict) -> dict:
         if entry:
             out[str(i)] = entry["vote"]
     return out
+
+
+def _folder_bytes(folder: Path) -> int:
+    """The bytes of every file under folder (0 when it isn't there); files that vanish meanwhile are skipped."""
+    total = 0
+    for root, _dirs, files in os.walk(folder):
+        for name in files:
+            try:
+                total += (Path(root) / name).stat().st_size
+            except OSError:
+                pass
+    return total
 
 
 def _wait_for_exit(pid: int) -> None:
@@ -1215,6 +1393,7 @@ def serve(port: Optional[int] = None, open_browser: bool = True, host: str = "12
     can't use it.
     """
     import webbrowser
+    packs.remove_retired()                       # the removed meaning screen's 585 MB model, if it was downloaded
     sock = _bind_usual(host) if port is None else bind(host, port)     # bound before the link is printed
     port = sock.getsockname()[1]
     token = secrets.token_urlsafe(24)

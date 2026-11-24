@@ -238,3 +238,15 @@ def test_the_mac_build_workflow_publishes_nothing():
     assert "gh release" not in workflow and "--publish never" in (ROOT / "desktop" / "package.json").read_text(encoding="utf-8")
     assert "npm run dist:mac:adhoc" in workflow       # GitHub's Mac has no Developer ID certificate
     assert "codesign --verify --deep --strict" in workflow
+
+
+def test_an_update_installs_without_stopping_for_a_click():
+    # Restart to update used to stop twice: on "who is this program for" and on Finish. An update now keeps the way
+    # DubEval is installed and starts it when done; a first install still shows both pages.
+    nsh = (ROOT / "desktop" / "build" / "installer.nsh").read_text(encoding="utf-8")
+    assert "!macro customInstallMode" in nsh and "!macro customFinishPage" in nsh
+    assert nsh.count("${isUpdated}") >= 3
+    assert "Abort" in nsh and "MUI_PAGE_FINISH" in nsh
+    package = json.loads((ROOT / "desktop" / "package.json").read_text(encoding="utf-8"))
+    assert package["build"]["nsis"]["oneClick"] is False          # a first install still asks
+    assert "nsis" not in package["build"] or "include" not in package["build"]["nsis"]   # build/installer.nsh, by default

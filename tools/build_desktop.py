@@ -11,7 +11,7 @@ Then `npm run dist` (Windows) or `npm run dist:mac` (macOS) in desktop/ makes th
 On Windows the base Python is a copy of the official python.org install of the same minor version as the pins (3.14),
 and this script runs from the development .venv. On macOS it is a relocatable build downloaded here
 (python-build-standalone, as PersoDub uses, pinned to one release and its SHA-256), and this script needs only a
-Python 3 with nothing installed (a CI machine's own). The meaning, GPU and large-model packs are downloaded later, not
+Python 3 with nothing installed (a CI machine's own). The GPU and large-model packs are downloaded later, not
 shipped.
 """
 import argparse
@@ -293,7 +293,7 @@ def main() -> int:
     for banned in ("torch", "transformers", "sentence-transformers", "openai-whisper", "streamlit"):
         if banned in packages:
             raise SystemExit(f"{banned} ended up in the bundle; it must stay out of the runtime.")
-    run(python, "-c", "import dubeval.webapp, dubeval.evaluate, dubeval.meaning, faster_whisper, onnxruntime, cv2")
+    run(python, "-c", "import dubeval.webapp, dubeval.evaluate, faster_whisper, onnxruntime, cv2")
 
     log("4/5 Removing pip and the packages' test suites...")
     run(python, "-m", "pip", "uninstall", "-y", "--disable-pip-version-check", "pip", "setuptools")
@@ -330,7 +330,7 @@ def main() -> int:
         f"for name in {zipped!r}:\n"
         "    mod = importlib.import_module(name)\n"
         f"    assert '{ZIP_NAME}' in (getattr(mod, '__file__', '') or ''), name\n"
-        "import dubeval.webapp, dubeval.evaluate, dubeval.meaning, faster_whisper, onnxruntime, cv2, librosa, mediapipe\n"
+        "import dubeval.webapp, dubeval.evaluate, faster_whisper, onnxruntime, cv2, librosa, mediapipe\n"
         "import yt_dlp, anthropic, zoneinfo; zoneinfo.ZoneInfo('Asia/Seoul')\n"
         "import requests, certifi; open(certifi.where()).read(10)\n"
         # Run what loads model files, not just import it: the voice detector must find its model.

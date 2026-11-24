@@ -1,6 +1,6 @@
 // History screen: every past evaluation summarized (totals, week by week, language pairs, most frequent problems,
 // the latest runs) and what reviewers said about the problem intervals. Numbers come from the server.
-import { api, fill, go, h, t } from "./app.js";
+import { api, fill, go, h, state, t } from "./app.js";
 
 const PERIOD_KEY = "dubeval.history_days";
 const LEVELS = ["good", "check", "poor"];
@@ -22,6 +22,13 @@ function tiles(s) {
 
 // Stacked bars, one per week; the bar's height is the number of dubs that week, printed over it. A quiet week keeps
 // a bar tall enough to see (a week with 2 dubs next to one with 80 was a hairline).
+// A week by its first day, named in the page's language ("Nov 16"): "11-16" read as a range or a code.
+function weekName(iso) {
+  try {
+    return new Intl.DateTimeFormat(state.lang, { month: "short", day: "numeric" }).format(new Date(`${iso}T00:00:00`));
+  } catch { return iso.slice(5); }
+}
+
 function weekly(s) {
   const most = Math.max(1, ...s.weekly.map(w => w.good + w.check + w.poor));
   return h("section", { class: "card" }, h("h2", {}, t("h.weekly_chart")),
@@ -32,7 +39,7 @@ function weekly(s) {
         n ? h("span", { class: "bar-n" }, String(n)) : null,
         h("div", { class: "bar", style: `height:${n ? `max(10px, ${(n / most) * 80}%)` : "0"}` },
           LEVELS.slice().reverse().map(lv => w[lv] ? h("div", { class: `seg ${lv}`, style: `flex:${w[lv]}` }) : null)),
-        h("span", { class: "small muted" }, w.week.slice(5)));
+        h("span", { class: "small muted" }, weekName(w.week)));
     })));
 }
 
@@ -46,12 +53,24 @@ function badge(level) {
   return h("span", { class: `badge ${level}` }, t(`verdict.${level}`));
 }
 
+// A language pair in the page's language ("en→es" → "영어 → 스페인어"); records keep the names they were made with.
+function pairName(codes, fallback) {
+  const [a, b] = (codes || "").split("→");
+  if (!a || !b || a === "?" || b === "?") return fallback || "–";
+  try {
+    const names = new Intl.DisplayNames([state.lang], { type: "language" });
+    const cap = x => x.charAt(0).toLocaleUpperCase(state.lang) + x.slice(1);
+    return `${cap(names.of(a))} → ${cap(names.of(b))}`;
+  } catch { return fallback || "–"; }
+}
+
 function pairs(s) {
   return h("section", { class: "card" }, h("h2", {}, t("h.pairs")),
-    table([t("h.pair"), t("h.dubs"), ...LEVELS.map(lv => t(`verdict.${lv}`)), t("h.timing"), t("h.meaning")],
-      s.pairs.map(p => [p.languages, p.dubs, p.good, p.check, p.poor,
+    table([t("h.pair"), t("h.dubs"), ...LEVELS.map(lv => t(`verdict.${lv}`)), t("h.score_avg"), t("h.timing"), t("h.meaning")],
+      s.pairs.map(p => [pairName(p.pair, p.languages), p.dubs, p.good, p.check, p.poor,
+        p.score == null ? "–" : String(Math.round(p.score)),
         p.overlap_pct === null ? "–" : `${Math.round(p.overlap_pct)}%`,
-        p.meaning_score === null ? "–" : `${p.meaning_score.toFixed(1)} / 10`]), [1, 2, 3, 4, 5, 6]));
+        p.meaning_score === null ? "–" : `${p.meaning_score.toFixed(1)} / 10`]), [1, 2, 3, 4, 5, 6, 7]));
 }
 
 function problems(s) {
@@ -87,12 +106,16 @@ async function openPast(row, link) {
 
 function recent(s) {
   return h("section", { class: "card" }, h("h2", {}, t("h.recent")),
-    table([t("h.when"), t("w.hist.verdict"), t("w.hist.title"), t("h.pair")],
+    table([t("h.when"), t("w.hist.verdict"), t("h.score"), t("w.hist.title"), t("h.pair")],
       s.recent.map(r => [h("span", { class: "mono" }, r.time.slice(0, 16)), badge(r.verdict),
+        r.score == null ? "–" : t(r.score_provisional ? "w.home.score_provisional" : "w.home.score", { score: r.score }),
         [h("a", { href: "#", onclick: e => { e.preventDefault(); openPast(r, e.currentTarget); } }, r.title || "–"),
+        // a dub's own name only when it says something the title doesn't
         r.dub ? h("span", { class: "hist-dub small" },
-          t("w.start.dub_n", { d: r.dub }) + (r.dub_name ? ` · ${r.dub_name}` : "")) : null],
-        r.languages])));
+          t("w.start.dub_n", { d: r.dub }) + (r.dub_name && r.dub_name !== r.title ? ` · ${r.dub_name}` : "")) : null],
+        pairName(r.language_pair, r.languages)]), [2]),
+    // a dash where every card shows a score: say why, and where the score is
+    s.recent.some(r => r.score == null) ? h("p", { class: "muted small" }, t("w.hist.no_score")) : null);
 }
 
 export function renderHistory(root) {
@@ -107,7 +130,8 @@ export function renderHistory(root) {
       const data = await api(`/api/history${period.value ? `?days=${period.value}` : ""}`);
       if (!alive) return;
       const s = data.history;
-      if (!s.dubs) { fill(body, h("p", { class: "muted card" }, t("h.empty")), reviewers(data.feedback)); return; }
+      // nothing evaluated: no votes either, so no empty feedback table under it
+      if (!s.dubs) { fill(body, h("p", { class: "muted card" }, t("h.empty"))); return; }
       fill(body, tiles(s), weekly(s), h("div", { class: "split hist-split" }, pairs(s), problems(s)), reviewers(data.feedback),
         recent(s));
     } catch (e) {

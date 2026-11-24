@@ -101,10 +101,14 @@ lines really are that different, and the settings that removed false alarms also
 line-length false alarms came from one mostly-music dub, where word timings aren't reliable, so line length simply isn't
 graded there. DubEval already says it isn't sure of such a dub.
 
-## Meaning similarity: the cutoff stays
-Lowering the 0.60 cutoff looks like the way to cut its false alarms, and it would be a mistake: at 0.50 it removes 13 of 19
-false alarms but also 5 of the 6 flags Gemini agrees with. Most of those false alarms come from recognition hearing a line
-differently from run to run, not from a bad cutoff. Only the mostly-music case had a clean fix.
+## No offline meaning screen (removed 2026-11-20)
+DubEval once compared each line pair with a sentence model (BGE-M3) when no translation checker ran. Its flags were mostly
+right (6 of 8 matched Gemini's low lines), but it found only 6 of Gemini's 25, and lowering its cutoff lost the good
+flags faster than the false alarms. So a clean result said little, while it looked like a translation check: the score
+needed a sentence explaining why it didn't count. It also cost a 585 MB download and was the largest source of false
+alarms in the known-problem test. Without a translation checker the report now says plainly that the translation wasn't
+checked; the numbers check stays, because it is exact about the one thing it compares. For an offline check, the local
+translation checker (Gemma 4 12B) caught 28 of 28 planted mistakes.
 
 ## Noise: a floor that fills, not a voice score
 DNSMOS rates 9 s windows and normal dubs dip as much as a 4 s burst, so a lower threshold only brought back false alarms

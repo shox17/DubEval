@@ -64,16 +64,37 @@ def frame_rate_for(duration: Optional[float]) -> float:
     return float(min(MAX_FPS, max(0.5, MAX_FRAMES / duration)))
 
 
-def read_frames(path: str, fps: float, ffmpeg: str, expected: int = 0) -> np.ndarray:
+def _run(cmd: list[str], check: Optional[Callable[[], None]] = None):
+    """Runs ffmpeg and returns its output; with check, calls it four times a second and stops ffmpeg when it raises
+    (the person pressed Stop): reading a long video's picture took 28 s, and Stop waited for all of it."""
+    if check is None:
+        return subprocess.run(cmd, capture_output=True)
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.25)
+            return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            try:
+                check()
+            except BaseException:
+                proc.kill()
+                proc.communicate()
+                raise
+
+
+def read_frames(path: str, fps: float, ffmpeg: str, expected: int = 0,
+                check: Optional[Callable[[], None]] = None) -> np.ndarray:
     """The video's frames at fps, tiny and grayscale: (n, FRAME_H, FRAME_W) floats; empty without a picture.
 
     A read that fails partway, or brings far fewer than the expected frames (from the sound's length), is read once
-    more: a frame list cut short silently changes the coverage. Two reads that agree are what the file holds."""
+    more: a frame list cut short silently changes the coverage. Two reads that agree are what the file holds.
+    check: called while ffmpeg reads; when it raises, the read stops and the exception goes on."""
     cmd = [ffmpeg, "-nostdin", "-loglevel", "error", *LOCAL_INPUT, "-i", path, "-an", "-sn", "-dn",
            "-vf", f"fps={fps},scale={FRAME_W}:{FRAME_H}:flags=area,format=gray", "-f", "rawvideo", "-"]
     counts = []
     while True:
-        proc = subprocess.run(cmd, capture_output=True)
+        proc = _run(cmd, check)
         raw = np.frombuffer(proc.stdout, dtype=np.uint8)
         n = len(raw) // (FRAME_W * FRAME_H)
         short = n and (proc.returncode != 0 or n < SHORT_READ * expected)
@@ -399,28 +420,33 @@ def _followed(ha: np.ndarray, hb: np.ndarray, fps: float, y_dub: np.ndarray, sr:
 
 
 def read_both(original_path: str, dub_path: str, fps: float, ffmpeg: str,
-              expected: tuple[int, int] = (0, 0)) -> tuple[np.ndarray, np.ndarray]:
+              expected: tuple[int, int] = (0, 0),
+              check: Optional[Callable[[], None]] = None) -> tuple[np.ndarray, np.ndarray]:
     """Both videos' frames, decoded at the same time (two ffmpeg processes; decoding is most of the check's time)."""
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=2) as pool:
-        fa = pool.submit(read_frames, original_path, fps, ffmpeg, expected[0])
-        fb = pool.submit(read_frames, dub_path, fps, ffmpeg, expected[1])
+        stop = {"check": check} if check else {}
+        fa = pool.submit(read_frames, original_path, fps, ffmpeg, expected[0], **stop)
+        fb = pool.submit(read_frames, dub_path, fps, ffmpeg, expected[1], **stop)
         return fa.result(), fb.result()
 
 
 def pair(original_path: str, dub_path: str, y_orig: np.ndarray, y_dub: np.ndarray, sr: int, ffmpeg: str,
          original_duration: Optional[float] = None, dub_duration: Optional[float] = None,
-         progress: Optional[Callable[[str, float], None]] = None) -> dict:
+         progress: Optional[Callable[[str, float], None]] = None,
+         check: Optional[Callable[[], None]] = None) -> dict:
     """Same video or not, the dub's time shift, and the original's coverage by the dub.
 
-    progress(message, fraction) is told when the slow parts start: reading the pictures, then matching them."""
+    progress(message, fraction) is told when the slow parts start: reading the pictures, then matching them. check
+    is called while the pictures are read (Stop), and what it raises goes on."""
     report = progress or (lambda message, fraction: None)
     dur_o = original_duration or len(y_orig) / sr
     dur_d = dub_duration or len(y_dub) / sr
     max_shift = min(MAX_SHIFT_SEC, 0.5 * min(dur_o, dur_d))
     fps = frame_rate_for(max(dur_o, dur_d))
     report("Reading the picture of both videos...", 0.0)
-    fa, fb = read_both(original_path, dub_path, fps, ffmpeg, (int(dur_o * fps), int(dur_d * fps)))
+    stop = {"check": check} if check else {}
+    fa, fb = read_both(original_path, dub_path, fps, ffmpeg, (int(dur_o * fps), int(dur_d * fps)), **stop)
     report("Matching the two videos...", 0.7)
     env_o, env_d = onset_envelope(y_orig, sr), onset_envelope(y_dub, sr)
     result = {"measured": True, "frames_per_second": fps, "duration_original_sec": round(dur_o, 2),

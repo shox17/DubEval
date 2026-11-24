@@ -353,3 +353,32 @@ def test_a_dub_laid_by_parts_has_each_subtitle_moved_by_its_own_parts_shift():
     assert [ln["dub_script"] for ln in pipeline.judge_lines(results)] == ["first", "second"]
     results["pairing"] = {"measured": True, "steady_offset": True, "parts": parts[:1], "applied_offset_sec": 5.0}
     assert [ln["dub_script"] for ln in pipeline.judge_lines(results)] == ["", "second"]     # one shift: as before
+
+
+def test_stop_ends_the_picture_read_at_once(monkeypatch):
+    # A long video's picture took 28 s to read, and Stop waited for all of it: now the read checks Stop and ends ffmpeg.
+    import sys
+    import time
+    calls = []
+
+    def check():
+        calls.append(1)
+        if len(calls) >= 2:
+            raise RuntimeError("stopped")
+    t0 = time.time()
+    with pytest.raises(RuntimeError, match="stopped"):
+        pairing._run([sys.executable, "-c", "import time; time.sleep(30)"], check)
+    assert time.time() - t0 < 5
+
+
+def test_a_stopped_run_stops_in_the_pairing_instead_of_being_reported_as_not_measured(monkeypatch, tmp_path):
+    from dubeval import pipeline
+    from dubeval.jobs import Cancelled
+
+    def stopped(*a, **kw):
+        raise Cancelled("Stopped by user.")
+    monkeypatch.setattr(pipeline.pairing, "pair", stopped)
+    monkeypatch.setattr(pipeline.inputs, "fingerprint", lambda path: path)
+    y = np.zeros(16000, dtype=np.float32)
+    with pytest.raises(Cancelled):
+        pipeline.pair_videos("a.mp4", "b.mp4", pipeline.JsonCache(tmp_path / "c.json"), (y, y), check=lambda: None)

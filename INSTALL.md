@@ -17,8 +17,8 @@ For Windows 10 or 11 (64-bit). No Python or other tools needed.
    are needed (it installs for your Windows user only).
 4. DubEval opens on **Evaluations**. Choose **New evaluation**, add the original and the dub, and start.
 5. Optional: **Settings → API keys** to turn on the translation check (a Claude, Gemini or ChatGPT key), and
-   **Settings → Models** for optional downloads (an NVIDIA GPU speed-up, a larger speech model, an offline meaning
-   check). Without a key, everything else works and the translation check shows as "not measured".
+   **Settings → Models** for optional downloads (an NVIDIA GPU speed-up, a larger speech model, the local
+   translation checker). Without a key, everything else works and the translation check shows as "not measured".
 
 **Updates:** DubEval checks this repository's Releases when it starts. When a new version is out, it shows what's new
 and installs it only when you choose to restart (it warns you first if an evaluation is still running).
@@ -39,7 +39,7 @@ version for Intel Macs; run DubEval from source there.
    Apple found no malicious software in it: click **Open**. Any other warning, such as "cannot be opened because the
    developer cannot be verified", means the copy isn't ours.
 4. From here it works as on Windows: **New evaluation**, then the optional **Settings → API keys** and
-   **Settings → Models** (a larger speech model, an offline meaning check, the local translation checker; the NVIDIA
+   **Settings → Models** (a larger speech model, the local translation checker; the NVIDIA
    speed-up is Windows only, so speech recognition runs on the processor).
 
 **Updates:** as on Windows, from 0.1.7 on. A copy from before 0.1.7 (a test build) can't update itself: install
@@ -55,7 +55,7 @@ To run DubEval from source (any OS, for the command line, the REST API or develo
 ### 1. What you need
 - **Python 3.14** (the pinned versions in `requirements.txt` were verified on 3.14; 3.11–3.13 work with the version ranges in `pyproject.toml`). Check with `python3 --version` (`py -0` on Windows lists every installed Python).
 - **git**
-- About **2 GB of free disk space** to run DubEval (no PyTorch needed), plus about 5 GB for the development tools (PyTorch, the original Whisper and BGE-M3).
+- About **2 GB of free disk space** to run DubEval (no PyTorch needed), plus about 5 GB for the development tools (PyTorch and the original Whisper).
 - Optional: an **NVIDIA GPU**. Speech recognition uses it automatically and falls back to the CPU when it can't.
 - A **Gemini API key** (`GEMINI_API_KEY`, from Google AI Studio) for the translation check. A Claude key (`ANTHROPIC_API_KEY`) also works. Without a key, everything else still runs and the translation check shows as "not measured".
 

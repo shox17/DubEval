@@ -21,7 +21,7 @@ def test_prints_text_report_and_saved_paths(monkeypatch, capsys):
     monkeypatch.setattr(cli, "run_share_evaluation", fake_run(make_results()))
     assert cli.main(["https://perso.ai/en/share/video-translator?seq=abc"]) == 0
     out, err = capsys.readouterr()
-    assert "DUBBING QA REPORT" in out and "OVERALL" in out
+    assert "DUB QUALITY REPORT" in out and "OVERALL" in out
     assert "report.html" in err
 
 

@@ -354,22 +354,32 @@ function detailPanel(data, store) {
   const lineTexts = line => [texts(data.original_segments, line.original), texts(data.dub_segments, line.dub)];
   const speechIn = (segments, range) => segments.filter(s => overlaps(s, range)).map(s => s.text.trim()).join(" ");
 
-  // One problem's card: what was found, and the reviewer's verdict on it (saved for History and `dubeval feedback`).
-  function issueRow(iv, i) {
+  // One problem, in two parts: what was found (head), then a better translation and the reviewer's verdict on it
+  // (tail; saved for History and `dubeval feedback`). A moment shows both tracks' words between them: the vote came
+  // before the words it asks about.
+  function issueHead(iv) {
+    return h("div", { class: "issue" },
+      // the moment's own name, as Things to check shows it; the check that found it beside it
+      h("div", { class: "row" }, badge(rep, iv.severity), h("strong", { class: "cat" }, iv.category_label || iv.check_label),
+        iv.category_label && iv.check_label ? h("span", { class: "muted small" }, iv.check_label) : null,
+        h("span", { class: "grow" }), h("span", { class: "muted mono" }, `${fmtTime(iv.start)} – ${fmtTime(iv.end)}`)),
+      h("p", {}, iv.problem ?? iv.description),
+      iv.problem && iv.doubt ? h("p", { class: "muted small" }, rep.labels[`doubt_${iv.doubt}`]) : null);
+  }
+  function issueTail(iv, i, named = false) {
     const voteBtn = (v, label) => h("button", { type: "button", class: `vote ${store.get(i) === v ? "on" : ""}`,
       "aria-pressed": store.get(i) === v ? "true" : "false", onclick: async () => {
         try { await store.set(i, v); } catch (e) { alert(e.message); }
       } }, label);
-    return h("div", { class: "issue" },
-      h("div", { class: "row" }, badge(rep, iv.severity), h("strong", {}, iv.check_label || iv.category_label),
-        h("span", { class: "grow" }), h("span", { class: "muted mono" }, `${fmtTime(iv.start)} – ${fmtTime(iv.end)}`)),
-      h("p", {}, iv.problem ?? iv.description),
-      iv.problem && iv.doubt ? h("p", { class: "muted small" }, rep.labels[`doubt_${iv.doubt}`]) : null,
+    return h("div", { class: "issue-tail" },
       iv.problem && iv.suggestion ? h("div", { class: "suggested" },
         h("span", { class: "muted small" }, t("w.detail.suggested")), h("p", {}, iv.suggestion)) : null,
-      h("div", { class: "row votes" }, h("span", { class: "muted small" }, t("w.vote.ask")),
+      // several findings at one moment: each vote says which finding it is about
+      h("div", { class: "row votes" }, h("span", { class: "muted small" },
+        named ? `${iv.category_label || iv.check_label} · ${t("w.vote.ask")}` : t("w.vote.ask")),
         voteBtn("real", t("w.vote.real")), voteBtn("false_alarm", t("w.vote.false_alarm"))));
   }
+  const issueRow = (iv, i) => [issueHead(iv), issueTail(iv, i)];
 
   // The translation check's scores for one line (1-10 on five criteria), why the low ones are low, the error type
   // and a suggested translation.
@@ -430,9 +440,10 @@ function detailPanel(data, store) {
       const moment = (rep.moments || [])[iv.moment];
       const here = moment ? [item.i, ...moment.intervals.filter(i => i !== item.i)] : [item.i];
       const range = moment || iv;
-      fill(el, ...here.map(i => issueRow(rep.problem_intervals[i], i)),
+      fill(el, ...here.map(i => issueHead(rep.problem_intervals[i])),
         h("dl", { class: "texts" }, h("dt", {}, rep.labels.original), h("dd", {}, speechIn(data.original_segments, range) || "–"),
-          h("dt", {}, rep.labels.dub), h("dd", {}, speechIn(data.dub_segments, range) || "–")));
+          h("dt", {}, rep.labels.dub), h("dd", {}, speechIn(data.dub_segments, range) || "–")),
+        ...here.map(i => issueTail(rep.problem_intervals[i], i, here.length > 1)));
     }
   }
   show(null);
@@ -452,7 +463,6 @@ function reviewFlow(rep, go) {
   function render() {
     if (cur < 0) {
       fill(el, h("div", { class: "row" }, h("strong", {}, t("w.flow.title")), h("span", { class: "grow" }),
-        h("span", { class: "muted small" }, t("w.flow.count", { total: n })),
         h("button", { type: "button", class: "primary", onclick: () => move(0) }, t("w.flow.start"))),
         h("p", { class: "muted small" }, t("w.flow.intro")));
       return;
@@ -485,7 +495,13 @@ const ATTENTION = ["poor", "check"];
 // opens the part holding that measure and points at it (from What to check).
 function sections(rep, fixes) {
   const rows = {};
-  const cards = rep.sections.filter(s => s.metrics.length).map(s => {
+  const shown = s => s.metrics.length && (s.metrics.some(m => m.level !== "not_measured")
+    || s.metrics.some(m => fixes && fixes[m.id]));
+  const need = s => s.metrics.some(m => m.level === "poor") ? 0 : s.metrics.some(m => m.level === "check") ? 1 : 2;
+  const order = rep.sections.filter(shown).map((s, i) => [s, i])
+    .sort(([a, i], [b, j]) => need(a) - need(b) || (b.score?.weight ?? 0) - (a.score?.weight ?? 0) || i - j)
+    .map(([s]) => s);
+  const cards = order.map(s => {
     const count = lv => s.metrics.filter(m => m.level === lv).length;
     const counted = lv => `${count(lv)} ${rep.badges?.[lv] ?? t(`verdict.${lv}`)}`;
     const summary = ATTENTION.filter(count).map(counted);
@@ -497,14 +513,18 @@ function sections(rep, fixes) {
       : graded ? t("w.review.all_good") : t("w.review.info_only");
     const mine = [];
     const card = h("details", { class: "card section fold" },
-      h("summary", {}, h("h2", {}, s.title), h("span", { class: "grow" }),
+      h("summary", {}, h("h2", {}, s.title),
+        // its share of the quality score, beside its name (the score card lists only the sections)
+        s.score ? h("span", { class: "score-note muted small" }, s.score.display) : null, h("span", { class: "grow" }),
         summary.length ? h("span", { class: `fold-count ${count("poor") ? "poor" : "check"}` },
           [...summary, missing].filter(Boolean).join(" · "))
           : h("span", { class: "fold-count muted" }, calm)),
       s.metrics.map(m => {
         const row = h("details", { class: `metric ${m.level}`, open: fixes && fixes[m.id] ? true : null },
           h("summary", {}, h("span", { class: "label" }, m.label), badge(rep, m.level),
-            h("span", { class: "display muted" }, m.display ?? ""), fixLink(fixes, m.id)),
+            h("span", { class: "display muted" }, m.display ?? ""),
+            m.score_display ? h("span", { class: "score-share muted small" }, m.score_display) : null,
+            fixLink(fixes, m.id)),
           h("p", {}, m.message),
           // The scores inside a row, each number under its heading: an average and a count of lines look alike.
           m.parts ? h("table", { class: "subscores" },
@@ -552,28 +572,37 @@ function whatToCheck(rep, onMeasure, onMoment) {
       x.doubt === "asr_or_real" ? h("span", { class: "scope" }, t("w.review.may_be_misheard")) : null),
     h("span", { class: "why" }, x.problem ?? x.message),
     x.also?.length ? h("span", { class: "why also" }, `${rep.labels.also}: ${x.also.join(", ")}`) : null));
-  const folded = (items, head, cls) => {
-    const list = h("ol", { class: "check-list" }, items.slice(0, SHOWN));
-    let open = false;
+  // extra: the results about the whole dub, folded behind their own button when the level has moments, so "Show 3
+  // more" never reads as three more problems when they are results the headline already names.
+  const folded = (items, head, cls, extra = []) => {
+    const list = h("ol", { class: "check-list" });
+    let open = false, whole = false;
+    const draw = () => list.replaceChildren(...(open ? items : items.slice(0, SHOWN)), ...(whole ? extra : []));
+    const moreText = () => open ? t("w.review.show_less") : t("w.review.show_more", { n: items.length - SHOWN });
+    const wholeText = () => whole ? t("w.review.hide_whole")
+      : t(extra.length === 1 ? "w.review.show_whole_one" : "w.review.show_whole_many", { n: extra.length });
     const toggle = items.length > SHOWN ? h("button", { type: "button", class: "link show-more", onclick: () => {
-      open = !open;
-      list.replaceChildren(...(open ? items : items.slice(0, SHOWN)));
-      toggle.textContent = open ? t("w.review.show_less") : t("w.review.show_more", { n: items.length - SHOWN });
-    } }, t("w.review.show_more", { n: items.length - SHOWN })) : null;
-    return h("div", { class: `check-group ${cls}` }, h("div", { class: "group-head" }, head), list, toggle);
+      open = !open; draw(); toggle.textContent = moreText();
+    } }, moreText()) : null;
+    const wholeToggle = extra.length ? h("button", { type: "button", class: "link show-more", onclick: () => {
+      whole = !whole; draw(); wholeToggle.textContent = wholeText();
+    } }, wholeText()) : null;
+    draw();
+    return h("div", { class: `check-group ${cls}` }, h("div", { class: "group-head" }, head), list, toggle, wholeToggle);
   };
   const group = lv => {
     const ms = measures.filter(m => m.level === lv);
     const ts = moments.filter(x => x.severity === lv && kindOf(x) !== "misheard");
     if (!ms.length && !ts.length) return null;
     const timed = ts.filter(x => x.interval);
-    const items = [
-      ...[...timed, ...ts.filter(x => !x.interval)].map(thing),
-      ...ms.map(m => h("li", {}, h("button", { type: "button", class: "item", onclick: () => onMeasure(m.id) },
-        h("span", { class: "head" }, h("span", { class: "scope" }, t("w.review.whole_dub")), h("strong", {}, m.label)),
-        h("span", { class: "why" }, m.message))))];
-    return folded(items, [badge(rep, lv), timed.length ? h("span", { class: "group-count" },
-      t(timed.length === 1 ? "w.review.timed_one" : "w.review.timed_many", { n: timed.length })) : null], lv);
+    const things = [...timed, ...ts.filter(x => !x.interval)].map(thing);
+    const whole = ms.map(m => h("li", {}, h("button", { type: "button", class: "item", onclick: () => onMeasure(m.id) },
+      h("span", { class: "head" }, h("span", { class: "scope" }, t("w.review.whole_dub")), h("strong", {}, m.label)),
+      h("span", { class: "why" }, m.display || m.message))));
+    const head = [badge(rep, lv), timed.length ? h("span", { class: "group-count" },
+      t(timed.length === 1 ? "w.review.timed_one" : "w.review.timed_many", { n: timed.length })) : null];
+    // with no moments at this level, its whole-dub results are the list itself
+    return things.length ? folded(things, head, lv, whole) : folded(whole, head, lv);
   };
   // Lines the translation check thinks were misheard: listed for a listen, never counted, not on the timeline.
   const doubted = misheard.length ? folded(misheard.map(thing),
@@ -582,7 +611,7 @@ function whatToCheck(rep, onMeasure, onMoment) {
 }
 
 // The result's title; a click turns it into a field (Enter or leaving it saves, Escape cancels).
-function editableTitle(title, jobId, dub) {
+export function editableTitle(title, jobId, dub) {
   const heading = h("h1", { class: "editable", tabindex: "0", title: t("w.review.rename") }, title);
   const edit = () => {
     const field = h("input", { type: "text", class: "title-field", value: heading.textContent, maxlength: "200",
@@ -618,6 +647,43 @@ function editableTitle(title, jobId, dub) {
 }
 
 // dub names one dub of a comparison (A, B, ...); embedded leaves out the page's own "evaluate another" link.
+// The quality score next to the verdict (reports since 0.1.8 have one): the number, coloured as the verdict it sits
+// by, and the reason it was worked out the way it was on hover.
+function scorePill(rep) {
+  const sc = rep.score;
+  if (!sc) return null;
+  return h("span", { class: `score-pill ${sc.value == null ? "not_measured" : rep.overall.level}`, title: sc.message },
+    h("span", { class: "muted" }, rep.labels.score_title), " ", h("strong", {}, sc.display));
+}
+
+// The score card, short: the score and why, the checks that lost points (biggest first, each with its result; a click
+// opens its row below), one row per section with its share of the score, and the rule folded. Each check's own share is
+// shown in its section below, where the check already is. The server works all of it out; the page only lays it out.
+function scoreCard(rep, openRow) {
+  const sc = rep.score, lb = rep.labels;
+  if (!sc) return null;
+  const lost = sc.lost || [];
+  return h("details", { class: "card section fold score-card", open: true },
+    h("summary", {}, h("h2", {}, lb.score_title), h("span", { class: "grow" }),
+      h("span", { class: "fold-count" }, sc.display)),
+    h("p", {}, sc.message),
+    // "Too little measured": the message says why there is no number; no list of points lost under it
+    sc.value == null ? null : [
+      // the heading does the sum (points lost → the score); the line under it says how a check loses points
+      h("h3", { class: "small" }, sc.lost_display || lb.score_lost),
+      sc.lost_how ? h("p", { class: "muted small" }, sc.lost_how) : null,
+      lost.length ? h("ul", { class: "score-lost" }, lost.map(x => {
+        const parts = [badge(rep, x.level), h("span", {}, x.label), h("strong", {}, x.display),
+          x.why ? h("span", { class: "muted" }, x.why) : null];
+        // a check opens its row below
+        return h("li", {}, x.id ? h("button", { type: "button", onclick: () => openRow(x.id) }, parts) : h("span", {}, parts));
+      }))
+        : h("p", { class: "muted small" }, lb.score_none)],
+    // each part's points are on its own heading under All results; a table here said it again in another order
+    h("details", { class: "score-how" }, h("summary", { class: "muted small" }, lb.score_how),
+      h("p", { class: "muted small" }, sc.rule)));
+}
+
 export function renderReview(root, jobId, dub = null, embedded = false) {
   const q = dub ? `?dub=${dub}` : "";
   let ctl = null, alive = true, flow = null, setListen = null;
@@ -683,13 +749,15 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
       if (x.start != null) ctl.seek(x.start);
     };
 
+    const tlHelp = h("p", { class: "muted small", hidden: true }, t("w.tl.help"));
     fill(root,
       h("section", { class: `verdict card ${o.level}` },
-        dub ? h("p", { class: "title-note muted small" }, t("w.review.video_title")) : null,
-        h("div", { class: "row" }, editableTitle(p.title, jobId, dub), h("span", { class: "grow" }),
-          h("div", { class: "head-actions" }, badge(rep, o.level),
+        // In a comparison the title is the comparison's, edited at its top: here, which dub's report this is.
+        h("div", { class: "row" }, dub ? h("h2", {}, t("w.cmp.report_of", { d: dub })) : editableTitle(p.title, jobId, dub),
+          h("span", { class: "grow" }),
+          h("div", { class: "head-actions" }, badge(rep, o.level), scorePill(rep),
             embedded ? null : h("a", { class: "button", href: "#/new" }, t("w.review.new")),
-            embedded ? null : exportButton(jobId))),
+            embedded ? null : exportButton(jobId, [(rep.moments || []).length]))),
         h("p", { class: "muted" }, [p.source_language || "?", "→", p.target_language || "?",
           p.duration_sec ? `· ${fmtTime(p.duration_sec)}` : ""].join(" ")),
         h("p", { class: "headline" }, o.summary ?? o.headline),
@@ -706,9 +774,15 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
           h("span", { class: "muted small" }, t("w.review.listen")), listen,
           h("button", { type: "button", onclick: () => tl.zoomOut(), "aria-label": t("w.tl.zoom_out") }, "−"),
           h("button", { type: "button", onclick: () => tl.fit() }, t("w.tl.fit")),
-          h("button", { type: "button", onclick: () => tl.zoomIn(), "aria-label": t("w.tl.zoom_in") }, "+")),
+          h("button", { type: "button", onclick: () => tl.zoomIn(), "aria-label": t("w.tl.zoom_in") }, "+"),
+          // how to use the timeline, on request: two long lines under it on every visit pushed the review down
+          h("button", { type: "button", class: "tl-help-btn", "aria-label": t("w.tl.help_show"), title: t("w.tl.help_show"),
+            "aria-expanded": "false", onclick: e => {
+              tlHelp.hidden = !tlHelp.hidden;
+              e.currentTarget.setAttribute("aria-expanded", String(!tlHelp.hidden));
+            } }, "?")),
         tl.el,
-        h("p", { class: "muted small" }, t("w.tl.help")),
+        tlHelp,
         flow?.el),
       h("div", { class: "split" },
         h("section", { class: "card what-to-check" }, h("h2", {}, rep.labels.things),
@@ -717,6 +791,7 @@ export function renderReview(root, jobId, dub = null, embedded = false) {
       h("div", { class: "details-head" }, h("h2", {}, t("w.review.details")),
         h("span", { class: "muted small" }, rep.counts_text),
         h("span", { class: "grow" }), h("span", { class: "muted small" }, t("w.review.details_hint"))),
+      scoreCard(rep, id => parts.open(id)),
       ...parts.cards,
       rep.not_measured.length ? h("details", { class: "card section fold" },
         h("summary", {}, h("h2", {}, rep.labels.not_measured), h("span", { class: "grow" }),

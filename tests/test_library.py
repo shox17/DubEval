@@ -30,7 +30,8 @@ def comparison_run(tmp_path, run_id="20261025-111500_0123abcd") -> Path:
     folder = Path(pipeline.RUNS_DIR) / run_id
     for d in "AB":
         r = make_results()
-        r["pipeline"].update(input_video_path=str(tmp_path / "o.mp4"), dubbed_video_path=str(tmp_path / f"{d}.mp4"))
+        r["pipeline"].update(input_video_path=str(tmp_path / "o.mp4"), dubbed_video_path=str(tmp_path / f"{d}.mp4"),
+                             custom_title=f"spanish-{d.lower()}")
         r["report"] = build_report(r, "en")
         pipeline.save_report_files(r, folder, f"report_{d}")
     (folder / "comparison.json").write_text(json.dumps(
@@ -45,6 +46,8 @@ def test_a_finished_run_is_a_card_with_its_verdict_and_videos(tmp_path):
     assert card["verdict"] in ("good", "check", "poor") and card["dubs"] == 1
     assert card["inputs"] == [str(tmp_path / "d.mp4"), str(tmp_path / "o.mp4")]     # the dub first: its picture
     assert (folder / "card.json").is_file()
+    # the quality score, as the review shows it (worked out with the current rules from the saved results)
+    assert card["score"]["value"] == build_report(make_results(), "en")["score"]["value"]
 
 
 def test_cards_are_newest_first_and_folders_without_results_are_skipped(tmp_path):
@@ -59,7 +62,8 @@ def test_a_comparison_is_one_card_with_the_recommended_verdict(tmp_path):
     comparison_run(tmp_path)
     [card] = library.evaluations()
     assert card["kind"] == "comparison" and card["dubs"] == 2
-    assert card["title"] == "Trailer" and card["verdict"] == "check"
+    # its dubs' titles, not the recommended dub's alone (which made the comparison look like that dub)
+    assert card["title"] == "spanish-a vs spanish-b" and card["verdict"] == "check"
     assert str(tmp_path / "A.mp4") in card["inputs"] and str(tmp_path / "B.mp4") in card["inputs"]
 
 
@@ -162,6 +166,8 @@ def test_an_empty_title_or_an_unknown_run_is_refused(tmp_path):
     for bad in ("../../etc", "20261025-101500_0123abcz", "", "20261025-101500_ffffffff"):
         with pytest.raises(ValueError):
             library.run_folder(bad)
+    with pytest.raises(ValueError):                  # ids are matched whole: a pattern's $ alone lets a newline through
+        library._draft_path("0123456789ab\n")
 
 
 def test_deleting_a_run_frees_only_the_videos_nothing_else_uses(tmp_path):

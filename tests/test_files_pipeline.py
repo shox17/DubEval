@@ -130,7 +130,7 @@ def test_the_sound_is_read_once_for_the_check_the_language_and_the_evaluation(mo
     d.write_bytes(b"d")
     monkeypatch.setattr(pipeline.inputs, "check", lambda path, label: {})
     with pytest.raises(RuntimeError, match="stop here"):
-        pipeline.evaluate_files(str(o), str(d), lambda *a: None, lambda: None, use_cache=False)
+        pipeline.evaluate_files(str(o), str(d), lambda *a, **k: None, lambda: None, use_cache=False)
     assert len(calls) == 1 and seen == {"pair": (True, True), "lang": True, "eval": True}
 
 

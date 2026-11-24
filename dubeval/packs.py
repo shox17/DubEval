@@ -1,6 +1,5 @@
 """Optional downloads ("packs"): extras a person chooses to install from inside the app, each with its size.
 
-    meaning      the offline meaning screen: BGE-M3 as an int8 ONNX model + its tokenizer (Xenova/bge-m3, MIT)
     gpu          faster speech recognition on an NVIDIA GPU: cuBLAS from NVIDIA's own package on PyPI (Windows only)
     large_model  better speech recognition for less common languages: faster-whisper large-v3-turbo (MIT)
     local_judge  the translation check on this computer: Ollama (CPU + Vulkan, MIT) and Gemma 4 12B (Apache-2.0)
@@ -25,14 +24,13 @@ import zlib
 from pathlib import Path
 from typing import Callable, Optional
 
-from dubeval import asr, lip_sync, local_judge, meaning, network, voice_quality
+from dubeval import asr, lip_sync, local_judge, network, voice_quality
 
 log = logging.getLogger(__name__)
 
 MODELS_DIR = Path(os.getenv("DUBEVAL_MODELS", Path.home() / ".cache" / "dubeval"))
 CHUNK = 1 << 20
 HF = "https://huggingface.co"
-BGE_M3 = (f"{HF}/Xenova/bge-m3/resolve/4de13258303883538bd53b696b452bf8099f0858", "MIT")
 TURBO = (f"{HF}/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf", "MIT")
 LATENTSYNC = f"{HF}/ByteDance/LatentSync-1.5/resolve/32a20d29aead0498e3e885e90dbbe8027da1b61b"
 CUBLAS_WHEEL = ("https://files.pythonhosted.org/packages/20/e2/fc9a0e985249d873150276d5afb02e39a66817fedbf1a385724393e505ed/"
@@ -40,17 +38,6 @@ CUBLAS_WHEEL = ("https://files.pythonhosted.org/packages/20/e2/fc9a0e985249d8731
 
 # Each file: where it comes from, its name in the pack, its size and SHA-256; `extract` takes files out of a zip.
 PACKS = {
-    "meaning": {
-        "folder": lambda: meaning.PACK_DIR,
-        "source": "Xenova/bge-m3 (BAAI BGE-M3, int8 ONNX)", "license": "MIT",
-        "files": [
-            {"url": f"{BGE_M3[0]}/onnx/model_int8.onnx", "name": "model.onnx", "bytes": 568456694,
-             "sha256": "a206e10e995aa2a833924bcd725ba5dd6c3425cd34bac3cf2b5677cd2a1c51d6"},
-            {"url": f"{BGE_M3[0]}/tokenizer.json", "name": "tokenizer.json", "bytes": 17082821,
-             "sha256": "6710678b12670bc442b99edc952c4d996ae309a7020c1fa0096dd245c2faf790"},
-        ],
-        "extra": {"name": "bge-m3-int8", "source": "Xenova/bge-m3", "pooling": "cls+l2"},
-    },
     "gpu": {
         "folder": lambda: asr.cuda_pack_dir(),
         "source": "NVIDIA cuBLAS 12.9 (nvidia-cublas-cu12 on PyPI)", "license": "NVIDIA software license",
@@ -347,9 +334,7 @@ def remove(pack_id: str) -> None:
 
 def _changed(pack_id: str) -> None:
     """Lets the running process pick up a pack that appeared or went away."""
-    if pack_id == "meaning":
-        meaning.unload()
-    elif pack_id == "gpu":
+    if pack_id == "gpu":
         asr._add_cuda_dll_dirs.done = False
         asr._gpu_check.cache_clear()                 # look for the GPU again with the new libraries
         asr.unload()
@@ -363,12 +348,25 @@ def _changed(pack_id: str) -> None:
         voice_quality.unload()
 
 
+
+def remove_retired() -> None:
+    """Deletes the download of a check DubEval no longer has: the offline meaning screen's BGE-M3 (585 MB, removed in
+    0.1.8). Only that folder, only when its own pack.json names it; never fails start-up."""
+    folder = Path(os.getenv("DUBEVAL_MEANING_PACK") or Path(os.getenv("DUBEVAL_MODELS", Path.home() / ".cache" /
+                                                                       "dubeval")) / "bge-m3-int8")
+    try:
+        if json.loads((folder / "pack.json").read_text(encoding="utf-8")).get("name") == "bge-m3-int8":
+            shutil.rmtree(folder, ignore_errors=True)
+            shutil.rmtree(_staging(folder), ignore_errors=True)
+            log.info("Removed the retired meaning model: %s", folder)
+    except (OSError, ValueError, AttributeError):
+        pass
+
 # The Models list (Settings → Models): every model DubEval uses, grouped by what it does, built in or downloadable.
 # (group, id, name, where it lives). Names are product names; groups and notes are translated by the page (w.mod.*).
 CATALOG = (
     ("speech", "whisper_base", "Whisper base", "builtin"),
     ("speech", "large_model", "Whisper large-v3-turbo", "pack"),
-    ("meaning", "meaning", "BGE-M3 (int8)", "pack"),
     ("meaning", "local_judge", f"{local_judge.MODEL_NAME} (Ollama)", "pack"),
     ("voice", "speaker", "WeSpeaker ResNet34", "builtin"),
     ("voice", "dnsmos", "DNSMOS P.835", "builtin"),

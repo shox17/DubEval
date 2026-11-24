@@ -329,7 +329,10 @@ def run_scenarios(run: Run, page, inputs: dict, release: dict) -> None:
         page.wait_for_timeout(3000)
         text = page.locator("main").inner_text()
         e["metrics"]["recommendation"] = text.split("\n")[1] if "\n" in text else ""
-        check(e, "Ranking" in text, "The ranking and reasoning are shown")
+        # The screen names the recommendation ("Deliver Dub A…", or why none is ready), not a "Ranking" heading.
+        check(e, page.url.split("#")[-1].startswith("/compare/") and "Dub comparison" in text
+              and bool(re.search(r"Deliver|deliver|ready", text)), "The comparison and its recommendation are shown",
+              page.url.split("#")[-1])
         # A new profile has no AI key, so the translation check can't run: then nothing may tell you to deliver
         # (0.1.5 said "Deliver Dub B." with a star). Read from the single evaluation's report, not from wording.
         rep = (api(page, f"/api/jobs/{single['job']}/report?lang=en")["json"] or {}).get("report") or {} \
@@ -394,7 +397,7 @@ def run_scenarios(run: Run, page, inputs: dict, release: dict) -> None:
         page.goto(page.url.split("#")[0] + "#/history")
         page.wait_for_timeout(4000)
         text = page.locator("main").inner_text()
-        m = re.search(r"(\d+) runs? on (\d+) dubs?", text)
+        m = re.search(r"evaluations run: (\d+)", text)
         e["metrics"]["history"] = m.group(0) if m else None
         check(e, bool(m), "History counts this run's evaluations", m.group(0) if m else text[:120])
     run.step("history", "Evaluation history", history)
@@ -434,10 +437,19 @@ def main() -> int:
     ap.add_argument("--installer", type=Path, help="Test this local installer instead of a GitHub release")
     ap.add_argument("--reinstall", action="store_true", help="Install even when this version is already installed")
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "qa", help="Where run folders go")
+    ap.add_argument("--dev", action="store_true",
+                    help="Test this repository's code (desktop/ with its Electron and .venv) instead of an installed "
+                         "release: nothing is installed, and its data goes to the run folder")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
 
-    release = release_info(args.tag)
+    if args.dev:
+        TOOL_VERSION = re.search(r'TOOL_VERSION\s*=\s*"([^"]+)"',
+                                 (ROOT / "dubeval" / "version.py").read_text(encoding="utf-8")).group(1)
+        release = {"tag": f"v{TOOL_VERSION}-dev", "version": TOOL_VERSION, "published": "development copy",
+                   "installer_url": None, "installer_bytes": None, "sha512": None, "downloads": 0}
+    else:
+        release = release_info(args.tag)
     if args.installer:                   # a local build (such as a signed one not yet published): its own version
         out = subprocess.run(["powershell", "-NoProfile", "-Command",
                               f"(Get-Item '{args.installer.resolve()}').VersionInfo.ProductVersion"],
@@ -455,6 +467,11 @@ def main() -> int:
     log.info("Release %s (published %s), run folder %s", release["tag"], release["published"], folder)
 
     def install(e):
+        if args.dev:
+            e["notes"].append("Development copy: nothing installed")
+            check(e, (ROOT / "desktop" / "node_modules" / "electron" / "dist" / "electron.exe").is_file(),
+                  "The repository's Electron is there (cd desktop && npm install)")
+            return
         before = installed_version()
         e["metrics"]["installed_before"] = before
         if before == release["version"] and not args.reinstall and not args.installer:
@@ -486,9 +503,14 @@ def main() -> int:
         t0 = time.time()
         # Chromium slows a window it thinks is hidden or covered (timers, drawing): screenshots then time out and the
         # page lags. These switches keep the QA window running at full speed behind other windows.
-        proc = subprocess.Popen([str(APP), f"--user-data-dir={profile}", f"--remote-debugging-port={port}",
+        # The development copy runs the repository's server, whose data folder would be the repository's own: the
+        # run gets its own (DUBEVAL_DATA), as the installed app keeps its data in the profile.
+        app = ([str(ROOT / "desktop" / "node_modules" / "electron" / "dist" / "electron.exe"), str(ROOT / "desktop")]
+               if args.dev else [str(APP)])
+        env = {**os.environ, "DUBEVAL_DATA": str(folder / "data")} if args.dev else None
+        proc = subprocess.Popen([*app, f"--user-data-dir={profile}", f"--remote-debugging-port={port}",
                                  "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
-                                 "--disable-background-timer-throttling"])
+                                 "--disable-background-timer-throttling"], env=env)
         # Wait until DevTools lists the app's own page (after the starting screen) before attaching: Playwright
         # attached while only the starting screen existed never saw the page that replaced it.
         for _ in range(360):

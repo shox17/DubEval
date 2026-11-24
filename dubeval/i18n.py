@@ -130,10 +130,10 @@ TEXT = {
     "verdict.check": {"en": "Needs review", "ko": "검토 필요", "pt": "Precisa de revisão", "es": "Necesita revisión"},
     "verdict.poor": {"en": "Poor", "ko": "미흡", "pt": "Ruim", "es": "Deficiente"},
     "verdict.counts": {
-        "en": "{good} good · {check} needs review · {poor} poor · {na} not measured",
+        "en": "{good} Good · {check} Needs review · {poor} Poor · {na} not measured",
         "ko": "좋음 {good} · 검토 필요 {check} · 미흡 {poor} · 측정 안 함 {na}",
-        "pt": "{good} bons · {check} precisam de revisão · {poor} ruins · {na} não medidos",
-        "es": "{good} bien · {check} necesitan revisión · {poor} deficientes · {na} sin medir",
+        "pt": "{good} Bom · {check} Precisa de revisão · {poor} Ruim · {na} não medidos",
+        "es": "{good} Bien · {check} Necesita revisión · {poor} Deficiente · {na} sin medir",
     },
     "verdict.rule": {
         "en": "Any Poor item makes the verdict Poor; otherwise any item that needs review makes it Needs review. "
@@ -181,11 +181,9 @@ TEXT = {
     "lab.saved": {"en": 'Saved to the sheet.', "ko": '시트에 저장했습니다.', "pt": 'Salvo na planilha.', "es": 'Guardado en la hoja.'},
     "lab.save_failed": {"en": "Couldn't save. Is the label command still running?", "ko": '저장하지 못했습니다. label 명령이 아직 실행 중인가요?', "pt": 'Não foi possível salvar. O comando label ainda está rodando?', "es": 'No se pudo guardar. ¿Sigue en marcha el comando label?'},
     "rsec.pairing": {"en": "Same video", "ko": "같은 영상 확인", "pt": "Mesmo vídeo", "es": "Mismo video"},
-    "rsec.timing_audio": {"en": "Timing & audio", "ko": "타이밍 & 오디오", "pt": "Tempo e áudio", "es": "Tiempo y audio"},
-    "rsec.speech": {"en": "Speech recognition", "ko": "음성 인식", "pt": "Reconhecimento de fala",
-                    "es": "Reconocimiento de voz"},
-    "rsec.alignment": {"en": "Timing alignment", "ko": "발화 타이밍", "pt": "Alinhamento da fala",
-                       "es": "Alineación del habla"},
+    "rsec.timing_audio": {"en": "Length & sound", "ko": "길이와 소리", "pt": "Duração e som", "es": "Duración y sonido"},
+    "rsec.speech": {"en": "Speech & voice", "ko": "말소리와 목소리", "pt": "Fala e voz", "es": "Habla y voz"},
+    "rsec.alignment": {"en": "Timing", "ko": "발화 타이밍", "pt": "Tempo das falas", "es": "Tiempo de las frases"},
     "rsec.translation": {"en": "Translation", "ko": "번역", "pt": "Tradução", "es": "Traducción"},
     "rsec.integrity": {"en": "Video integrity", "ko": "영상 무결성", "pt": "Integridade do vídeo",
                        "es": "Integridad del video"},
@@ -375,7 +373,7 @@ TEXT = {
     "compare.download_html": {"en": "Download comparison", "ko": "비교 보고서 다운로드", "pt": "Baixar comparação",
                               "es": "Descargar comparación"},
     "compare.download_html_help": {
-        "en": "One HTML file with the recommendation, problem intervals, reasoning and every check side by side.",
+        "en": "One HTML file with the recommendation, problems on the timeline, reasoning and every check side by side.",
         "ko": "추천, 문제 구간, 판단 근거, 전체 항목 비교가 담긴 HTML 파일 하나입니다.",
         "pt": "Um arquivo HTML com a recomendação, os trechos com problemas, a justificativa e todas as verificações.",
         "es": "Un archivo HTML con la recomendación, los tramos con problemas, el razonamiento y todas las comprobaciones.",
@@ -538,6 +536,27 @@ MESSAGES = {
         "ko": "작업 도중 앱이 다시 시작되어 작업이 중단됐습니다. 다시 시작하세요.",
         "pt": "O app reiniciou enquanto esta tarefa rodava, então ela parou. Comece de novo.",
         "es": "La app se reinició mientras esta tarea se ejecutaba, así que se detuvo. Vuelve a empezarla."},
+    "The app restarted before this evaluation's turn came. Start it again.": {
+        "ko": "이 평가 차례가 오기 전에 앱이 다시 시작됐습니다. 다시 시작하세요.",
+        "pt": "O app reiniciou antes de chegar a vez desta avaliação. Comece de novo.",
+        "es": "La app se reinició antes de que llegara el turno de esta evaluación. Vuelve a empezarla."},
+    "The videos of this evaluation are gone, so no clips can be made. Run the evaluation again.": {
+        "ko": "이 평가의 영상이 없어져 클립을 만들 수 없습니다. 평가를 다시 실행하세요.",
+        "pt": "Os vídeos desta avaliação não estão mais lá, então não dá para fazer os clipes. Rode a avaliação de novo.",
+        "es": "Los videos de esta evaluación ya no están, así que no se pueden hacer los clips. Vuelve a ejecutar la "
+              "evaluación."},
+    "A problem clip couldn't be made from these videos.": {
+        "ko": "이 영상으로 문제 클립을 만들지 못했습니다.",
+        "pt": "Não foi possível fazer um clipe de problema com estes vídeos.",
+        "es": "No se pudo hacer un clip del problema con estos videos."},
+    "You took this evaluation out of the queue before it started.": {
+        "ko": "시작하기 전에 이 평가를 대기열에서 뺐습니다.",
+        "pt": "Você tirou esta avaliação da fila antes de ela começar.",
+        "es": "Quitaste esta evaluación de la cola antes de que empezara."},
+    "Waiting for the evaluation before it to finish.": {
+        "ko": "앞의 평가가 끝나기를 기다리는 중입니다.",
+        "pt": "Aguardando a avaliação anterior terminar.",
+        "es": "Esperando a que termine la evaluación anterior."},
     "Comparing the dubs...": {"ko": "더빙 비교 중...", "pt": "Comparando as dublagens...",
                               "es": "Comparando los doblajes..."},
     "This share link has no original video. Pass the original with --original <file or URL> (command line), then try again.": {

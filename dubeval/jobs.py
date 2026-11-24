@@ -1,6 +1,10 @@
 """Background jobs: an evaluation, comparison or batch runs in a thread so the UI can show live progress, survive page
 reloads (the job id is kept in the URL) and let the user stop it.
 
+Evaluations take turns (`start_job(..., queued=True)`): one started while another runs waits in line ("queued") and
+starts by itself when the one before it ends, so two never share the computer (they would compete for the processor
+and graphics card, and two speech models at once can run out of graphics memory). Model downloads don't wait.
+
 Every job also keeps its state in data/jobs/<id>.json (and its result in <id>.result.json once done), so a job is
 still found after the app restarts: a finished one shows its result, one that was running when the process stopped
 is reported as interrupted.
@@ -14,6 +18,7 @@ import logging
 import threading
 from pathlib import Path
 
+from dubeval.awake import keep_awake
 from dubeval.paths import DATA_DIR
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -25,6 +30,10 @@ MAX_KEPT_JOBS = 50
 SAVE_EVERY_SEC = 2.0                 # progress snapshots are written at most this often (stage changes always)
 JOB_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 INTERRUPTED = "The app restarted while this job was running, so it stopped. Start it again."
+INTERRUPTED_WAITING = "The app restarted before this evaluation's turn came. Start it again."
+WAITING = "Waiting for the evaluation before it to finish."
+STOPPED = "You stopped this job."
+REMOVED = "You took this evaluation out of the queue before it started."
 
 # Ordered stages shown in the UI checklist.
 STAGES = [
@@ -57,6 +66,7 @@ class Progress:
     stage: str                       # one of STAGE_KEYS
     message: str                     # what is happening, in plain words
     stage_fraction: float = 0.0      # 0..1 within the stage
+    media_sec: Optional[float] = None  # the original's length, once read: the time estimate needs it (speed.py)
 
 
 @dataclass
@@ -65,17 +75,19 @@ class Job:
     id: str
     params: dict
     stages: list[str]                               # the stages this job goes through
-    status: str = "running"                         # running | done | failed | cancelled | interrupted
+    status: str = "running"                         # queued | running | done | failed | cancelled | interrupted
     stage: str = ""
     message: str = "Starting..."
     stage_fraction: float = 0.0
     started_at: float = field(default_factory=time.time)
     stage_started_at: float = field(default_factory=time.time)
     finished_at: Optional[float] = None
+    media_sec: Optional[float] = None                # the original's length, from the pipeline (speed.py)
     result: Optional[dict] = None
     error: Optional[str] = None
     error_type: Optional[str] = None                # the exception's class name, kept in memory only
     retry_helps: bool = True                        # False when the input itself failed: Continue would fail the same way
+    takes_turns: bool = False                       # an evaluation: waits while another one runs (start_job queued)
     cancel_event: threading.Event = field(default_factory=threading.Event)
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _saved_at: float = 0.0
@@ -87,9 +99,16 @@ class Job:
             if new_stage:
                 self.stage_started_at = time.time()
             self.stage, self.message = p.stage, p.message
+            if p.media_sec:
+                self.media_sec = p.media_sec
             self.stage_fraction = max(0.0, min(1.0, p.stage_fraction))
         if new_stage or time.time() - self._saved_at >= SAVE_EVERY_SEC:
             self.save()
+        if on_progress is not None:
+            try:
+                on_progress(self)
+            except Exception as e:                    # a watcher never stops the job
+                log.debug("Progress watcher: %s", type(e).__name__)
 
     def snapshot(self, status: Optional[str] = None) -> dict:
         """The job's state as JSON-friendly data (without the result)."""
@@ -122,6 +141,8 @@ class Job:
         total = sum(weights[s] for s in self.stages)
         if self.status == "done":
             return 1.0
+        if self.status == "queued":
+            return 0.0
         done = 0.0
         for s in self.stages:
             if s == self.stage:
@@ -132,13 +153,17 @@ class Job:
 
     @property
     def elapsed_sec(self) -> float:
-        """Seconds since the job started, frozen once it finishes."""
+        """Seconds since the job started (0 while it waits in line), frozen once it finishes."""
+        if self.status == "queued":
+            return 0.0
         return (self.finished_at or time.time()) - self.started_at
 
     def stage_state(self, stage: str) -> str:
         """pending | active | done | failed for the UI checklist."""
         if self.status == "done":
             return "done"
+        if self.status == "queued":
+            return "pending"
         order = self.stages
         if stage not in order or self.stage not in order:
             return "pending"
@@ -151,8 +176,10 @@ class Job:
 
 
 _jobs: dict[str, Job] = {}
+_waiting: list[tuple[Job, Callable]] = []           # evaluations in line, oldest first, with what each will run
 _registry_lock = threading.Lock()
 on_finish: Optional[Callable[[Job], None]] = None   # called once a job has ended, from its own thread
+on_progress: Optional[Callable[[Job], None]] = None  # called on every progress report, from the job's thread
 
 
 def _write(path: Path, data) -> None:
@@ -186,8 +213,9 @@ def _load(job_id: str) -> Optional[Job]:
               "retry_helps"):
         if state.get(k) is not None:
             setattr(job, k, state[k])
-    if job.status == "running":
-        job.status, job.error = "interrupted", INTERRUPTED
+    if job.status in ("running", "queued"):
+        job.error = INTERRUPTED if job.status == "running" else INTERRUPTED_WAITING
+        job.status = "interrupted"
         job.finished_at = job.finished_at or state.get("stage_started_at") or job.started_at
         job.save()
     elif job.status == "done":
@@ -199,22 +227,85 @@ def _load(job_id: str) -> Optional[Job]:
 
 
 def start_job(runner: Callable[[Callable[[Progress], None], threading.Event], dict],
-              params: dict, stages: list[str]) -> Job:
-    """Runs runner(report, cancel_event) in a daemon thread and returns the Job immediately."""
-    job = Job(id=uuid.uuid4().hex[:12], params=params, stages=stages, stage=stages[0])
+              params: dict, stages: list[str], queued: bool = False) -> Job:
+    """Runs runner(report, cancel_event) in a daemon thread and returns the Job immediately. queued: an evaluation,
+    which waits in line while another one runs or waits (status "queued") and starts when its turn comes."""
+    job = Job(id=uuid.uuid4().hex[:12], params=params, stages=stages, stage=stages[0], takes_turns=queued)
     with _registry_lock:
+        wait = queued and _turn_taken()                # asked before this job is listed: it isn't running yet
         _jobs[job.id] = job
+        if wait:
+            job.status, job.message = "queued", WAITING
+            _waiting.append((job, runner))
     job.save()
     _prune()
+    if not wait:
+        _run(job, runner)
+    return job
 
+
+def _turn_taken() -> bool:
+    """Whether an evaluation is running or waiting (call with _registry_lock held)."""
+    return bool(_waiting) or any(j.takes_turns and j.status == "running" for j in _jobs.values())
+
+
+def _start_next() -> None:
+    """Starts the evaluation first in line, if there is one and none is running."""
+    with _registry_lock:
+        if not _waiting or any(j.takes_turns and j.status == "running" for j in _jobs.values()):
+            return
+        job, runner = _waiting.pop(0)
+        job.status, job.message = "running", "Starting..."
+        job.started_at = job.stage_started_at = time.time()      # its time in line isn't this computer's speed
+    job.save()
+    _run(job, runner)
+
+
+def queue_position(job: Job) -> Optional[int]:
+    """Where a waiting evaluation is in line (1 = next), or None when it isn't waiting."""
+    with _registry_lock:
+        return next((i + 1 for i, (j, _) in enumerate(_waiting) if j is job), None)
+
+
+def waiting_count() -> int:
+    """How many evaluations wait in line."""
+    with _registry_lock:
+        return len(_waiting)
+
+
+def running_evaluation() -> Optional[Job]:
+    """The evaluation running now, if any."""
+    with _registry_lock:
+        return next((j for j in _jobs.values() if j.takes_turns and j.status == "running"), None)
+
+
+def cancel(job: Job) -> None:
+    """Stops a job: one waiting in line leaves it at once (nothing was measured); a running one is asked to stop and
+    ends at its next step."""
+    with _registry_lock:
+        entry = next((e for e in _waiting if e[0] is job), None)
+        if entry is not None:
+            _waiting.remove(entry)
+    if entry is None:
+        job.cancel_event.set()
+        return
+    job.error, job.finished_at = REMOVED, time.time()
+    job.params["removed"] = True                       # never started: the page offers to add it to the queue again
+    job.save("cancelled")
+    job.status = "cancelled"
+
+
+def _run(job: Job, runner: Callable) -> None:
+    """Runs a job's runner in its own daemon thread; when it ends, the next evaluation in line starts."""
     def target():
         """Thread body: runs the pipeline and stores the result, error or cancellation on the job."""
         try:
-            job.result = runner(job.report, job.cancel_event)
+            with keep_awake():                        # an idle computer that sleeps stops the evaluation with it
+                job.result = runner(job.report, job.cancel_event)
             status, job.message = "done", "Finished"
         except Exception as e:  # reported to the UI; the traceback goes to the log
             if isinstance(e, Cancelled):
-                status, job.error = "cancelled", "You stopped this job."
+                status, job.error = "cancelled", STOPPED
             else:
                 # A problem with the given file or link (an exception saying retry_helps = False, or a missing file)
                 # is the person's to fix: logged as a warning, and the job says Continue can't help.
@@ -232,15 +323,16 @@ def start_job(runner: Callable[[Callable[[Progress], None], threading.Event], di
                 on_finish(job)
             except Exception as e:                    # a watcher never changes how the job ended
                 log.warning("After job %s: %s", job.id, type(e).__name__)
+        if job.takes_turns:
+            _start_next()
 
     threading.Thread(target=target, name=f"job-{job.id}", daemon=True).start()
-    return job
 
 
 def busy() -> bool:
-    """Whether a job (an evaluation or a download) is running in this process."""
+    """Whether a job (an evaluation or a download) is running or waiting in this process."""
     with _registry_lock:
-        return any(j.status == "running" for j in _jobs.values())
+        return bool(_waiting) or any(j.status == "running" for j in _jobs.values())
 
 
 def restore_job(params: dict, stages: list[str], result: dict) -> Job:
@@ -293,7 +385,7 @@ def _same_path(path: str) -> str:
 
 def get_job(job_id: Optional[str]) -> Optional[Job]:
     """A job by id: from memory, else from its saved files (after an app restart); None if unknown or malformed."""
-    if not job_id or not JOB_ID_RE.match(str(job_id)):
+    if not job_id or not JOB_ID_RE.fullmatch(str(job_id)):
         return None
     with _registry_lock:
         job = _jobs.get(job_id)

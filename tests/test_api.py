@@ -43,7 +43,7 @@ def finished(client, url: str, auth: dict = None) -> dict:
     """Polls a job until it leaves the running state."""
     for _ in range(200):
         body = client.get(url, headers=auth or {}).json()
-        if body["status"] != "running":
+        if body["status"] not in ("running", "queued"):
             return body
         time.sleep(0.02)
     raise AssertionError("job did not finish")
@@ -60,11 +60,11 @@ def test_an_evaluation_runs_and_returns_a_summary_and_reports(client):
     assert body["status"] == "done" and body["progress"] == 1.0
     result = body["result"]
     assert result["kind"] == "evaluation" and result["overall"]["level"] == "good"
-    assert result["problem_intervals"][0]["category"] == "timing_mismatch"
+    assert result["problem_intervals"] == []           # a Good dub: its checks passed, so they list no moments
     assert client.seen["single"]["use_translation_judge"] is False and client.seen["single"]["history_mode"] == "api"
     html = client.get(body["reports"]["html"])
     assert html.status_code == 200 and html.headers["content-type"].startswith("text/html")
-    assert "DUBBING QA REPORT" in client.get(body["reports"]["text"]).text
+    assert "DUB QUALITY REPORT" in client.get(body["reports"]["text"]).text
 
 
 def test_a_comparison_returns_the_recommendation(client):

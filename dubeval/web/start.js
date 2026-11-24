@@ -3,7 +3,7 @@
 // it is edited; #/draft/<id> fills it in again. A chosen file is added (uploaded) as soon as it is chosen, so the
 // draft holds it too.
 import { INFO_EVENT, api, fmtTime, go, h, noteUsageStep, setAddress, state, t } from "./app.js";
-import { PREFILL_KEY } from "./home.js";
+import { PREFILL_KEY, noCheckerNotice } from "./home.js";
 
 const SHARE_LINK = /^https?:\/\/(www\.)?perso\.ai\//i;
 const SAVE_WAIT_MS = 700;                  // after the last change, before the draft is saved
@@ -244,7 +244,7 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
     card,
     setTitle(title) { heading.textContent = title; text.setAttribute("aria-label", title); },
     typed: () => (fileName() ? "" : text.value.trim()),
-    empty: () => !fileName() && !text.value.trim() && !included,
+    empty: () => !fileName() && !files.uploaded && !text.value.trim() && !included,
     // The person really gave a video here: a file, or a typed link or path that could be read. Not half-typed text, and
     // not the original that comes with a Perso share link.
     given: () => !!fileName() || (!!text.value.trim() && !!last),
@@ -268,7 +268,10 @@ function source(kind, title, hint, accept, onChange, onRemove = null, placeholde
         box.busy();
         try {
           last = await api(`/api/preview?source=${encodeURIComponent(saved.upload)}`);
-          box.show(last, saved.name);
+          // A draft saved without the file's name (a link's download can have none): the preview's title names it, or
+          // the field looked filled, counted as empty and wouldn't start ("Choose both the original and the dub").
+          if (!saved.name) { files.set({ id: saved.upload, name: last.title || t("w.start.video_added") }); show(); }
+          box.show(last, saved.name || last.title);
         } catch (e) {
           box.error(e.message);       // kept: starting says plainly if the file is gone ("choose it again")
         }
@@ -404,12 +407,11 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
     saveTimer = setTimeout(() => { saveTimer = null; saving = saving.then(saveDraft); }, SAVE_WAIT_MS);
   };
   const video = "video/*,audio/*,.mkv,.mov,.mp4,.webm,.wav,.mp3,.m4a";
-  const original = source("original", t("w.start.original"), t("w.start.original_hint"), video, changed, null,
-    t("w.start.link_hint"));
+  const original = source("original", t("w.start.original"), t("w.start.original_hint"), video, changed);
   const sourceLang = languageSelect("src-lang");
   const originalSubs = subtitleField(changed);
-  original.card.append(h("div", { class: "dub-settings" }, h("label", {}, t("w.start.source_lang"), sourceLang)),
-    originalSubs.el);
+  original.card.append(h("div", { class: "dub-settings" }, h("label", {}, t("w.start.source_lang"), sourceLang),
+    h("p", { class: "muted small" }, t("w.start.lang_pick"))), originalSubs.el);
   const dub = withSettings(source("dub", t("w.start.dub"), t("w.start.dub_hint"), video, changed), info.dub_types, changed);
   const dubs = [dub];
   const dubList = h("div", { class: "dubs" }, dub.card);
@@ -432,12 +434,8 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   const speechModel = h("select", { id: "speech-model" },
     h("option", { value: "auto" }, t("w.start.model_auto", { model: t(info.speech_auto === "base"
       ? "w.start.model_standard" : "w.start.model_large") })),
-    h("option", { value: "standard" }, t("w.start.model_standard")),
-    h("option", { value: "large" }, t("w.start.model_large")));
-  // Checks that won't run as things are set up, each with where to get what it needs.
-  const missing = [
-    !info.meaning_ready && ["w.start.need_meaning", "#/settings/models"],
-  ].filter(Boolean);
+    info.speech_auto === "base" ? null : h("option", { value: "standard" }, t("w.start.model_standard")),
+    info.speech_auto === "base" ? h("option", { value: "large" }, t("w.start.model_large")) : null);
   // A Perso share link (in either box) is the dub and brings its original and both languages: fill them in.
   const filled = h("p", { class: "muted small filled-note", hidden: true }, t("w.prev.filled"));
   let sharedOriginal = false;
@@ -483,11 +481,26 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   }
   window.addEventListener(INFO_EVENT, refreshCheckers);
   const needKeys = checkers.some(([id]) => id !== "ollama" && !ready(id));
+  // Said beside Start evaluation, not only under More options: without it a person learned only from the result that
+  // the translation wasn't checked and the score was provisional. With no checker set up at all, the notice at the top
+  // of the page has the ways to set one up (they were here too, saying it twice).
+  const noCheck = h("p", { class: "muted small no-check", hidden: true }, h("span", {}, t("w.start.no_check")));
+  const showNoCheck = () => { noCheck.hidden = check.value !== "off"; };
+  check.addEventListener("change", showNoCheck);
+  window.addEventListener(INFO_EVENT, showNoCheck);
+  showNoCheck();
   const lipsync = h("input", { type: "checkbox", id: "lipsync" });
   const lockModel = h("input", { type: "checkbox", id: "lock-model" });
+  // "Use one AI model only" means nothing when the translation isn't checked
+  const syncLock = () => { lockModel.disabled = check.value === "off"; };
+  check.addEventListener("change", syncLock);
+  syncLock();
   const error = h("p", { class: "error", role: "alert" });
   const savedNote = h("p", { class: "muted small", hidden: true }, t("w.start.draft_saved"));
   const startBtn = h("button", { type: "submit", class: "primary" }, t("w.start.go"));
+  // While another evaluation runs, this one waits in line: the button and a note say so before it's pressed.
+  let ahead = 0;
+  const queueNote = h("p", { class: "muted small", hidden: true });
   // One dub: "Dubbed video"; several: "Dub A", "Dub B", ... and the comparison button.
   function relabel() {
     const many = dubs.length > 1;
@@ -496,22 +509,28 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
       d.showName(many);
     });
     addBtn.hidden = dubs.length >= LETTERS.length;
-    startBtn.textContent = many ? t("w.start.go_compare", { n: dubs.length }) : t("w.start.go");
+    startBtn.textContent = ahead ? t("w.start.go_queue")
+      : many ? t("w.start.go_compare", { n: dubs.length }) : t("w.start.go");
+    queueNote.hidden = !ahead;
+    queueNote.textContent = ahead ? t(ahead === 1 ? "w.start.queue_one" : "w.start.queue_many", { n: ahead }) : "";
   }
+  api("/api/queue").then(q => {
+    ahead = (q.running ? 1 : 0) + (q.waiting || 0);
+    if (!left) relabel();
+  }).catch(() => { /* the button keeps its usual words */ });
   const more = h("details", { class: "more" }, h("summary", {}, t("w.start.more")),
     h("div", { class: "options" },
       h("label", {}, t("w.start.translation"), check),
       h("label", { class: "check", title: t("w.start.lock_model_hint") }, lockModel, t("w.start.lock_model")),
       needKeys ? h("a", { class: "fix-link", href: "#/settings/keys" }, t("w.start.judge_add")) : null,
-      !ready("ollama") ? h("a", { class: "fix-link", href: "#/settings/models" }, t("w.start.get_local")) : null,
-      missing.map(([key, href]) => h("a", { class: "fix-link", href }, t(key)))),
+      !ready("ollama") ? h("a", { class: "fix-link", href: "#/settings/models" }, t("w.start.get_local")) : null),
     h("div", { class: "options" },
       info.large_model ? h("label", {}, t("w.start.speech_model"), speechModel)
         : h("a", { href: "#/settings/models", class: "small" }, t("w.start.get_large")),
       // The lip-sync check is a download; without it there is nothing to turn on, only where to get it.
       info.lip_sync ? h("label", { class: "check" }, lipsync, t("w.start.lip_sync"))
         : h("a", { href: "#/settings/models", class: "small" }, t("w.start.lip_sync_get"))),
-    h("p", { class: "muted small" }, t("w.start.lang_pick")));
+  );
   let restoredToggle = false;                        // the toggle that restoring "More options" fires, later
   more.addEventListener("toggle", () => { if (restoredToggle) restoredToggle = false; else changed(); });
 
@@ -568,7 +587,7 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
         const d = await api(`/api/drafts/${encodeURIComponent(draftId)}`);
         if (d.job?.id) {
           const job = await api(`/api/jobs/${encodeURIComponent(d.job.id)}`).catch(() => null);
-          if (job && job.status === "running") { go(`#/job/${d.job.id}`, { replace: true }); return; }
+          if (job && ["running", "queued"].includes(job.status)) { go(`#/job/${d.job.id}`, { replace: true }); return; }
         }
         const f = d.form || {};
         await original.restore(f.original);
@@ -578,7 +597,9 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
         await Promise.all((f.dubs || []).map((saved, i) => dubs[i].restore(saved)));
         pick(sourceLang, f.source_lang || "");    // a share link's preview may have set it: the saved choice wins
         pick(check, f.judge || "");
+        showNoCheck();
         lockModel.checked = !!f.lock_model;
+        syncLock();
         lipsync.checked = !!f.lipsync;
         pick(speechModel, f.speech_model || "auto");
         if (more.open !== !!f.more_open) { restoredToggle = true; more.open = !!f.more_open; }
@@ -613,7 +634,15 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
     error.textContent = "";
     // Perso share links include their original, so the original may stay empty for them (the server checks again).
     const allShares = dubs.every(d => SHARE_LINK.test(d.typed()));
-    if ((original.empty() && !allShares) || dubs.some(d => d.empty())) { error.textContent = t("w.err.both"); return; }
+    // the empty cards are outlined too: the message sits at the bottom, far from the field it is about
+    const missing = [...(original.empty() && !allShares ? [original.card] : []), ...dubs.filter(d => d.empty()).map(d => d.card)];
+    form.querySelectorAll(".drop.missing").forEach(c => c.classList.remove("missing"));
+    if (missing.length) {
+      missing.forEach(c => c.classList.add("missing"));
+      missing[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      error.textContent = t("w.err.both");
+      return;
+    }
     startBtn.disabled = true;
     try {
       clearTimeout(saveTimer);
@@ -638,11 +667,12 @@ export function renderStart(root, { draftId = null, compare = false } = {}) {
   } },
     h("h1", {}, t("w.start.title")),
     h("p", { class: "muted lead" }, t("w.start.lead")),
+    noCheckerNotice(),
     h("div", { class: "pair" }, original.card, h("div", {}, dubList, h("div", { class: "add" }, addBtn))),
     filled,
     more,
     error,
-    h("div", { class: "actions" }, savedNote, h("span", { class: "grow" }), startBtn));
+    h("div", { class: "actions" }, savedNote, noCheck, h("span", { class: "grow" }), queueNote, startBtn));
   form.addEventListener("input", changed);
   form.addEventListener("change", changed);
   relabel();

@@ -86,8 +86,8 @@ def tool_verdicts(results_dir: Optional[str]) -> dict:
         for r in csv.DictReader(f):
             key = r.get("pair_id") or r.get("link")
             out[key] = {"label": r.get("verdict") or "", "length_label": r.get("line_length_level") or
-                        r.get("speech_overlap_level") or "", "meaning_label": r.get("meaning_level") or
-                        r.get("meaning_screen_level") or ""}
+                        r.get("speech_overlap_level") or "", "meaning_label": r.get("translation_check_level") or
+                        r.get("meaning_level") or r.get("meaning_screen_level") or ""}   # the last two: older sheets
     return out
 
 

@@ -175,9 +175,9 @@ def test_a_mostly_music_dub_isnt_ranked_below_a_poor_one_for_its_line_rows():
 
 
 def test_problem_seconds_break_a_tie_on_counts():
-    gap = {"mismatches": [{"start": 2.0, "end": 3.0, "kind": "dub_only"}]}
+    gap = {"overlap_pct": 70.0, "mismatches": [{"start": 2.0, "end": 3.0, "kind": "dub_only"}]}
     a = make_results(translation_judge=JUDGED, timing_alignment=gap)
-    b = as_b(make_results(translation_judge=JUDGED, timing_alignment={"mismatches": []}))
+    b = as_b(make_results(translation_judge=JUDGED, timing_alignment={"overlap_pct": 70.0, "mismatches": []}))
     comp = build_comparison(a, b, "en")
     assert comp["reasoning"]["rule"] == "problem_seconds" and comp["recommendation"]["dub"] == "B"
     assert comp["reasoning"]["values"] == {"A": "1.0 s", "B": "0.0 s"}
@@ -190,33 +190,95 @@ def test_identical_dubs_tie_and_a_is_recommended():
 
 
 @pytest.mark.parametrize("lang, titles", [
-    ("en", ["1. RECOMMENDED VERSION", "2. PROBLEM INTERVALS", "3. REASONING", "EVERY CHECK, SIDE BY SIDE",
-            "THE TWO LINKS", "MEASUREMENT NOTES"]),
-    ("ko", ["1. 추천 버전", "2. 문제 구간", "3. 판단 근거", "전체 항목 나란히 보기", "두 링크 정보", "측정 참고 사항"]),
+    ("en", ["1. RECOMMENDED VERSION", "2. PROBLEMS ON THE TIMELINE", "3. REASONING", "EVERY CHECK, SIDE BY SIDE",
+            "THE DUBS", "MEASUREMENT NOTES"]),
+    ("ko", ["1. 추천 버전", "2. 문제 구간", "3. 판단 근거", "전체 항목 나란히 보기", "더빙 정보", "측정 참고 사항"]),
 ])
 def test_comparison_text_starts_with_the_three_sections_in_order(lang, titles):
-    comp = build_comparison(poor_dub(), as_b(make_results(translation_judge=JUDGED)), lang)
+    comp = build_comparison(poor_dub(timing_alignment={"overlap_pct": 70.0}), as_b(make_results(translation_judge=JUDGED)), lang)
     text = render_comparison_text(comp)
     positions = [text.index(title) for title in titles]
     assert positions == sorted(positions)
     assert text.splitlines()[3].strip() == titles[0]          # right after the title bar
-    assert "19.4s-20.4s | " in text and ("Dub B" if lang == "en" else "더빙 B") in text
+    assert "00:19.4–00:20.4 | " in text and ("Dub B" if lang == "en" else "더빙 B") in text
     assert "DubEval 0." in text                     # tool version in the footer
 
 
 def test_comparison_html_has_the_decision_sections_first():
     comp = build_comparison(poor_dub(), as_b(make_results(translation_judge=JUDGED)), "en")
     page = render_comparison_html(comp)
-    order = [page.index(x) for x in ("1. Recommended version", "2. Problem intervals", "3. Reasoning",
+    order = [page.index(x) for x in ("1. Recommended version", "2. Problems on the timeline", "3. Reasoning",
                                      "Every check, side by side")]
     assert order == sorted(order) and "report_A.html" in page and page.startswith("<!doctype html>")
 
 
 def test_interval_lines_carry_every_field():
+    comp = build_comparison(make_results(translation_judge=JUDGED, timing_alignment={"overlap_pct": 70.0}),
+                            as_b(make_results(translation_judge=JUDGED)), "en")
+    text = render_comparison_text(comp, width=300)
+    # under its dub's heading the line doesn't repeat the dub; the moment's name is capitalized, as in the reports
+    line = next(x for x in text.splitlines() if x.strip().startswith("00:19.4–00:20.4 | "))
+    assert line.strip().split(" | ")[:4] == ["00:19.4–00:20.4", "Timing", "Needs review", "Speech timing"]
+    # the check is left out when the moment's name already says it ("Line length | Needs review | Line length")
+    from dubeval.compare import interval_line
+    same = {"start": 1, "end": 2, "category_label": "line length", "check_label": "Line length", "severity": "check",
+            "description": "x", "dub": "A"}
+    assert interval_line(same, comp["labels"], comp["badges"]).split(" | ") == [
+        "00:01.0–00:02.0", "Dub A", "Line length", "Needs review", "x"]
+
+
+def test_the_comparison_counts_and_lists_moments_with_their_other_findings_under_them():
+    # Line 1 too short and the dub silent for its last second: one problem on the timeline, the second finding under it.
+    lines = {"groups": [], "unmatched_original": [], "unmatched_dub": [], "lines": [
+        {"n": 1, "start": 4.2, "end": 10.8, "original_sec": 6.6, "dub_sec": 4.4, "diff_sec": -2.2, "diff_pct": -33.0,
+         "start_shift_sec": 0.0, "overrun_sec": 0.0, "short": False, "original": [0], "dub": [0]}]}
+    a = make_results(translation_judge=JUDGED, segment_alignment=lines,
+                     timing_alignment={"overlap_pct": 70.0, "mismatches": [{"start": 9.8, "end": 10.8,
+                                                                            "kind": "original_only"}]})
+    comp = build_comparison(a, as_b(make_results(translation_judge=JUDGED)), "en")
+    assert len(comp["moments"]["A"]) == 1 and len(comp["moments"]["A"][0]) == 2
+    text = render_comparison_text(comp, width=300)
+    assert "(1 problem on the timeline" in text and "↳ 00:09.8–00:10.8 | " in text
+    assert "class=also" in render_comparison_html(comp)
+
+
+def test_a_winner_with_more_moments_says_why_it_still_wins():
+    # A: one check needs review but it has two moments; B: two checks need review, one moment. Rule 4 picks A, and
+    # the reasoning says the rules count checks, not moments (a winner with more moments looked like a wrong pick).
+    import dubeval.compare as compare
+    a = make_results(translation_judge=JUDGED, timing_alignment={"overlap_pct": 70.0})
+    b = as_b(make_results(translation_judge=JUDGED, timing_alignment={"overlap_pct": 70.0}))
+    real = compare.build_report
+
+    def fake(r, lang, dub=None):
+        rep = real(r, lang, dub=dub)
+        n = 2 if dub == "A" else 1
+        rep["overall"]["counts"]["check"] = 1 if dub == "A" else 2
+        rep["problem_intervals"] = [{**rep["problem_intervals"][0], "start": i * 5.0, "end": i * 5.0 + 1}
+                                    for i in range(n)]
+        rep["moments"] = [{"start": i * 5.0, "end": i * 5.0 + 1, "severity": "check", "intervals": [i]} for i in range(n)]
+        return rep
+    compare.build_report = fake
+    try:
+        comp = build_comparison(a, b, "en")
+    finally:
+        compare.build_report = real
+    assert comp["reasoning"]["rule"] == "check_items" and comp["recommendation"]["dub"] == "A"
+    assert any("more problems on the timeline (2; Dub B: 1)" in s and "not the moments" in s
+               for s in comp["reasoning"]["summary"])
+
+
+def test_the_saved_comparison_says_each_thing_once():
     comp = build_comparison(make_results(translation_judge=JUDGED), as_b(make_results(translation_judge=JUDGED)), "en")
     text = render_comparison_text(comp, width=300)
-    line = next(x for x in text.splitlines() if x.strip().startswith("19.4s-20.4s | Dub A"))
-    assert line.strip().split(" | ")[:5] == ["19.4s-20.4s", "Dub A", "timing", "Needs review", "Speech timing"]
+    # a reason both dubs share is one note for every dub, not the same paragraph per dub joined by ".;"
+    lips = [n for n in comp["notes"] if n.startswith("Lip sync")]
+    assert len(lips) <= 1 and ".;" not in " ".join(comp["notes"])
+    # a file has no Perso project, link or lip-sync flag: those rows are left out, not printed as "—"
+    assert "Perso project: —" not in text and "Link: —" not in text and "THE DUBS" in text
+    # "Deliver" with a warning sign beside it read as two messages: a dub that needs review is delivered after review
+    if comp["recommendation"]["verdict"] == "check":
+        assert comp["recommendation"]["headline"].endswith("after review.")
 
 
 # ---------------- pipeline, files and CLI (fake Perso, no real network) ----------------
@@ -371,7 +433,7 @@ def test_three_dub_comparison_ranks_warns_when_all_are_poor_and_renders_every_du
     assert [x["dub"] for x in comp["ranking"]] == ["B", "A", "C"]
     text = render_comparison_text(comp, width=200)
     assert "Ranking: 1. Dub B (Good) · 2. Dub A (Poor) · 3. Dub C (Poor)" in text
-    assert "Dub C (" in text and "Dub C = Poor" in text
+    assert "Dub C (" in text and "Dub C: Poor" in text
     assert "Dub C" in render_comparison_html(comp)
     all_poor = build_ranking([poor(), poor(), poor()], "en")["recommendation"]
     assert all_poor["all_poor"] and "None of the dubs is ready" in all_poor["warning"]
@@ -431,8 +493,8 @@ def test_when_every_dub_lacks_key_checks_the_recommendation_carries_a_caution(la
 
 def test_the_rule_order_text_lists_the_measured_rule_first():
     comp = build_comparison(make_results(), as_b(make_results()), "en")
-    assert comp["reasoning"]["rules_order"].index("1 more of the key checks measured") \
-        < comp["reasoning"]["rules_order"].index("2 better verdict")
+    assert comp["reasoning"]["rules_order"].index("(1) more of the key checks measured") \
+        < comp["reasoning"]["rules_order"].index("(2) better verdict")
 
 
 def test_a_cache_file_that_cannot_be_saved_never_fails_the_run(tmp_path, monkeypatch):
@@ -501,3 +563,40 @@ def test_different_ai_models_are_called_out(lang):
     same = build_comparison(make_results(translation_judge=judged_by("model-a")),
                             as_b(make_results(translation_judge=judged_by("model-a"))), lang)["recommendation"]
     assert not same["judges_differ"] and same["caution"] is None
+
+
+def test_each_dub_shows_its_score_but_the_score_never_decides():
+    from dubeval.compare import build_ranking
+    comp = build_ranking([make_results(), make_results()])
+    assert all(r["score_display"] and r["score"] is not None for r in comp["ranking"])
+    assert all("score" not in f for f in comp["facts"].values())          # not a fact the rules read
+    assert comp["labels"]["score_label"] in render_comparison_text(comp)
+
+
+def test_a_comparison_is_named_after_its_dubs_until_it_is_renamed():
+    from dubeval.compare import comparison_title
+    assert comparison_title(["spanish-a", "spanish-b"]) == "spanish-a vs spanish-b"
+    assert comparison_title(["a", "b", "c"], "ko") == "a 외 2개"
+    assert comparison_title(["Renamed", "Renamed"]) == "Renamed"          # a renamed comparison gives every dub its name
+    comp = build_comparison(make_results(translation_judge=JUDGED), as_b(make_results(translation_judge=JUDGED)), "en")
+    assert comp["title"]
+
+
+def test_a_reason_that_differs_only_in_its_numbers_is_one_note_and_the_ranking_splits_count_and_time():
+    import dubeval.compare as compare
+    a, b = make_results(translation_judge=JUDGED), as_b(make_results(translation_judge=JUDGED))
+    real = compare.build_report
+
+    def fake(r, lang, dub=None):
+        rep = real(r, lang, dub=dub)
+        rep["not_measured"] = [{"id": "voice_similarity", "label": "Voice similarity",
+                                "reason": f"Can't tell: the dub is {21 if dub == 'A' else 22}% like the original."}]
+        return rep
+    compare.build_report = fake
+    try:
+        comp = build_comparison(a, b, "en")
+    finally:
+        compare.build_report = real
+    [note] = [n for n in comp["notes"] if n.startswith("Voice similarity")]
+    assert note.count("like the original") == 1 and "21%" in note and "Dub B are in its own report" in note
+    assert all(isinstance(r["moments"], int) and r["problem_time"].endswith(" s") for r in comp["ranking"])

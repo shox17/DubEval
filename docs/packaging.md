@@ -6,6 +6,9 @@
 How to ship Python, DubEval, ffmpeg and the models inside the Electron app (`desktop/`) so a person installs one
 thing and never sees a terminal. Measured on the development PC (2026-10-22); sizes are on disk, before compression.
 
+> The offline meaning screen (BGE-M3) and its 586 MB pack were removed on 2026-11-20 (`docs/design.md`); the sizes and
+> steps below are kept as they were measured.
+
 ## What the Python side weighs today
 | Part | Size | Needed for |
 |---|---|---|
@@ -52,7 +55,7 @@ app where a person chooses extras, each with its size, a progress bar and a chec
 | Pack | Size | Adds |
 |---|---|---|
 | GPU acceleration (NVIDIA only, offered only when one is found) | 736 MB (measured) | faster speech recognition through CUDA |
-| Meaning screen | 586 MB (measured) | the offline line-by-line meaning check |
+| ~~Meaning screen~~ | 586 MB (measured) | the offline line-by-line meaning check (removed 2026-11-20) |
 | Better recognition for less common languages | ~1.6 GB | `large-v3-turbo` |
 | Local translation checker | 8.1 GB | Ollama + Gemma 4 12B, for checking without Claude or Gemini |
 | Voice quality over music | 415 MB | Audiobox Aesthetics, in place of DNSMOS |

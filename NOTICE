@@ -97,13 +97,11 @@ OpenAI Whisper models (speech recognition, optional)
   OpenAI. dubeval/languages.py copies its table of language names
   (whisper/tokenizer.py, LANGUAGES).
 
-BGE-M3 sentence model (optional: the offline meaning screen)
-  https://huggingface.co/BAAI/bge-m3, MIT License. Downloaded on request as the
-  int8 ONNX export at https://huggingface.co/Xenova/bge-m3 (MIT), or built by
-  tools/build_meaning_onnx.py (onnxruntime and Hugging Face
-  tokenizers: MIT / Apache License 2.0), or in development with
-  sentence-transformers (https://github.com/UKPLab/sentence-transformers,
-  Apache License 2.0).
+Unicode CLDR language names
+  https://cldr.unicode.org, Copyright (c) Unicode, Inc., Unicode License v3.
+  dubeval/language_names.json holds the names of the speech languages in each
+  interface language, taken from CLDR through Node.js's Intl.DisplayNames by
+  tools/build_language_names.mjs.
 
 NVIDIA cuBLAS (optional: speech recognition on an NVIDIA GPU)
   Downloaded on request from NVIDIA's nvidia-cublas-cu12 package on PyPI; not

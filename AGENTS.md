@@ -79,9 +79,8 @@ pytest -m "not slow"
 - **The runtime has no PyTorch** (`requirements.txt`): speech recognition runs on CTranslate2 and, on an NVIDIA GPU,
   needs only cuBLAS (`cublas64_12.dll` + `cublasLt64_12.dll`, 736 MB), found by `asr._add_cuda_dll_dirs` in the GPU
   pack folder (`DUBEVAL_CUDA_DIR`, default `~/.cache/dubeval/cuda`), NVIDIA's pip packages, or PyTorch's `lib`;
-  without them it falls back to the CPU on its own. The meaning screen uses the ONNX pack (`meaning.PACK_DIR`, built
-  by `tools/build_meaning_onnx.py`) and only falls back to sentence-transformers in a dev env. Keep torch out of the
-  runtime: the desktop app ships `requirements.txt`.
+  without them it falls back to the CPU on its own. Keep torch out of the runtime: the desktop app ships
+  `requirements.txt`.
 - `.env` is git-ignored; a fresh clone has none. Without a key everything works except the translation check,
   which the report shows as "not measured" with the reason.
 - The real share link, Perso and Gemini need network access. The fast tests are fully offline.
@@ -101,7 +100,9 @@ dubeval/asr.py           Speech recognition over faster-whisper (default) or ope
 dubeval/settings.py      API keys (Claude, Gemini, ChatGPT) from Settings → API keys: data folder's .env, status only
 dubeval/packs.py         Optional downloads (meaning, gpu, large_model): pinned sources + SHA-256, resume, install,
                          remove; CATALOG = Settings → Models (built in + downloadable, grouped; /api/models)
-dubeval/languages.py     Whisper's language names by code (copied, MIT): the runtime has no openai-whisper
+dubeval/languages.py     Whisper's language names by code (copied, MIT): the runtime has no openai-whisper;
+                         display_name() gives a name in the interface language from language_names.json
+                         (Unicode CLDR, written by tools/build_language_names.mjs with Node's Intl)
 dubeval/pairing.py       Same video, time shift and coverage from motion, frame hashes and background sound; the
                          dub's audio is laid onto the original's timeline (one shift, or part by part)
 dubeval/schema.py        The report.json format (Pydantic models, FORMAT_VERSION) and its JSON Schema
@@ -136,6 +137,8 @@ dubeval/preview.py           Start-page previews: Perso share (public endpoint),
                              (one ffmpeg frame); pictures as data: URIs. GET /api/preview
 dubeval/local_judge.py       The local translation checker pack (Ollama CPU+Vulkan + Gemma 4 12B, pinned) and its server
 dubeval/xlsx.py              A dependency-free one-sheet .xlsx writer (Export's problem list, webapp.problem_rows)
+dubeval/clips.py             Export → Problem clips: each moment as a side-by-side clip (original | dub, played twice: the
+                             original's sound, then the dub's) and "Problem clips.html" saying what's wrong at each
 dubeval/release_notes.py     What's new per version in en/ko/pt/es; the lines are in release_notes.json (add the new version's
                              with every release), which installed apps read at a release's tag
 dubeval/web_text.py          Every web-page text in en/ko/pt/es (keys w.*), merged into i18n.TEXT
@@ -143,7 +146,6 @@ dubeval/__main__.py          python -m dubeval = the dubeval command (how the de
 tools/build_desktop.py       Windows and macOS build: Python 3.14 + requirements.txt + DubEval + base/speaker models →
                              desktop/resources/ (macOS: a pinned python-build-standalone CPython, built by
                              .github/workflows/build-mac.yml on one of GitHub's Macs)
-tools/build_meaning_onnx.py  Dev tool: BGE-M3 → int8 ONNX pack (model.onnx + tokenizer.json + pack.json) for meaning.py
 desktop/                     Electron app: main.js starts `python -m dubeval web`, reads the launch link,
                              opens it in a sandboxed window (status.html while starting); updater.js (electron-updater,
                              GitHub Releases) + preload.js (window.dubevalShell: updates only); README.md there
@@ -157,7 +159,11 @@ dubeval/version.py           TOOL_VERSION (= desktop/package.json's version, tes
                              feedback, and the releases the app updates from)
 dubeval/report_text.py       Every report sentence in en/ko/pt/es (keys r.*), merged into i18n.TEXT
 dubeval/i18n.py              UI text (TEXT), fixed progress/error messages (MESSAGES), t(), translate_message()
-dubeval/jobs.py              Background job thread + Progress model; state and results kept in data/jobs/ across restarts
+dubeval/jobs.py              Background job thread + Progress model; state and results kept in data/jobs/ across restarts;
+                             evaluations take turns (queued=True: one runs, the others wait in line and start by themselves)
+dubeval/awake.py             Keeps the computer from idle sleep while a job runs (Windows SetThreadExecutionState, macOS caffeinate)
+dubeval/speed.py             The time-left estimate: seconds per minute of video from this computer's last 10 single evaluations
+                             that measured everything themselves (data/speed.json); none until there is one
 dubeval/cli.py               Argument parsing, quiet native logs, exit codes
 dubeval/lip_sync.py          Lip sync: StableSyncNet (LatentSync 1.5) on the same moments of both videos, the original
                          as the zero point (the lip_sync download; runs on onnxruntime, no torch)
@@ -216,6 +222,31 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   CLI render reports and comparisons; they never re-derive levels or decisions. Every Good/Check/Poor row states
   how it's graded (`thresholds`): the app and the HTML report show it for every row, the text report for the rows that
   need attention.
+- **The quality score is a summary beside the verdict** (`report._score`, owner's decision, 2026-11-20): out of 100,
+  a Good check counts 100 and a Poor one 0; one at Needs review counts by where its result sits between the Poor and
+  Good limits (`_scale`; translation and voice quality: the share of lines or stretches without a problem, `_share_ok`;
+  no number to place: 50; at most `SCORE_CHECK_MAX`, owner's decision 2026-11-20), a section is their average, and the score
+  is the sections' weighted sum (`SCORE_WEIGHTS`: translation 30, timing alignment 25, speech 15, timing & audio 15,
+  same video 10, lip sync 5; the video file has no weight). **The number is the one worked out** (owner's decision,
+  2026-11-21): no cap holds a Needs review dub at 89 (only a dub with every check Good scores 100: `min(value, 99)`), and
+  in a Poor verdict each Poor result costs at least a set amount by how serious it is instead of its small share
+  (`POOR_COSTS`, `POOR_SEVERITY`, 2026-11-22): **unusable** 100 (no speech in the dub, the wrong language, another
+  video, a broken file), **minor** 20 (loudness, silence: the mix fixes them), **serious** 40 for every other check
+  that can be Poor. Put a new check that can be Poor in a level by a stated reason, and move a level's number only on
+  graded dubs (the reviewer graded a 5 dB-off dub Good, and agreed with 4 of 5 Poor translations). **A check without a level is one of three kinds** (`report._absent`, tagged
+  where the row is made): `na` doesn't apply to this dub (lip sync on a dub that isn't lip-synced, the lip check with
+  nothing to compare, voice similarity for human or stock voices, sound sync on a replaced background, no line long
+  enough, line checks on a mostly-music video, speech checks when the original has no speech): left out, its points
+  shared, the coverage untouched; `missing` couldn't be measured (no checker or download, the check off, speech not
+  recognized, the model can't tell, errors): shared too, but `score.coverage` drops and the message names it; `dub` the
+  dub itself made it impossible (no speech in the dub, `DUB_SPEECH_CHECKS`): counts as 0, never shared. Under
+  `COVERAGE_MIN` (80%) the score is provisional, under `SCORE_MIN_COVERAGE` (50%) there is none ("Too little measured").
+  Translation counts only when the translation check ran (`SCORE_REQUIRES`); otherwise the score is `provisional`.
+  Don't share out a `dub` check or call an unrecognized language `dub`: the first lifts a broken dub, the second blames
+  the dub for a recognition gap. Every
+  report prints the weights and each section's points (`score.parts`, `score.rule`). It never replaces the verdict and
+  is never a fact the compare rule reads (a comparison shows it beside each dub, like its name). The weights are
+  reasoned, not measured: change them only on the owner's word, with `docs/metrics.md` and `docs/usage.md`.
 - **Reports put problems first** (`render_text`, `render_html`): verdict, things to check, the measures that need
   attention in full, what passed in a line each (folded with its explanation in HTML), what wasn't measured. Don't go
   back to printing every row in full section by section: a 7 s clip printed 1,700 words. Checks that didn't run are
@@ -241,7 +272,12 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   judge model is noted. Compare mode holds its recommendation (`compare.HOLD_FOR`) when the dub ranked first has a
   speech or translation reason; the order still shows. The headline says why. Issues the judge flags `may_be_recognition_error` are listed but never make anything Poor; a meaning line it scores 4 or lower still makes meaning Check and is a moment to listen to (a reversed meaning marked "maybe misheard" once vanished). The prompt allows the flag only when a similar-sounding word explains it.
 - The pipeline reports progress only through `Progress` objects; the page polls the job, the worker thread never
-  talks to the page.
+  talks to the page. The desktop app hears it as `DubEval-progress:` lines (`webapp._job_progress`), for the bar on its
+  taskbar or Dock icon.
+- **One evaluation runs at a time** (`jobs.start_job(..., queued=True)` for everything the web interface evaluates): the
+  others wait in line (`queued`) and start by themselves; two at once compete for the processor and graphics card, and two
+  speech models can run out of graphics memory. Model downloads don't wait. Tests get their own job list (`tests/conftest.py`), and a test helper
+  that waits for a job waits through `queued` too.
 - **Voice quality compares the dub with the original at the same moments and volume**, never in absolute terms: DNSMOS
   scores fall with background music, which both tracks share, and move with volume alone (`voice_quality._at_volume_of`).
   It was chosen after UTMOS failed on real dubs (every real recording scored ~1.2-1.5, even after voice separation);
@@ -287,20 +323,20 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   `FORMAT_VERSION`; adding a field doesn't. After any change run `dubeval schema > schemas/report.schema.json`.
 - **Speech recognition goes through `dubeval/asr.py` only.** Both backends must keep returning the same shapes, and
   cache keys include `asr.model_id()` so results from different recognizers never mix.
-- **Meaning** (`pipeline.judge_lines` → `meaning.screen` and `translation_judge.judge_translation`): both read the
-  speech line by line. The judge is chosen by `--judge` / `DUBEVAL_JUDGE` (`auto` = Claude → Gemini → ChatGPT → Ollama; ChatGPT uses an OpenAI API key,
+- **Meaning** (`pipeline.judge_lines` → `translation_judge.judge_translation`): the judge reads the speech line by line. The judge is chosen by `--judge` / `DUBEVAL_JUDGE` (`auto` = Claude → Gemini → ChatGPT → Ollama; ChatGPT uses an OpenAI API key,
   `OPENAI_API_KEY`, sent only in the Authorization header); keep
   `RESULT_SCHEMA`, `SYSTEM_PROMPT` and `DUB_TYPE_RULES` in `translation_judge.py` and change them only together with
-  the judge tests. The screen's band (`SCREEN_LOW`) is in `report.py`; it is Check-only, has no row when a judge ran
-  (`report._translation`), and is not graded on a mostly-music video with no judge (`_apply_little_speech`). Don't lower
-  the band to cut false alarms: at 0.50 it loses 5 of the 6 flags Gemini agrees with (`docs/validation.md`). The numbers check (`numbers.py`, `pipeline.check_numbers`) compares digits only,
+  the judge tests. **There is no offline meaning screen** (owner's decision, 2026-11-20): BGE-M3 sentence similarity
+  found 6 of the 25 lines Gemini scored low, and a clean result made a translation look checked when it mostly wasn't
+  (`docs/validation.md`). It was removed with its 585 MB download (`packs.remove_retired` deletes an installed copy at
+  start-up); without a judge the translation isn't checked and the score is provisional. Don't bring a similarity
+  screen back as a stand-in. The numbers check (`numbers.py`, `pipeline.check_numbers`) compares digits only,
   skips lines with digits on one side, flags only a number replaced by another (languages say one number differently: 7월 4일,
-  200만) and is Check-only (a recognizer can mishear a digit). Tests never load BGE-M3,
-  never call a judge and never probe Ollama (`tests/conftest.py`). `--dub-type` (ai_clone | ai_stock | human) skips
+  200만) and is Check-only (a recognizer can mishear a digit). Tests never call a judge and never probe Ollama (`tests/conftest.py`). `--dub-type` (ai_clone | ai_stock | human) skips
   voice similarity for human and stock-voice dubs (`pipeline.apply_dub_type`).
 - **Speech that can't be graded** (`report.speech_problem`, `SPEECH_DEPENDENT`, `UNRECOGNIZED_PROB`): an unsure
   third-language detection makes the language row and every speech-based row "not graded" (with the reason), and the
-  pipeline doesn't run the translation judge or the meaning screen on that speech (`pipeline._speech_unrecognized`);
+  pipeline doesn't run the translation judge on that speech (`pipeline._speech_unrecognized`);
   long silences are still listed for an unrecognized dub, from the voice detector alone (`evaluate.voice_gaps`,
   `intervals._voice_gaps`; same category and bands, moments only, never a row);
   a dub without speech adds a Poor row (nothing was dubbed), an original without speech a Check row. Both were set from
@@ -318,7 +354,7 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   There is no pinned runtime for an Intel Mac or Linux (`local_judge.this_computer`). To update it, regenerate the pins
   (versions, sizes, SHA-256) for the zip members of both computers (`tools/pin_ollama_runtime.py`) and the registry
   manifest. Changing a source
-  means new checksums, and for the meaning pack a fresh score comparison with the original model (METRICS.md).
+  means new checksums.
 - **Evaluations stay until the person deletes them** (like PersoDub's projects): the app's run folders are not pruned
   (`MAX_KEPT_RUNS` 0), and the pruning of uploads and of the share-link cache spares every file a kept evaluation plays
   or a draft holds (`library.referenced_inputs`). Deleting an evaluation deletes its folder and the uploads only it
@@ -355,7 +391,9 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   `grantFileProtocolExtraPrivileges` fuse off, a window can't open a `file://` page inside it and shows nothing.
 - **A downloaded update installs only on Restart to update** (`autoInstallOnAppQuit = false`, a test keeps it): closing the
   app never installs. The restart isn't silent, unlike PersoDub's: DubEval's update replaces about 9,000 files, and a silent
-  install left the person with no window for minutes. A change to this flow needs a run of the real updater: `npm start`
+  install left the person with no window for minutes. It asks nothing either (since the installer after 0.1.7):
+  `desktop/build/installer.nsh` skips the "who is this program for" page and the Finish page when the installer runs
+  with `--updated`, and starts DubEval itself; a first install still shows both. A change to this flow needs a run of the real updater: `npm start`
   doesn't update, so use a packaged app with `DUBEVAL_UPDATE_URL` (`desktop/README.md`).
 - **The macOS app is signed with ESTsoft's Developer ID and notarized** (2026-11-18; Apple Silicon only): built by
   hand on a Mac with the certificate in its keychain and the notarization key saved as `dubeval-notary`
@@ -465,10 +503,13 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   `_things_to_check` (`dubeval/report.py`); add new timed issues as interval categories instead. A finding
   (`problem_intervals[i]`, what a reviewer votes on) keeps its own range and says what it found in parts (`problem`,
   `original`, `dubbed`, `suggestion`, `doubt`, `line`; `description` is all of them in one text); a collector passes them
-  to `_item`. `intervals.group_moments` puts the findings about one moment together (`MOMENT_OVERLAP`, or the same
-  `line`), the one that says most first (`LEAD_ORDER`: give a new category its place there). The screen's count, the
+  to `_item`. `intervals.group_moments` puts the findings about one moment together (`MOMENT_OVERLAP`, the same
+  `line`, or a finding without a line lying inside one about a line, `MOMENT_INSIDE`), the one that says most first (`LEAD_ORDER`: give a new category its place there). The screen's count, the
   review flow and the list go by moments. **A moment is Poor only when its measure is** (`report._cap_moments`,
-  `MOMENTS_OF`): keep it, or a "Needs review" dub shows Poor moments again.
+  `MOMENTS_OF`): keep it, or a "Needs review" dub shows Poor moments again. **A check that passed lists no moments**
+  (`report._drop_passed`, owner's decision 2026-11-21) except the local events its row doesn't measure
+  (`LISTED_WHEN_PASSED`: long silences, wrong-language stretches, loudness jumps); problem time counts only what is
+  listed. Compare mode counts and lists moments, a moment's other findings under its lead.
 - **Change the translation check:** prompt and JSON schema are `SYSTEM_PROMPT` / `RESULT_SCHEMA` in
   `dubeval/translation_judge.py`. Summary and explanations must stay four-language objects. Gemini models are tried
   in `GEMINI_MODELS` order; `GEMINI_MODEL` / `GEMINI_THINKING` env vars override the first model and thinking.
@@ -529,8 +570,9 @@ data/feedback.jsonl      Reviewer votes on problem intervals (git-ignored)
   `large-v3-turbo`), and forcing the wrong language collapses the transcript (speech timing read 0%). Users should
   pass `--target-lang`. `large-v3-turbo` is the default wherever it is downloaded (2026-11-15); it still can't read
   Uzbek, and its speed on a processor was timed on one laptop only (not on a Mac, not on an older processor).
-- **Candidate change, on hold** (decided 2026-10-22): speech-timing Poor below 55% → 45%. On 7 labelled PersoDub
-  pairs, dubs at 47-52% overlap were Check to the reviewer, not Poor; revisit with 20-30 labelled pairs.
+- **Speech-timing Poor is below 45%, loudness Poor beyond 10 dB** (owner's decision, 2026-11-24, on 39 graded dubs:
+  `data/testset/round2`, `docs/validation.md`): every dub at 47-54% overlap was Needs review on timing to the reviewer,
+  and a dub Poor only for being 6.6 dB louder was graded Needs review. Both still rest on one reviewer.
 - Speech-timing and pace bands are calibrated on one real Perso EN→KO dub (81–82% overlap, 5.8 chars/s).
 - Google's Gemini API often returns 503 "high demand"; the judge retries and falls back across four Flash models,
   then reports "busy, try again in a minute".

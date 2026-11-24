@@ -8,8 +8,8 @@ problem time ranges to jump there.
 
 - **Any language pair works, without a promise.** The checks run for every language Whisper knows, and a check that
   can't work for a language says "not measured" with the reason instead of guessing. The grades have been compared
-  with one person's on **20 dubs**: DubEval agreed on **12 to 15**, mostly depending on which AI model reviewed the
-  translation (9 to 12 of 14 English → Korean, 2 of 2 English → Spanish, 1 of 4 English → Uzbek). With problems put into dubs on purpose it catches 102 of 112, and 18 of 24 on dubs
+  with one person's on **39 dubs**: DubEval's verdict matched on **29** (English → Korean, Spanish, Russian and
+  Uzbek; on the first 20 it matched on 12 to 15, mostly depending on which AI model reviewed the translation). With problems put into dubs on purpose it catches 102 of 112, and 18 of 24 on dubs
   it was never tuned on. English → Korean has the most evidence; treat other languages as a first look.
 - **It says when it isn't sure.** When the video is mostly music, has very little speech, or the dub's language
   couldn't be recognized, the verdict is "Needs review" with the reason instead of a confident Good or Poor.
@@ -32,7 +32,7 @@ problem time ranges to jump there.
   aren't checked.
 
 ## Known limits
-- **Thresholds are calibrated on only 20 real dubs** (see [How accurate is it?](faq.md#how-accurate-is-it)). Treat borderline results with care, and use labelled batches to tune them.
+- **Thresholds are calibrated on only 39 real dubs, graded by one person** (see [How accurate is it?](faq.md#how-accurate-is-it)). Treat borderline results with care, and use labelled batches to tune them.
 - **Background music makes voice checks harder:** without the voice-quality download (Settings → Models, 415 MB) voice quality isn't graded where the original's own voice scores too low over its music, voice similarity says "can't tell" on videos whose speakers the model doesn't recognise, and speech timing and clarity are noisier.
 - **Voice quality doesn't detect a muffled voice without its download.** With it, a muffled voice was found on 17 of 20 test dubs.
 - **The lip-sync bands rest on one real dub.** The lip-sync check (download) counts in the verdict but was tested on

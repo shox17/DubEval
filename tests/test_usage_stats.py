@@ -212,7 +212,7 @@ def test_a_failed_job_sends_its_step_and_error_kind_but_never_the_message(site):
         report(jobs.Progress("evaluate", "Measuring"))
         raise MemoryError(r"C:\Users\Someone\secret video.mp4 was too big")
     from dubeval import webapp
-    assert jobs.on_finish is webapp._report_job_to_stats
+    assert jobs.on_finish is webapp._job_finished           # which tells usage stats first
     job = jobs.start_job(fails, {"kind": "files", "dubs": ["d.mp4"]}, ["prepare", "evaluate"])
     for _ in range(200):
         if job.status != "running" and usage_stats._queue:

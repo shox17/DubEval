@@ -7,13 +7,14 @@ build_comparison(results_a, results_b) is the two-dub case. Dubs are labelled A,
 render_comparison_text / render_comparison_html. Pure: no file writes, no network.
 """
 import html
+import re
 import time
 import unicodedata
 from pathlib import Path
 from typing import Callable, Optional
 
 from dubeval.i18n import DEFAULT_UI_LANGUAGE, t as i18n_t
-from dubeval.report import ICONS, build_report, _CSS
+from dubeval.report import ICONS, build_report, fmt_time, _cap, _CSS
 from dubeval.version import TOOL_VERSION
 
 Tr = Callable[..., str]
@@ -124,7 +125,7 @@ def _problems(rep: dict, limit: int = 3) -> list[str]:
 def _fix_first(rep: dict, limit: int = 5) -> list[str]:
     """What to fix first in a Poor dub: its Poor measures, then its Poor problem intervals."""
     rows = [f"{m['label']}: {m['message']}" for s in rep["sections"] for m in s["metrics"] if m["level"] == "poor"]
-    rows += [f"{i['start']:.1f}s-{i['end']:.1f}s {i['category_label']}: {i['description']}"
+    rows += [f"{when(i)} {_cap(i['category_label'])}: {i['description']}"
              for i in rep["problem_intervals"] if i["severity"] == "poor"]
     return rows[:limit]
 
@@ -144,7 +145,7 @@ def _table(reps: dict) -> list[dict]:
 
 
 def _link(tr: Tr, rep: dict) -> dict:
-    """One link's metadata for the comparison."""
+    """One dub's facts for the comparison ("—" when there's nothing to say; the renderers leave those rows out)."""
     p = rep["project"]
     lip = p.get("is_lipsync")
     return {"title": p.get("title"), "languages": f"{p.get('source_language') or '?'} → {p.get('target_language') or '?'}",
@@ -156,11 +157,26 @@ def _link(tr: Tr, rep: dict) -> dict:
 
 def _notes(tr: Tr, reps: dict, res: dict, no_translation: list[str]) -> list[str]:
     """What wasn't measured and why, plus warnings about the set of links itself."""
-    notes = []
+    notes, by_check = [], {}
     for dub in reps:
-        items = reps[dub]["not_measured"]
-        if items:
-            notes.append(tr("c.note.not_measured", dub=dub, items="; ".join(f"{x['label']}: {x['reason']}" for x in items)))
+        for x in reps[dub]["not_measured"]:
+            by_check.setdefault(x["label"], []).append((dub, x["reason"]))
+    for label, items in by_check.items():
+        dubs = [d for d, _ in items]
+        if len({reason for _, reason in items}) == 1:     # the same reason: said once, for the dubs it applies to
+            who = (tr("c.both_dubs") if len(reps) == 2 else tr("c.every_dub")) if len(dubs) == len(reps) \
+                else ", ".join(tr("c.dub", d=d) for d in dubs)
+            notes.append(tr("c.note.not_measured", label=label, dubs=who, reason=items[0][1]))
+        elif len({re.sub(r"\d+(?:[.,]\d+)?", "#", reason) for _, reason in items}) == 1:
+            # the same reason with each dub's own numbers ("21% like the original", "22%"): said once, as the first
+            # dub's, and the others' numbers left to their reports (it printed the same long sentence for every dub)
+            who = (tr("c.both_dubs") if len(reps) == 2 else tr("c.every_dub")) if len(dubs) == len(reps)                 else ", ".join(tr("c.dub", d=d) for d in dubs)
+            others = ", ".join(tr("c.dub", d=d) for d in dubs[1:])
+            notes.append(tr("c.note.same_reason", label=label, dubs=who, first=tr("c.dub", d=dubs[0]), reason=items[0][1])
+                         + " " + tr(f"c.note.others_numbers_{'one' if len(dubs) == 2 else 'many'}", others=others))
+        else:
+            notes.append(tr("c.note.not_measured_each", label=label,
+                            items=" ".join(f"{tr('c.dub', d=d)}: {reason}" for d, reason in items)))
     if no_translation:
         notes.append(tr("c.no_translation", dubs=", ".join(tr("c.dub", d=d) for d in no_translation)))
     seqs = [reps[d]["project"].get("perso_seq") for d in reps]
@@ -203,6 +219,17 @@ def shown_names(res: dict) -> dict:
     return {d: given[d] or (files[d] if apart else None) for d in res}
 
 
+def comparison_title(titles: list, lang: str = DEFAULT_UI_LANGUAGE) -> str:
+    """A comparison's title when nobody gave it one: its dubs' titles ("a vs b", "a and 2 more"), or the one title they
+    share (a renamed comparison gives every dub its name). The winner's title alone made the comparison look like that dub."""
+    shown = [x for x in dict.fromkeys(titles) if x]
+    if len(shown) <= 1:
+        return shown[0] if shown else ""
+    if len(shown) == 2:
+        return i18n_t("c.title_two", lang, a=shown[0], b=shown[1])
+    return i18n_t("c.title_more", lang, first=shown[0], n=len(shown) - 1)
+
+
 def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seconds: Optional[float] = None) -> dict:
     """Every dub's report, the recommendation with its reasoning and the ranking, and everything the comparison
     files show, in lang. Dubs are labelled A, B, C, ... in input order (2 to MAX_DUBS)."""
@@ -227,15 +254,26 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
         why = tr(f"c.why.{dec['rule']}", win=who(win), lose=who(lose), win_value=_shown(tr, dec["rule"], f[win]),
                  lose_value=_shown(tr, dec["rule"], f[lose]))
     other = _problems(reps[lose])
+    # The rules before problem time count checks, not moments: a winner with more moments looked like a wrong pick.
+    moments = {d: len(_moments(reps[d])) for d in (win, lose)}
+    more = (not dec["tie"] and dec["rule"] in ("verdict", "poor_items", "check_items") and moments[win] > moments[lose])
     held = list(dict.fromkeys(HOLD_FOR[k] for k in reps[win]["overall"].get("unsure", []) if k in HOLD_FOR))
     # A held first place isn't deliverable yet: "can be delivered after a review" would contradict the headline.
-    summary = [why, tr("c.loser_problems", dub=who(lose), items=", ".join(other)) if other
-               else tr("c.loser_clean", dub=who(lose))] + ([] if held else [tr(f"c.ready.{f[win]['verdict']}", dub=who(win))])
+    summary = [why] + ([tr("c.why.more_moments", win=who(win), lose=who(lose), win_n=moments[win],
+                           lose_n=moments[lose])] if more else []) + [
+        tr("c.loser_problems", dub=who(lose), items=", ".join(other)) if other
+        else tr("c.loser_clean", dub=who(lose))] + ([] if held else [tr(f"c.ready.{f[win]['verdict']}", dub=who(win))])
     values = ({dub: _shown(tr, dec["rule"], f[dub]) for dub in dubs} if dec["rule"] else
               {dub: tr(f"verdict.{f[dub]['verdict']}") for dub in dubs})
     ranking = [{"rank": i, "dub": d, "title": reps[d]["project"].get("title"), "verdict": f[d]["verdict"],
                 "verdict_label": tr(f"verdict.{f[d]['verdict']}"), "poor": f[d]["poor"], "check": f[d]["check"],
-                "problem_seconds": f[d]["problem_seconds"]} for i, d in enumerate(dec["order"], 1)]
+                "problem_seconds": f[d]["problem_seconds"],
+                # the ranking's two columns: how many problems on the timeline, and the time they cover ("14.1 s");
+                # one cell holding both under "Problem time" read as a sentence in a number column
+                "moments": len(_moments(reps[d])), "problem_time": tr("r.sec", sec=f"{f[d]['problem_seconds']:.1f}"),
+                # the quality score, shown beside the verdict: a label like the dub's name, never part of the rule
+                "score": (reps[d].get("score") or {}).get("value"),
+                "score_display": (reps[d].get("score") or {}).get("display")} for i, d in enumerate(dec["order"], 1)]
     not_ready = (tr("c.not_ready", d=who(win)) if len(dubs) == 2 else tr("c.not_ready_all", d=who(win))) if all_poor else None
     # Every dub may lack the same key checks (rule 1 then can't separate them): the recommendation still says so.
     cautions = [tr("c.caution.unmeasured", d=who(win), items=", ".join(tr(f"r.m.{k}") for k in f[win]["unmeasured_checks"]))] \
@@ -251,11 +289,14 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
     elif all_poor:
         headline = tr("c.start_from", d=who(win))
     else:
-        headline = tr("c.recommend_tie", d=who(win), other=who(lose)) if dec["tie"] else tr("c.recommend", d=who(win))
+        review = "_review" if f[win]["verdict"] == "check" else ""
+        headline = (tr(f"c.recommend_tie{review}", d=who(win), other=who(lose)) if dec["tie"]
+                    else tr(f"c.recommend{review}", d=who(win)))
     return {
         "comparison_version": 3,
         "lang": lang,
         "dubs": dubs,
+        "title": comparison_title([reps[d]["project"].get("title") for d in dubs], lang),
         "names": names,
         "given_names": given,
         "recommendation": {
@@ -264,6 +305,9 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
             "dub": win, "status": status, "status_label": tr(f"c.sec.{status}"), "ready": status == "recommended",
             "tie": dec["tie"], "both_poor": all_poor, "all_poor": all_poor, "judges_differ": judges_differ,
             "title": reps[win]["project"].get("title"), "verdict": f[win]["verdict"],
+            # the title beside the dub's name, unless it is the name ("Dub A · x: x" once)
+            "title_shown": None if reps[win]["project"].get("title") in (None, "", names[win])
+            else reps[win]["project"].get("title"),
             "verdict_label": tr(f"verdict.{f[win]['verdict']}"),
             "headline": headline, "held": held,
             "warning": not_ready,
@@ -272,6 +316,8 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
         },
         "ranking": ranking,
         "intervals": {dub: reps[dub]["problem_intervals"] for dub in dubs},
+        # the findings put together by moment (indexes into intervals, the one that speaks for it first), as listed
+        "moments": {dub: [m["intervals"] for m in _moments(reps[dub])] for dub in dubs},
         "possible_asr_errors": {dub: reps[dub]["possible_asr_errors"] for dub in dubs},
         "problem_seconds": {dub: f[dub]["problem_seconds"] for dub in dubs},
         "reasoning": {
@@ -287,36 +333,61 @@ def build_ranking(results: list[dict], lang: str = DEFAULT_UI_LANGUAGE, run_seco
         "facts": f,
         "decision": dec,
         "table": _table(reps),
-        "links": {dub: _link(tr, reps[dub]) for dub in dubs},
+        "links": {dub: {**_link(tr, reps[dub]), **({"title": "—"} if reps[dub]["project"].get("title") == names[dub]
+                                                   else {})} for dub in dubs},
         "notes": _notes(tr, reps, res, no_translation),
         "meta": {"tool_version": TOOL_VERSION, "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
                  "run_seconds": round(run_seconds, 1) if run_seconds is not None else None},
         "labels": {k: tr(f"c.{k}") for k in (
             "title", "sec.recommended", "sec.intervals", "sec.reasoning", "sec.table", "sec.links", "sec.notes",
-            "rule_label", "values_label", "summary_label", "fix_first", "asr", "no_intervals", "table.check",
+            "rule_label", "summary_label", "fix_first", "asr", "no_intervals", "table.check",
             "verdict", "open_report", "meta.title", "meta.languages", "meta.length", "meta.lipsync", "meta.project",
-            "meta.evaluated", "meta.link", "skipped", "ranking_label")}
+            "meta.evaluated", "meta.link", "skipped", "ranking_label", "score_label")}
                   | {f"dub_{d}": tr("c.dub", d=d) + (f" · {names[d]}" if names[d] else "") for d in dubs}
                   | {f"count_{d}": _count(tr, reps[d]) for d in dubs}
-                  | {"footer": tr("c.footer", version=TOOL_VERSION,
-                                  sec=f"{run_seconds:.0f}" if run_seconds is not None else "—",
-                                  time=time.strftime("%Y-%m-%d %H:%M:%S"))},
+                  | {f"short_{d}": tr("c.dub", d=d) for d in dubs}
+                  | {"footer": tr("c.footer", version=TOOL_VERSION, sec=f"{run_seconds:.0f}",
+                                  time=time.strftime("%Y-%m-%d %H:%M:%S")) if run_seconds is not None
+                     else tr("c.footer_no_time", version=TOOL_VERSION, time=time.strftime("%Y-%m-%d %H:%M:%S"))},
         "badges": reps["A"]["badges"],
         "reports": reps,
     }
 
 
+def _moments(rep: dict) -> list[dict]:
+    """A report's moments; a report saved before them has one per finding."""
+    return rep.get("moments") or [{"intervals": [i]} for i in range(len(rep["problem_intervals"]))]
+
+
+def _grouped(comp: dict, dub: str) -> list[list[dict]]:
+    """A dub's findings by moment, the one that speaks for it first (a comparison saved before moments: one each)."""
+    items = comp["intervals"][dub]
+    groups = (comp.get("moments") or {}).get(dub) or [[i] for i in range(len(items))]
+    return [[items[i] for i in g] for g in groups]
+
+
 def _count(tr: Tr, rep: dict) -> str:
-    """'3 problem intervals, 7.5 s in total' for one dub."""
-    n = len(rep["problem_intervals"])
+    """'3 problems on the timeline, 7.5 s in total' for one dub: its moments, as its report lists them."""
+    n = len(_moments(rep))
     return tr(f"c.intervals_count_{'one' if n == 1 else 'many'}", n=n, sec=f"{rep['problem_seconds']:.1f}")
 
 
-def interval_line(i: dict, lb: dict, badges: dict) -> str:
-    """One problem interval as a line: '12.4s-15.1s | Dub B | missing speech | Poor | Translation check | ...'."""
-    dub = lb.get(f"dub_{i.get('dub')}", "") if i.get("dub") else ""
-    parts = [f"{i['start']:.1f}s-{i['end']:.1f}s"] + ([dub] if dub else []) + [
-        i["category_label"], badges.get(i["severity"], i["severity"]), i["check_label"], i["description"]]
+def when(i: dict) -> str:
+    """A moment's time as the reports write it: '00:12.4–00:15.1'."""
+    return f"{fmt_time(i['start'])}–{fmt_time(i['end'])}"
+
+
+def check_of(i: dict) -> str:
+    """The check that found a moment, or nothing when the moment's name already says it ("Line length")."""
+    return "" if i["check_label"].lower() == str(i["category_label"]).lower() else i["check_label"]
+
+
+def interval_line(i: dict, lb: dict, badges: dict, with_dub: bool = True) -> str:
+    """One problem interval as a line: '00:12.4–00:15.1 | Dub B | Missing speech | Poor | Translation check | ...'
+    (with_dub False under the dub's own heading; the check left out when the moment's name says it)."""
+    dub = lb.get(f"dub_{i.get('dub')}", "") if i.get("dub") and with_dub else ""
+    parts = [when(i)] + ([dub] if dub else []) + [_cap(i["category_label"]), badges.get(i["severity"], i["severity"])] + (
+        [check_of(i)] if check_of(i) else []) + [i["description"]]
     return " | ".join(parts)
 
 
@@ -356,7 +427,8 @@ def render_comparison_text(comp: dict, width: int = 100) -> str:
     lines = [bar, title + " " * max(1, width - text_width(title) - len(comp["meta"]["generated"])) + comp["meta"]["generated"], bar,
              f" 1. {rec['status_label'].upper()}"]
     lines += w_(f"{icon} {rec['headline']}", "    ")
-    lines += w_(f"{lb['dub_' + rec['dub']]}: {rec['title'] or ''} · {lb['verdict']}: {rec['verdict_label']}", "    ")
+    title = f": {rec['title_shown']}" if rec.get("title_shown") else ""
+    lines += w_(f"{lb['dub_' + rec['dub']]}{title} · {lb['verdict']}: {rec['verdict_label']}", "    ")
     if rec.get("caution"):
         lines += w_(f"⚠️ {rec['caution']}", "    ", "       ")
     if rec["warning"]:
@@ -367,22 +439,27 @@ def render_comparison_text(comp: dict, width: int = 100) -> str:
     lines += ["", thin, f" 2. {lb['sec.intervals'].upper()}"]
     for dub in comp.get("dubs", DUBS):
         lines.append(f"  {lb['dub_' + dub]} ({lb['count_' + dub]})")
-        items = comp["intervals"][dub]
-        if not items:
+        if not comp["intervals"][dub]:
             lines.append(f"    {lb['no_intervals']}")
-        for i in items:
-            lines += w_(interval_line(i, lb, comp["badges"]), "    ", "      ")
+        for lead, *also in _grouped(comp, dub):
+            lines += w_(interval_line(lead, lb, comp["badges"], with_dub=False), "    ", "      ")
+            for i in also:                      # the same moment, found by another check
+                lines += w_("↳ " + interval_line(i, lb, comp["badges"], with_dub=False), "      ", "        ")
         if comp["possible_asr_errors"][dub]:
             lines.append(f"    {lb['asr']}:")
             for i in comp["possible_asr_errors"][dub]:
-                lines += w_(interval_line(i, lb, comp["badges"]), "      ", "        ")
+                lines += w_(interval_line(i, lb, comp["badges"], with_dub=False), "      ", "        ")
     lines += ["", thin, f" 3. {lb['sec.reasoning'].upper()}"]
-    lines += w_(f"{lb['rule_label']}: {why['rule_label']}", "    ")
     dubs = comp.get("dubs", DUBS)
-    lines += w_(f"{lb['values_label']}: " + " · ".join(f"{lb['dub_' + d]} = {why['values'][d]}" for d in dubs), "    ")
+    short = lambda d: lb.get(f"short_{d}") or lb["dub_" + d]
+    lines += w_(f"{lb['rule_label']}: {why['rule_label']} (" + " · ".join(f"{short(d)}: {why['values'][d]}" for d in dubs)
+                + ")", "    ")
     if len(dubs) > 2:
         lines += w_(f"{lb['ranking_label']}: " + " · ".join(f"{r['rank']}. {lb['dub_' + r['dub']]} ({r['verdict_label']})"
                                                             for r in comp["ranking"]), "    ")
+    if any(r.get("score_display") for r in comp["ranking"]):
+        lines += w_(f"{lb['score_label']}: " + " · ".join(f"{short(r['dub'])}: {r['score_display']}"
+                                                          for r in comp["ranking"]), "    ")
     lines += w_(f"{lb['summary_label']}: " + " ".join(why["summary"]), "    ")
     lines += w_(why["translation_note"], "    ")
     if why["skipped_rules"]:
@@ -390,7 +467,7 @@ def render_comparison_text(comp: dict, width: int = 100) -> str:
     lines += w_(why["rules_order"], "    ")
 
     lines += ["", thin, f" {lb['sec.table'].upper()}"]
-    cell = lambda c: f"{ICONS[c['level']]} {c['badge']} · {c['display']}" if c else "—"
+    cell = lambda c: f"{ICONS[c['level']]} {c['badge']}" + (f" · {c['display']}" if c["display"] else "") if c else "—"
     w = max([text_width(r["label"]) for r in comp["table"]] + [text_width(lb["table.check"])]) + 2
     cols = {d: max([text_width(cell(r[d])) for r in comp["table"]] + [text_width(lb["dub_" + d])]) + 3 for d in dubs}
     lines.append(f"    {pad(lb['table.check'], w)}" + "".join(pad(lb["dub_" + d], cols[d]) for d in dubs).rstrip())
@@ -401,7 +478,8 @@ def render_comparison_text(comp: dict, width: int = 100) -> str:
         link = comp["links"][dub]
         lines.append(f"  {lb['dub_' + dub]}")
         for key in ("title", "languages", "length", "lipsync", "project", "evaluated", "link"):
-            lines += w_(f"{lb['meta.' + key]}: {link[key]}", "    ", "      ")
+            if link[key] != "—":
+                lines += w_(f"{lb['meta.' + key]}: {link[key]}", "    ", "      ")
     lines += ["", thin, f" {lb['sec.notes'].upper()}"]
     for note in comp["notes"]:
         lines += w_(f"· {note}", "    ", "      ")
@@ -414,7 +492,7 @@ _EXTRA_CSS = """
 .rec{border-width:2px}.rec.good{border-color:var(--good);background:var(--good-bg)}.rec.check{border-color:var(--check);
 background:var(--check-bg)}.rec.poor{border-color:var(--poor);background:var(--poor-bg)}
 .warn{color:var(--poor);font-weight:600}th{text-align:left;font-size:13px;color:var(--muted);padding:6px}
-ol.fix li{margin:4px 0}.small{font-size:13px}
+ol.fix li{margin:4px 0}.small{font-size:13px}a{color:var(--info);font-weight:600}.also{margin-top:8px;padding-left:10px;border-left:2px solid var(--line,#333)}
 """
 
 
@@ -429,7 +507,8 @@ def render_comparison_html(comp: dict) -> str:
            f"<span>{e(comp['meta']['generated'])}</span></div>",
            f"<div class='card rec {rec['verdict']}'><h2>1. {e(rec['status_label'])}</h2>"
            f"<div class=big>{ICONS[rec['verdict']]} {e(rec['headline'])}</div>"
-           f"<p>{e(lb['dub_' + rec['dub']])}: <b>{e(rec['title'])}</b> · {e(lb['verdict'])}: "
+           f"<p>{e(lb['dub_' + rec['dub']])}" + (f": <b>{e(rec['title_shown'])}</b>" if rec.get("title_shown") else "")
+           + f" · {e(lb['verdict'])}: "
            f"<span class='badge b-{rec['verdict']}'>{e(rec['verdict_label'])}</span></p>"]
     if rec.get("caution"):
         out.append(f"<p class=warn>⚠️ {e(rec['caution'])}</p>")
@@ -443,25 +522,32 @@ def render_comparison_html(comp: dict) -> str:
                    f"<a href='report_{dub}.html'>{e(lb['open_report'])}</a><table>")
         if not comp["intervals"][dub]:
             out.append(f"<tr><td class=muted>{e(lb['no_intervals'])}</td></tr>")
-        for i in comp["intervals"][dub]:
-            out.append(f"<tr><td class='v t'>{i['start']:.1f}s–{i['end']:.1f}s</td><td><span class='badge "
-                       f"b-{i['severity']}'>{e(i['category_label'])}</span> {e(i['description'])}"
-                       f"<div class=th>{e(comp['badges'][i['severity']])} · {e(i['check_label'])}</div></td></tr>")
+        finding = lambda i: (f"<span class='badge b-{i['severity']}'>{e(_cap(i['category_label']))}</span> "
+                             f"{e(i['description'])}<div class=th>{e(comp['badges'][i['severity']])}"
+                             + (f" · {e(check_of(i))}" if check_of(i) else "") + "</div>")
+        for lead, *also in _grouped(comp, dub):
+            span = {"start": min(i["start"] for i in (lead, *also)), "end": max(i["end"] for i in (lead, *also))}
+            out.append(f"<tr><td class='v t'>{e(when(span))}</td><td>{finding(lead)}" + "".join(
+                f"<div class=also>↳ {e(when(i))} {finding(i)}</div>" for i in also) + "</td></tr>")
         out.append("</table>")
         if comp["possible_asr_errors"][dub]:
             out.append(f"<p class='small muted'><b>{e(lb['asr'])}</b></p><ul class='small muted'>" + "".join(
-                f"<li>{i['start']:.1f}s–{i['end']:.1f}s · {e(i['category_label'])}: {e(i['description'])}</li>"
+                f"<li>{e(when(i))} · {e(_cap(i['category_label']))}: {e(i['description'])}</li>"
                 for i in comp["possible_asr_errors"][dub]) + "</ul>")
         out.append("</div>")
     out.append("</div></div>")
-    values = " · ".join(f"{e(lb['dub_' + d])}: <b>{e(why['values'][d])}</b>" for d in dubs)
+    short = lambda d: lb.get(f"short_{d}") or lb["dub_" + d]
+    values = " · ".join(f"{e(short(d))}: <b>{e(why['values'][d])}</b>" for d in dubs)
     out.append(f"<div class=card><h2>3. {e(lb['sec.reasoning'])}</h2><table>"
-               f"<tr><td class=l>{e(lb['rule_label'])}</td><td>{e(why['rule_label'])}</td></tr>"
-               f"<tr><td class=l>{e(lb['values_label'])}</td><td>{values}</td></tr>")
+               f"<tr><td class=l>{e(lb['rule_label'])}</td><td>{e(why['rule_label'])}"
+               f"<div class=small>{values}</div></td></tr>")
     if len(dubs) > 2:
         ranking = " · ".join(f"{r['rank']}. {e(lb['dub_' + r['dub']])} <span class='badge b-{r['verdict']}'>"
                              f"{e(r['verdict_label'])}</span>" for r in comp["ranking"])
         out.append(f"<tr><td class=l>{e(lb['ranking_label'])}</td><td>{ranking}</td></tr>")
+    if any(r.get("score_display") for r in comp["ranking"]):
+        scored = " · ".join(f"{e(short(r['dub']))}: <b>{e(r['score_display'])}</b>" for r in comp["ranking"])
+        out.append(f"<tr><td class=l>{e(lb['score_label'])}</td><td>{scored}</td></tr>")
     skipped = f" {e(lb['skipped'])}: {e(', '.join(why['skipped_rules']))}." if why["skipped_rules"] else ""
     out.append(f"<tr><td class=l>{e(lb['summary_label'])}</td><td>{e(' '.join(why['summary']))}</td></tr></table>"
                f"<p class=note>{e(why['translation_note'])}{skipped}</p>"
@@ -478,7 +564,8 @@ def render_comparison_html(comp: dict) -> str:
         link = comp["links"][dub]
         out.append(f"<div><b>{e(lb['dub_' + dub])}</b><table>" + "".join(
             f"<tr><td class=l>{e(lb['meta.' + k])}</td><td>{e(link[k])}</td></tr>"
-            for k in ("title", "languages", "length", "lipsync", "project", "evaluated", "link")) + "</table></div>")
+            for k in ("title", "languages", "length", "lipsync", "project", "evaluated", "link") if link[k] != "—")
+            + "</table></div>")
     out.append("</div></div>")
     out.append(f"<div class=card><h2>{e(lb['sec.notes'])}</h2><ul>"
                + "".join(f"<li>{e(n)}</li>" for n in comp["notes"]) + "</ul></div>")

@@ -14,8 +14,8 @@ The exact thresholds are in [metrics.md](metrics.md); the test runs are in [vali
 - **It says when it isn't sure.** Mostly music, very little speech, speech it couldn't make out: the verdict becomes
   "Needs review" with the reason, instead of a confident Good or Poor.
 - **It has been tested two ways:** with problems put into dubs on purpose (it catches 102 of 112, and 18 of 24 on dubs
-  it was never tuned on), and against one person's grades on 20 real dubs (it agrees on 12 to 15, mostly depending on
-  which AI model reviewed the translation).
+  it was never tuned on), and against one person's grades on 39 real dubs (its verdict matches on 29; on the first 20 it
+  matched on 12 to 15, mostly depending on which AI model reviewed the translation).
 - **It runs on your computer.** Only the translation check can use an online AI, and only with your own key.
 
 ## Who makes DubEval
@@ -66,7 +66,7 @@ DubEval treats a dub the same way whichever service made it:
 | 5. Compare the sound | Length, loudness, silence, distortion, sound in sync with the picture | Plain signal measurements |
 | 6. Compare the speech | Timing, line by line length, pace, language, clarity | The transcripts from step 3 |
 | 7. Compare the voices | How clean the dub voice sounds next to the original; whether it sounds like the same person | Audiobox Aesthetics (Meta, an optional download) or DNSMOS (Microsoft); WeSpeaker |
-| 8. Check the translation | Scores every line 1 to 10 for meaning and four other criteria; without an AI, a meaning-similarity screen | Claude, Gemini, ChatGPT or a local model; BGE-M3 |
+| 8. Check the translation | Scores every line 1 to 10 for meaning and four other criteria; without an AI checker, the translation isn't checked (only changed numbers are) | Claude, Gemini, ChatGPT or a local model |
 | 9. Decide the verdict | Grades every measure Good, Needs review or Poor, then applies the verdict rule (below) | The rules in `report.py` |
 
 ## What each check tells you
@@ -126,8 +126,8 @@ two music-heavy dubs' flags less steady on the planted copies; real dubs count m
 now has to confirm timing moments, which took false alarms from 65 to 53 without losing a catch, and checks that read words
 line by line are no longer graded on mostly-music videos, which took them to 41. Scoring voices at the same volume then removed 4
 more, but the first full run since the noise check came to 42: it found 2 noise false alarms an estimate had missed, and speech
-recognition doesn't repeat exactly between runs. About a third of those left are the offline meaning check, which only lists
-moments when no AI check ran.
+recognition doesn't repeat exactly between runs. About a third of those left were the offline meaning check, which has since been
+removed (it found only a quarter of the bad lines an AI check finds).
 
 **A person's grades on real dubs.** One reviewer graded 20 real dubs (Perso, ElevenLabs, Descript) on DubEval's
 review page before seeing DubEval's results. Under today's rules, two saved runs of those dubs match the person on **12
@@ -135,7 +135,12 @@ and 15 of 20**: 9 and 12 of 14 English → Korean, 2 of 2 English → Spanish an
 which AI model reviewed the translation in each run. Of the 5 dubs the person graded Poor, DubEval graded 2 and 4 Poor
 and the rest Needs review. It graded none of the person's Good dubs Poor.
 
-These are counts, not percentages: 20 dubs and one person say where DubEval stands and which way to improve it, not
+In November the same person graded 19 more dubs blind (English → Korean and Russian, from HeyGen, ElevenLabs, Perso
+and others). Over all 39, DubEval's verdict matches on **29**; of the 7 dubs graded Poor in the second round, DubEval
+graded 6 Poor. Two limits were moved on this evidence: speech timing is Poor below 45% (was 55%) and loudness beyond
+10 dB (was 6) ([details](validation.md)).
+
+These are counts, not percentages: 39 dubs and one person say where DubEval stands and which way to improve it, not
 how good it is in general.
 
 ## What DubEval can't do yet

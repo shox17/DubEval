@@ -9,6 +9,8 @@ whichever is installed. Both are seeded, though a graphics card can still give s
 import functools
 import os
 import logging
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Optional
@@ -137,6 +139,26 @@ def resolve(name: str) -> str:
     return default_model() if (name or AUTO) == AUTO else name
 
 
+@functools.lru_cache(maxsize=1)
+def cpu_threads() -> int:
+    """How many processor threads the recognizer uses; 0 leaves it to CTranslate2 (4).
+
+    On a Mac it's the performance cores: on an M2 Pro (8 of 12) the large model read a minute of sound in 20 s
+    instead of 29, and checked the dub's language part by part in 29 s instead of 46, with the same words and
+    languages; all 12 cores was slower, the efficiency cores holding the rest back (2026-11-18). On an Intel Core
+    Ultra 7 laptop more threads changed nothing, so Windows and Linux keep the default."""
+    if sys.platform != "darwin":
+        return 0
+    for key in ("hw.perflevel0.physicalcpu", "hw.physicalcpu"):
+        try:
+            out = subprocess.run(["/usr/sbin/sysctl", "-n", key], capture_output=True, text=True, timeout=5)
+            if out.returncode == 0 and out.stdout.strip().isdigit():
+                return int(out.stdout.strip())
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return 0
+
+
 def load_model(name: str, cpu: bool = False):
     """Loads and caches a recognizer model by name ("base", "small", "large-v3-turbo", or "auto"). cpu: on the
     processor even when a graphics card could run it (faster-whisper), for when something else holds the card."""
@@ -151,7 +173,8 @@ def load_model(name: str, cpu: bool = False):
                 device, compute = ("cpu", "int8") if cpu else _device()
                 source = _local_model(name) or name
                 try:
-                    model = WhisperModel(source, device=device, compute_type=compute)
+                    model = WhisperModel(source, device=device, compute_type=compute,
+                                         cpu_threads=cpu_threads() if device == "cpu" else 0)
                     if device != "cpu":
                         # CUDA libraries load on first use, not at creation: run once now so a missing or
                         # incompatible library falls back to the CPU here instead of failing mid-evaluation.
@@ -161,7 +184,7 @@ def load_model(name: str, cpu: bool = False):
                     if device == "cpu":
                         raise
                     log.warning("Speech recognition on the GPU failed (%s); using the CPU", e)
-                    _models[key] = WhisperModel(source, device="cpu", compute_type="int8")
+                    _models[key] = WhisperModel(source, device="cpu", compute_type="int8", cpu_threads=cpu_threads())
             else:
                 import whisper
                 _models[key] = whisper.load_model(name)

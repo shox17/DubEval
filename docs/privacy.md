@@ -26,4 +26,4 @@ off).
 | A check for a newer version (no data about you or your videos) | GitHub (this repository's Releases) | When the desktop app starts |
 
 To keep everything local, use the local judge (`--judge ollama`: the local checker from Settings → Models, or your own Ollama with `gemma4:12b-it-q4_K_M`) or none
-(`--judge off`): the offline meaning similarity runs on your computer either way.
+(`--judge off`, and then the translation isn't checked; the numbers check runs on your computer either way).

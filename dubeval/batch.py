@@ -22,7 +22,7 @@ from dubeval.i18n import DEFAULT_UI_LANGUAGE, t as i18n_t
 LABELS = {"good": "good", "check": "check", "needs review": "check", "needs_review": "check", "review": "check",
           "poor": "poor", "bad": "poor"}
 LEVELS = ("good", "check", "poor")
-BASE_COLUMNS = ["n", "link", "title", "source_language", "target_language", "lipsync", "verdict", "poor_items",
+BASE_COLUMNS = ["n", "link", "title", "source_language", "target_language", "lipsync", "verdict", "score", "poor_items",
                 "check_items", "problem_seconds", "meaning_score", "overlap_pct", "human_label", "agrees", "error"]
 
 
@@ -127,6 +127,7 @@ def summary_row(n: int, entry: dict, results: Optional[dict] = None, error: Opti
     row.update(title=p.get("title") or "", source_language=p.get("source_language") or "",
                target_language=p.get("target_language") or "", lipsync=p.get("is_lipsync"),
                verdict=rep["overall"]["level"], poor_items=counts["poor"], check_items=counts["check"],
+               score=v if (v := (rep.get("score") or {}).get("value")) is not None else "",     # quality score, 0-100
                problem_seconds=rep.get("problem_seconds"),
                meaning_score=tj.get("meaning_score") if tj.get("measured") else "",
                meaning_scale=(tj.get("scale") or 5) if tj.get("measured") else "",

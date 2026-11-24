@@ -3,7 +3,7 @@
 //
 // Proof of concept: Python comes from the repository's .venv (or DUBEVAL_PYTHON). A packaged build will ship its
 // own Python next to the app (resources/python), found the same way.
-const { app, BrowserWindow, ipcMain, shell, Menu } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell, Menu, Notification } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -14,7 +14,7 @@ const LAUNCH_LINE = /DubEval: (http:\/\/127\.0\.0\.1:(\d+)\/\?token_given=[\w-]+
 const START_TIMEOUT_MS = 120_000;            // the first start imports torch and friends; slow disks take a while
 const LANGUAGES = ["en", "ko", "pt", "es"];
 const REPO = path.resolve(__dirname, "..");
-const DEV_ICON = path.join(__dirname, "build", "icon.png");
+const DEV_ICON = path.join(__dirname, "build", process.platform === "win32" ? "icon.ico" : "icon.png");
 // The start and failure page. Packaged, it sits outside the app's archive (asarUnpack in package.json): with the
 // grantFileProtocolExtraPrivileges fuse off, a window can't open a file:// page inside the archive, only blank.
 const STATUS_PAGE = path.join(__dirname.replace(/app\.asar$/, "app.asar.unpacked"), "status.html");
@@ -100,6 +100,7 @@ function startServer() {
     } else {
       options = { cwd: REPO, env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONUTF8: "1" } };
     }
+    options.env.DUBEVAL_NOTIFY = "1";             // the server says when an evaluation ends (see notifyFinished)
     server = spawn(python, serve, { ...options, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     const timer = setTimeout(() => reject(new Error("timeout")), START_TIMEOUT_MS);
     let found = false;
@@ -109,6 +110,8 @@ function startServer() {
       log.write(text.replace(/token_given=[\w-]+/g, "token_given=<hidden>"));
       for (const line of text.split(/\r?\n/)) {
         if (!line.trim()) continue;
+        if (line.startsWith(NOTIFY_LINE)) { notifyFinished(line.slice(NOTIFY_LINE.length)); continue; }
+        if (line.startsWith(PROGRESS_LINE)) { showProgress(line.slice(PROGRESS_LINE.length)); continue; }
         recentOutput.push(line.replace(/token_given=[\w-]+/g, "token_given=<hidden>"));
         if (recentOutput.length > 40) recentOutput.shift();
         const m = !found && line.match(LAUNCH_LINE);
@@ -124,12 +127,102 @@ function startServer() {
     server.on("error", e => { clearTimeout(timer); reject(e); });
     server.on("exit", code => {
       clearTimeout(timer);
+      evaluationsLeft = 0;                          // nothing runs any more: quitting has nothing to stop
       log.end();
       server = null;
       if (!found) reject(new Error(`exit-${code}`));
       else if (!quitting) showStatus("stopped", recentOutput.join("\n"));
     });
   });
+}
+
+// An evaluation ended by itself (dubeval/webapp.py _notify_app): a system notification, unless the window is in front
+// and the person can see it already. A click brings the window forward on that evaluation's screen.
+const NOTIFY_LINE = "DubEval-notify: ";
+const OPENABLE = /^#\/(report|compare|job)\/[0-9a-f]{12}$/;
+// Shown notifications are kept until clicked or closed: one nobody holds can be collected, and a click on it later
+// (from Notification Center, minutes on) then only brings the app forward instead of opening the evaluation.
+const shownNotes = new Set();
+function notifyFinished(text) {
+  let note;
+  try { note = JSON.parse(text); } catch { return; }
+  if (!note || typeof note.title !== "string" || !Notification.isSupported()) return;
+  if (win && !win.isDestroyed() && win.isFocused() && win.isVisible() && !win.isMinimized()) return;
+  // No icon given: Windows and macOS show the app's own (build/ isn't packaged).
+  const shown = new Notification({ title: note.title, body: typeof note.body === "string" ? note.body : "" });
+  shownNotes.add(shown);
+  const forget = () => shownNotes.delete(shown);
+  shown.on("click", () => {
+    forget();
+    noteLog(`notification clicked: ${note.open}`);
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    if (typeof note.open === "string" && OPENABLE.test(note.open)) win.webContents.send("app:open", note.open);
+  });
+  shown.on("close", forget);
+  shown.on("failed", forget);
+  shown.show();
+  noteLog(`notification shown: ${note.open}`);
+}
+
+// The running evaluation's progress on the app's icon (dubeval/webapp.py _progress_line): a bar on the Windows taskbar
+// button or the Dock icon, so a long run can be followed from another app. A failed run leaves the Windows bar red until
+// the window is looked at; the Dock shows how many evaluations are left when some wait in line.
+const PROGRESS_LINE = "DubEval-progress: ";
+let progressFailed = false;
+let evaluationsLeft = 0;          // running + waiting, from the last progress line: quitting stops them (confirmQuit)
+function showProgress(text) {
+  let note;
+  try { note = JSON.parse(text); } catch { return; }
+  if (!note || !win || win.isDestroyed()) return;
+  progressFailed = false;
+  if (note.failed && process.platform === "win32") {
+    win.setProgressBar(1, { mode: "error" });
+    progressFailed = true;
+  } else if (typeof note.progress === "number") {
+    win.setProgressBar(Math.min(1, Math.max(0.01, note.progress)));     // 0 would show no bar at all on Windows
+  } else {
+    win.setProgressBar(-1);
+  }
+  evaluationsLeft = typeof note.progress === "number" ? 1 + (note.waiting || 0) : 0;
+  const left = evaluationsLeft > 1 ? evaluationsLeft : 0;
+  if (process.platform === "darwin" && app.dock) app.dock.setBadge(left ? String(left) : "");
+}
+
+// Quitting while evaluations run or wait in line stops them all (they come back as stopped, with Continue): asked first,
+// once. An update's restart doesn't ask here: its window already said so (w.upd.running_stops).
+const QUIT_TEXT = {
+  en: { one: "An evaluation is running.", many: "{n} evaluations are running or waiting in line.",
+    detail: "If you quit now, they stop. You can continue each one the next time you open DubEval.",
+    keep: "Keep DubEval open", quit: "Quit anyway" },
+  ko: { one: "평가가 진행 중입니다.", many: "평가 {n}개가 진행 중이거나 대기 중입니다.",
+    detail: "지금 종료하면 모두 중지됩니다. 다음에 DubEval을 열 때 하나씩 이어서 할 수 있습니다.",
+    keep: "계속 열어 두기", quit: "그래도 종료" },
+  pt: { one: "Uma avaliação está em andamento.", many: "{n} avaliações estão em andamento ou na fila.",
+    detail: "Se você sair agora, elas param. Você pode continuar cada uma da próxima vez que abrir o DubEval.",
+    keep: "Manter o DubEval aberto", quit: "Sair mesmo assim" },
+  es: { one: "Hay una evaluación en curso.", many: "Hay {n} evaluaciones en curso o en cola.",
+    detail: "Si sales ahora, se detienen. Puedes continuar cada una la próxima vez que abras DubEval.",
+    keep: "Mantener DubEval abierto", quit: "Salir de todos modos" },
+};
+let quitConfirmed = false, installingUpdate = false;
+function confirmQuit() {
+  if (quitConfirmed || installingUpdate || evaluationsLeft === 0) return true;
+  const text = QUIT_TEXT[language()] || QUIT_TEXT.en;
+  const choice = dialog.showMessageBoxSync(win && !win.isDestroyed() ? win : undefined, {
+    type: "warning", title: "DubEval", buttons: [text.keep, text.quit], defaultId: 0, cancelId: 0, noLink: true,
+    message: evaluationsLeft === 1 ? text.one : text.many.replace("{n}", String(evaluationsLeft)), detail: text.detail });
+  quitConfirmed = choice === 1;
+  return quitConfirmed;
+}
+
+// One line in update.log next to server.log (the app's own events; the server's go to server.log).
+function noteLog(line) {
+  try { fs.appendFileSync(path.join(path.dirname(logFile()), "update.log"), `${new Date().toISOString()} ${line}
+`); }
+  catch { /* no log */ }
 }
 
 // Stops the server and everything it started (on Windows, the whole process tree). Synchronous: the app is about to
@@ -171,6 +264,12 @@ function createWindow() {
     event.preventDefault();
     openOutside(url);
   });
+  if (process.platform === "win32" && !app.isPackaged && fs.existsSync(DEV_ICON)) {
+    // Run from the repository, the taskbar button shows electron.exe's icon whatever the window's own is: the window's
+    // relaunch icon (its own taskbar id) makes it DubEval's. Packaged, DubEval.exe carries the icon itself.
+    win.setAppDetails({ appId: "org.dubeval.desktop.dev", appIconPath: DEV_ICON, appIconIndex: 0,
+      relaunchDisplayName: "DubEval" });
+  }
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (origin && new URL(url).origin === origin) {
       return { action: "allow", overrideBrowserWindowOptions: { autoHideMenuBar: true,
@@ -182,7 +281,11 @@ function createWindow() {
   const show = () => { if (win && !win.isVisible()) win.show(); };
   win.once("ready-to-show", show);
   setTimeout(show, SHOW_WITHIN_MS);
+  win.on("close", event => { if (!confirmQuit()) event.preventDefault(); });
   win.on("closed", () => { win = null; });
+  win.on("focus", () => {                          // the red bar of a failed run has been seen
+    if (progressFailed && win && !win.isDestroyed()) { win.setProgressBar(-1); progressFailed = false; }
+  });
   showStatus("starting");
 }
 
@@ -209,6 +312,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on("second-instance", () => {
     if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
   });
+  // Windows shows an app's notifications under the id its Start menu shortcut carries (electron-builder: build.appId).
+  if (process.platform === "win32") app.setAppUserModelId(app.isPackaged ? "org.dubeval.desktop" : process.execPath);
   app.whenReady().then(() => {
     // No menu bar on Windows. macOS always shows one, and its Edit menu is what makes Cmd+C, Cmd+V and Cmd+A work in
     // the page's text boxes, so it gets the standard three: the app's own (About, Hide, Quit), Edit and Window.
@@ -224,9 +329,14 @@ if (!app.requestSingleInstanceLock()) {
       isOwnPage: url => !!(origin && url && new URL(url).origin === origin),
       log: line => { try { fs.appendFileSync(path.join(path.dirname(logFile()), "update.log"), `${new Date().toISOString()} ${line}
 `); } catch { /* no log */ } },
+      onInstall: () => { installingUpdate = true; },
     });
     launch();
   });
-  app.on("before-quit", () => { quitting = true; stopServer(); });
+  app.on("before-quit", event => {
+    if (!confirmQuit()) { event.preventDefault(); return; }    // Cmd+Q on a Mac comes here before any window closes
+    quitting = true;
+    stopServer();
+  });
   app.on("window-all-closed", () => app.quit());
 }

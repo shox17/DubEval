@@ -99,8 +99,6 @@ def test_the_judges_dont_run_on_unrecognized_speech(monkeypatch):
     monkeypatch.setattr(pipeline, "judge_translation", lambda *a, **k: called.append(1))
     pipeline.check_translation(r, True, lambda *a: None)
     assert not called and r["translation_judge"]["reason_key"] == "r.judge.unrecognized"
-    pipeline.check_meaning_screen(r, lambda *a: None)
-    assert r["meaning_screen"]["reason_key"] == "r.screen.unrecognized"
     m = rows(build_report(r, "ko"))
     assert m["translation_check"]["level"] == "not_measured" and "{" not in m["translation_check"]["message"]
 

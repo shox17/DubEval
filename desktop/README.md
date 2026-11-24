@@ -83,6 +83,12 @@ refuse the bundled Python's libraries signed by their makers.
   `releases/latest/download/DubEval-Mac.dmg` always gives the newest one.
 - **The window:** macOS's three buttons sit in the page's top strip (`trafficLightPosition`), and the app has the
   standard app, Edit and Window menus: without an Edit menu, Cmd+C and Cmd+V do nothing.
+- **"Class AVFFrameReceiver is implemented in both"** in the Mac's server log is harmless (checked 2026-11-19): OpenCV
+  (`cv2/.dylibs`) and PyAV (`av/.dylibs`, imported by faster-whisper) each ship FFmpeg 8 (the same 63.1.102 libraries),
+  and macOS warns when two copies of `libavdevice` register the same Objective-C classes. Those classes are only for
+  recording from a camera or microphone (AVFoundation capture), which DubEval never does: it reads files
+  (`cv2.VideoCapture(path)`, ffmpeg), and each library's C functions stay bound to its own copy (two-level
+  namespaces). Rewiring one package onto the other's libraries would change signed binaries for no gain.
 - **Not available on macOS:** the NVIDIA speed-up (`windows_only` in `dubeval/packs.py`); speech recognition runs on
   the processor. The local translation checker runs on a Mac with Apple silicon (`local_judge.this_computer`).
 - **Built and checked on a real Mac** (2026-11-12, an M2 Pro on macOS 15.7, by hand with the two commands above):
@@ -117,6 +123,12 @@ refuse the bundled Python's libraries signed by their makers.
 - **Title bar:** as in PersoDub, there is no white Windows title bar (`titleBarStyle: "hidden"` with a dark
   `titleBarOverlay`): the page's empty 36 px top strip (`.topbar`, `-webkit-app-region: drag`) moves the window and the
   window buttons are drawn over its right end; `status.html` has its own drag strip while the app starts.
+- **Finished notification:** the app starts the server with `DUBEVAL_NOTIFY=1`, and the server prints one
+  `DubEval-notify: {title, body, open}` line when an evaluation ends by itself (`dubeval/webapp.py` `_notify_app`).
+  `main.js` shows it as a system notification unless the window is already in front; a click brings the window forward
+  on that evaluation (`preload.js` `onOpen`; only `#/report|compare|job/<id>` addresses are opened). On Windows the
+  notifications carry the app's id (`app.setAppUserModelId`, = `build.appId`); macOS asks once whether DubEval may show
+  them.
 - **Log:** the server's output goes to `server.log` in the app's data folder (`%APPDATA%\DubEval\logs` on
   Windows); update checks write `update.log` next to it.
 - **Updates** (`updater.js`, electron-updater): a packaged app checks the GitHub Releases in `build.publish` 10 s after
@@ -126,7 +138,10 @@ refuse the bundled Python's libraries signed by their makers.
   lists the new version's own lines in the app's language, read from `dubeval/release_notes.json` at the release's tag (5 s
   at most, then the release's description, in English). A download that breaks says so and **Check for updates** tries
   again. The restart shows the installer's own progress window, because an update replaces about 9,000 files and takes
-  minutes: a silent install left the person with no window at all. Back from an update, the page says "Updated to X" once:
+  minutes: a silent install left the person with no window at all. It asks nothing: `build/installer.nsh` skips the
+  "who is this program for" page (keeping how DubEval is installed) and the Finish page when the installer runs with
+  `--updated`, and starts DubEval when it's done; a first install still shows both (checked 2026-11-18 by running a test
+  installer with `--updated --force-run` over 0.1.7: only the progress page, then DubEval started). Back from an update, the page says "Updated to X" once:
   the app compares its version with `last-version.txt` in its data folder. The page learns about all this only through
   `preload.js` (`window.dubevalShell`: get, check, restart, on-change), and only DubEval's own page may ask.
   `DUBEVAL_UPDATE_URL` points the app at another feed (a folder with `latest.yml`, the installer and
@@ -151,6 +166,8 @@ refuse the bundled Python's libraries signed by their makers.
      `latest.yml` every installed app refuses the update (sha512 mismatch; tested 2026-11-10).
 4. Optional: test the signed installer before publishing: `python tools/release_qa/release_qa.py --installer
    desktop/dist/DubEval-Setup.exe` (it replaces the installed DubEval).
+   On the Mac, install the new `.dmg` there and run `python tools/release_qa/release_qa_mac.py --host <user>@<mac>
+   --key <ssh key>` from this computer: the same scenarios on the Mac (`tools/release_qa/README.md`).
 5. Write the release's description as the version's What's new lines (`finish` writes the English ones to
    `dist/release-notes.md`): installed apps show it in their **Version update** window when they can't read
    `release_notes.json` at the tag, or don't read it yet (0.1.3 and earlier). With neither, the window links to the

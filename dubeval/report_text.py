@@ -6,7 +6,7 @@ languages with the same {placeholders}. Counted texts come in _one / _many pairs
 
 REPORT_TEXT = {
     # ----- measure names -----
-    "r.m.length_match": {"en": "Length match", "ko": "길이 일치", "pt": "Duração", "es": "Duración"},
+    "r.m.length_match": {"en": "Length match", "ko": "길이 일치", "pt": "Duração total", "es": "Duración total"},
     "r.m.loudness_match": {"en": "Loudness match", "ko": "음량 일치", "pt": "Volume", "es": "Volumen"},
     "r.m.silence": {"en": "Silence", "ko": "무음", "pt": "Silêncio", "es": "Silencio"},
     "r.m.noise": {"en": "Noise", "ko": "잡음", "pt": "Ruído", "es": "Ruido"},
@@ -189,7 +189,8 @@ REPORT_TEXT = {
         "pt": "A dublagem se enche de ruído em {n} momentos, um chiado ou estática que o original não tem. Ouça esses trechos.",
         "es": "El doblaje se llena de ruido en {n} momentos, un siseo o estática que el original no tiene. Escucha esos puntos.",
     },
-    "r.noise.display": {"en": "{n} found", "ko": "{n}곳", "pt": "{n} encontrado(s)", "es": "{n} encontrado(s)"},
+    "r.noise.display_one": {"en": "1 found", "ko": "1곳", "pt": "1 encontrado", "es": "1 encontrado"},
+    "r.noise.display_many": {"en": "{n} found", "ko": "{n}곳", "pt": "{n} encontrados", "es": "{n} encontrados"},
     "r.g.noise": {
         "en": "Compares how far the dub fills with noise against its own usual level and the original at the same moment. "
               "Needs review when it rises {rise} dB or more for {sec} s or longer, otherwise Good; never Poor. Hum, buzz and crackle "
@@ -411,6 +412,15 @@ REPORT_TEXT = {
         "pt": "{n} momentos curtos não coincidem; eles aparecem em Pontos a verificar.",
         "es": "{n} momentos cortos no coinciden; aparecen en Cosas que revisar.",
     },
+    "r.align.no_spots": {
+        "en": "Each part that is off is too short to show on the timeline: the timing slips a little in many "
+              "places, not a lot in one.",
+        "ko": "어긋나는 부분이 하나하나는 짧아 타임라인에 표시하지 않았습니다. 한곳에서 크게 어긋나기보다 여러 곳에서 조금씩 어긋납니다.",
+        "pt": "Cada trecho fora do tempo é curto demais para aparecer na linha do tempo: a fala adianta ou "
+              "atrasa um pouco em vários pontos, e não muito em um só.",
+        "es": "Cada parte desfasada es demasiado corta para mostrarse en la línea de tiempo: la sincronización "
+              "se desvía un poco en muchos sitios, no mucho en uno solo.",
+    },
     "r.align.display": {"en": "{ov} lined up", "ko": "{ov} 일치", "pt": "{ov} coincide", "es": "{ov} coincide"},
     "r.g.align": {
         "en": "Good when at least {good}% of the speaking time lines up, Needs review from {check}%, otherwise Poor. Languages "
@@ -433,6 +443,32 @@ REPORT_TEXT = {
               "informativo; no cambia el resultado.",
     },
     "r.later": {"en": "later", "ko": "늦게", "pt": "depois", "es": "más tarde"},
+    "r.lang_code": {"en": "en", "ko": "ko", "pt": "pt", "es": "es"},
+    "r.sec": {"en": "{sec} s", "ko": "{sec}초", "pt": "{sec} s", "es": "{sec} s"},
+    "r.sec_pct": {"en": "{sec} s ({pct}%)", "ko": "{sec}초 ({pct}%)", "pt": "{sec} s ({pct}%)", "es": "{sec} s ({pct}%)"},
+    "r.offsets.display": {
+        "en": "Against the original: starts {start} · ends {end}",
+        "ko": "원본 대비 · 시작 {start} · 끝 {end}",
+        "pt": "Em relação ao original: começa {start} · termina {end}",
+        "es": "Frente al original: empieza {start} · termina {end}",
+    },
+    "r.offset.early": {"en": "{sec} s early", "ko": "{sec}초 일찍", "pt": "{sec} s antes", "es": "{sec} s antes"},
+    "r.offset.late": {"en": "{sec} s late", "ko": "{sec}초 늦게", "pt": "{sec} s depois", "es": "{sec} s después"},
+    "r.offset.same": {
+        "en": "on time",
+        "ko": "차이 없음",
+        "pt": "na hora",
+        "es": "a tiempo",
+    },
+    "r.silence.display": {"en": "{dub} vs {orig} original", "ko": "원본 {orig} 대비 {dub}",
+                          "pt": "{dub} vs. {orig} do original", "es": "{dub} frente a {orig} del original"},
+    "r.clip.none": {"en": "None", "ko": "없음", "pt": "Nenhuma", "es": "Ninguna"},
+    "r.vs.cant_tell": {
+        "en": "Can't tell on this video",
+        "ko": "이 영상에서는 판단할 수 없음",
+        "pt": "Não dá para dizer neste vídeo",
+        "es": "No se puede saber en este video",
+    },
     "r.earlier": {"en": "earlier", "ko": "일찍", "pt": "antes", "es": "antes"},
 
     # ----- translation -----
@@ -441,10 +477,10 @@ REPORT_TEXT = {
         "pt": "O sentido é transmitido corretamente.", "es": "El sentido se transmite correctamente.",
     },
     "r.meaning.check": {
-        "en": "Some meaning is lost or changed; read the issues below.",
-        "ko": "일부 의미가 빠지거나 달라졌습니다. 아래 문제를 확인하세요.",
-        "pt": "Parte do sentido se perdeu ou mudou; leia os problemas abaixo.",
-        "es": "Parte del sentido se pierde o cambia; lee los problemas de abajo.",
+        "en": "Some meaning is lost or changed; the lines are listed under Things to check.",
+        "ko": "일부 의미가 빠지거나 달라졌습니다. 해당 대사는 확인할 사항에 표시했습니다.",
+        "pt": "Parte do sentido se perdeu ou mudou; as falas aparecem em Pontos a verificar.",
+        "es": "Parte del sentido se perdió o cambió; las frases aparecen en Cosas que revisar.",
     },
     "r.meaning.poor": {
         "en": "The dub often says something different from the original; the translation needs to be redone.",
@@ -559,7 +595,6 @@ REPORT_TEXT = {
         "es": "La revisión de la traducción se desactivó en esta ejecución.",
     },
     "r.judge.unrecognized": {"en": "Not checked: speech recognition couldn't make out the dub's language, so its words can't be compared with the original. Add the dub's subtitle file, or try the large speech model.", "ko": "검사 안 함: 음성 인식이 더빙 언어를 알아듣지 못해 더빙의 말을 원본과 비교할 수 없습니다. 더빙 자막 파일을 추가하거나 큰 음성 인식 모델을 사용해 보세요.", "pt": "Não verificado: o reconhecimento de fala não entendeu o idioma da dublagem, então suas palavras não podem ser comparadas com o original. Adicione o arquivo de legendas da dublagem ou experimente o modelo de fala grande.", "es": "No comprobado: el reconocimiento de voz no entendió el idioma del doblaje, así que sus palabras no se pueden comparar con el original. Añade el archivo de subtítulos del doblaje o prueba el modelo de habla grande."},
-    "r.screen.unrecognized": {"en": "Not compared: speech recognition couldn't make out the dub's language.", "ko": "비교 안 함: 음성 인식이 더빙 언어를 알아듣지 못했습니다.", "pt": "Não comparado: o reconhecimento de fala não entendeu o idioma da dublagem.", "es": "No comparado: el reconocimiento de voz no entendió el idioma del doblaje."},
     "r.m.naturalness": {"en": "Natural wording", "ko": "자연스러운 표현", "pt": "Naturalidade", "es": "Naturalidad"},
     "r.m.context_fit": {"en": "Fits the context", "ko": "문맥 일관성", "pt": "Coerência com o contexto", "es": "Coherencia con el contexto"},
     "r.m.terminology": {"en": "Consistent terms", "ko": "용어·표현 일관성", "pt": "Termos consistentes", "es": "Términos coherentes"},
@@ -957,15 +992,18 @@ REPORT_TEXT = {
     },
     "r.pair.cov_missing_one": {
         "en": "1 part of the original ({sec} s) isn't in the dub; it's listed under Things to check.",
-        "ko": "원본의 1개 부분({sec}초)이 더빙 영상에 없습니다. 확인할 항목에 표시했습니다.",
-        "pt": "1 parte do original ({sec} s) não está na dublagem; ela aparece em Itens a verificar.",
+        "ko": "원본 중 1곳({sec}초)이 더빙 영상에 없습니다. 확인할 사항에 표시했습니다.",
+        "pt": "1 parte do original ({sec} s) não está na dublagem; ela aparece em Pontos a verificar.",
         "es": "1 parte del original ({sec} s) no está en el doblaje; aparece en Cosas que revisar.",
     },
     "r.pair.cov_missing_many": {
-        "en": "{n} parts of the original ({sec} s in all) aren't in the dub; they're listed under Things to check.",
-        "ko": "원본의 {n}개 부분(모두 {sec}초)이 더빙 영상에 없습니다. 확인할 항목에 표시했습니다.",
-        "pt": "{n} partes do original ({sec} s no total) não estão na dublagem; elas aparecem em Itens a verificar.",
-        "es": "{n} partes del original ({sec} s en total) no están en el doblaje; aparecen en Cosas que revisar.",
+        "en": "{n} parts of the original ({sec} s in all) aren't in the dub; they're listed under Things to "
+              "check.",
+        "ko": "원본 중 {n}곳(합계 {sec}초)이 더빙 영상에 없습니다. 확인할 사항에 표시했습니다.",
+        "pt": "{n} partes do original ({sec} s no total) não estão na dublagem; elas aparecem em Pontos a "
+              "verificar.",
+        "es": "{n} partes del original ({sec} s en total) no están en el doblaje; aparecen en Cosas que "
+              "revisar.",
     },
     "r.pair.cut": {
         "en": "The dub is also cut differently: its parts sit at different time shifts, so DubEval lined up each part "
@@ -1090,23 +1128,17 @@ REPORT_TEXT = {
               "del original frase por frase.",
     },
     "r.line.bad": {
-        "en": "{bad} of {n} lines differ from the original's length by more than {band}% ({long} longer, {short} "
-              "shorter). A line that's too long gets rushed or cut; one that's too short leaves the speaker's mouth "
-              "moving in silence. They're listed under Things to check.",
-        "ko": "대사 {n}개 중 {bad}개가 원본 길이와 {band}% 넘게 다릅니다(길어짐 {long}개, 짧아짐 {short}개). 너무 긴 대사는 "
-              "빨라지거나 잘리고, 너무 짧은 대사는 입은 움직이는데 소리가 없습니다. 확인할 항목에 표시했습니다.",
-        "pt": "{bad} de {n} falas diferem da duração original em mais de {band}% ({long} mais longas, {short} mais "
-              "curtas). Uma fala longa demais fica corrida ou cortada; uma curta demais deixa a boca se mexendo em "
-              "silêncio. Elas aparecem em Itens a verificar.",
-        "es": "{bad} de {n} frases difieren de la duración original en más de un {band}% ({long} más largas, {short} "
-              "más cortas). Una frase demasiado larga se acelera o se corta; una demasiado corta deja la boca moviéndose "
-              "en silencio. Aparecen en Cosas que revisar.",
-    },
-    "r.screen.music": {
-        "en": "Not graded: this video is mostly music or effects (speech in {pct}% of it), so recognized words are too unreliable to compare line by line.",
-        "ko": "평가하지 않음: 이 영상은 대부분 음악이나 효과음이라(말소리 {pct}%) 인식된 단어를 줄별로 비교하기에는 믿을 수 없습니다.",
-        "pt": "Não avaliado: este vídeo é quase todo música ou efeitos (fala em {pct}% dele), então as palavras reconhecidas não são confiáveis para comparar fala por fala.",
-        "es": "No evaluado: este vídeo es casi todo música o efectos (habla en {pct}% de él), así que las palabras reconocidas no son fiables para comparar frase por frase.",
+        "en": "{bad} of {n} lines differ from the original's length by more than {band}% ({long} longer, "
+              "{short} shorter). A line that's too long gets rushed or cut; one that's too short leaves the "
+              "speaker's mouth moving in silence. They're listed under Things to check.",
+        "ko": "대사 {n}개 중 {bad}개가 원본 길이와 {band}% 넘게 다릅니다(길어짐 {long}개, 짧아짐 {short}개). 너무 긴 대사는 빨라지거나 잘리고, 너무 짧은 "
+              "대사는 입은 움직이는데 소리가 없습니다. 확인할 사항에 표시했습니다.",
+        "pt": "{bad} de {n} falas diferem da duração original em mais de {band}% ({long} mais longas, {short} "
+              "mais curtas). Uma fala longa demais fica corrida ou cortada; uma curta demais deixa a boca se "
+              "mexendo em silêncio. Elas aparecem em Pontos a verificar.",
+        "es": "{bad} de {n} frases difieren de la duración original en más de un {band}% ({long} más largas, "
+              "{short} más cortas). Una frase demasiado larga se acelera o se corta; una demasiado corta deja "
+              "al hablante moviendo la boca en silencio. Aparecen en Cosas que revisar.",
     },
     "r.line.music": {
         "en": "Not graded: this video is mostly music or effects (speech in {pct}% of it), so recognized words can't time its lines reliably.",
@@ -1129,27 +1161,26 @@ REPORT_TEXT = {
         "es": "Ninguna frase del doblaje invade la siguiente frase del original.",
     },
     "r.overrun.some_one": {
-        "en": "1 dub line keeps going after the original's next line has started, so two lines overlap or the next one "
-              "starts late. It's listed under Things to check.",
-        "ko": "더빙 대사 1개가 다음 원본 대사가 시작된 뒤에도 이어져 두 대사가 겹치거나 다음 대사가 늦게 시작됩니다. 확인할 "
-              "항목에 표시했습니다.",
-        "pt": "1 fala da dublagem continua depois que a próxima fala do original começou, então as duas se sobrepõem ou a "
-              "próxima começa atrasada. Ela aparece em Itens a verificar.",
-        "es": "1 frase del doblaje sigue después de que empieza la siguiente frase del original, así que se solapan o la "
-              "siguiente empieza tarde. Aparece en Cosas que revisar.",
+        "en": "1 dub line keeps going after the original's next line has started, so two lines overlap or the "
+              "next one starts late. It's listed under Things to check.",
+        "ko": "더빙 대사 1개가 다음 원본 대사가 시작된 뒤에도 이어져 두 대사가 겹치거나 다음 대사가 늦게 시작됩니다. 확인할 사항에 표시했습니다.",
+        "pt": "1 fala da dublagem continua depois que a próxima fala do original começou, então as duas se "
+              "sobrepõem ou a próxima começa atrasada. Ela aparece em Pontos a verificar.",
+        "es": "1 frase del doblaje sigue después de que empieza la siguiente frase del original, así que se "
+              "solapan o la siguiente empieza tarde. Aparece en Cosas que revisar.",
     },
     "r.overrun.some_many": {
         "en": "{n} dub lines keep going after the original's next line has started, so lines overlap or start late. "
               "They're listed under Things to check.",
-        "ko": "더빙 대사 {n}개가 다음 원본 대사가 시작된 뒤에도 이어져 대사가 겹치거나 늦게 시작됩니다. 확인할 항목에 "
+        "ko": "더빙 대사 {n}개가 다음 원본 대사가 시작된 뒤에도 이어져 대사가 겹치거나 늦게 시작됩니다. 확인할 사항에 "
               "표시했습니다.",
         "pt": "{n} falas da dublagem continuam depois que a próxima fala do original começou, então as falas se "
-              "sobrepõem ou começam atrasadas. Elas aparecem em Itens a verificar.",
+              "sobrepõem ou começam atrasadas. Elas aparecem em Pontos a verificar.",
         "es": "{n} frases del doblaje siguen después de que empieza la siguiente frase del original, así que se solapan "
               "o empiezan tarde. Aparecen en Cosas que revisar.",
     },
-    "r.overrun.display_one": {"en": "1 line", "ko": "1개 대사", "pt": "1 fala", "es": "1 frase"},
-    "r.overrun.display_many": {"en": "{n} lines", "ko": "{n}개 대사", "pt": "{n} falas", "es": "{n} frases"},
+    "r.overrun.display_one": {"en": "1 line", "ko": "대사 1개", "pt": "1 fala", "es": "1 frase"},
+    "r.overrun.display_many": {"en": "{n} lines", "ko": "대사 {n}개", "pt": "{n} falas", "es": "{n} frases"},
     "r.g.line_length": {
         "en": "Each original line of at least {min} s is compared with the dub speech matched to it, from first to "
               "last word. A line is off when it differs by more than ±{band}% and by at least {diff} s. Good when at least "
@@ -1195,81 +1226,11 @@ REPORT_TEXT = {
         "es": "Frase {n}: el doblaje sigue hablando {sec} s después de que empiece la siguiente frase del original.",
     },
 
-    # ----- meaning screen (dubeval/meaning.py) and dub types -----
+    # ----- the removed meaning screen: its label stays, old votes are summed under it (qa.py feedback); dub types -----
     "r.m.meaning_screen": {"en": "Meaning similarity (offline)", "ko": "의미 유사도 (오프라인)",
                            "pt": "Semelhança de sentido (offline)", "es": "Similitud de sentido (sin conexión)"},
-    "r.screen.display": {"en": "{low} of {n} lines low · median {median}", "ko": "{n}개 중 {low}개 낮음 · 중앙값 {median}",
-                         "pt": "{low} de {n} falas baixas · mediana {median}",
-                         "es": "{low} de {n} frases bajas · mediana {median}"},
-    "r.screen.good": {
-        "en": "Every line's meaning is close to the original's (median similarity {median}), by an offline comparison of "
-              "the sentences.",
-        "ko": "오프라인 문장 비교에서 모든 대사의 의미가 원본과 가깝습니다(유사도 중앙값 {median}).",
-        "pt": "O sentido de todas as falas está próximo do original (semelhança mediana {median}), por uma comparação "
-              "offline das frases.",
-        "es": "El sentido de todas las frases está cerca del original (similitud mediana {median}), según una "
-              "comparación sin conexión de las frases.",
-    },
-    "r.screen.low": {
-        "en": "{low} of {n} lines may not mean what the original says (similarity below {min}). This quick offline "
-              "comparison can be fooled by misheard words, so the translation check or a listen confirms it. They're "
-              "listed under Things to check.",
-        "ko": "대사 {n}개 중 {low}개가 원본과 뜻이 다를 수 있습니다(유사도 {min} 미만). 이 빠른 오프라인 비교는 잘못 인식된 "
-              "단어에 속을 수 있으니 번역 검토나 직접 들어 보고 확인하세요. 확인할 항목에 표시했습니다.",
-        "pt": "{low} de {n} falas podem não dizer o que o original diz (semelhança abaixo de {min}). Esta comparação "
-              "offline rápida pode ser enganada por palavras mal reconhecidas; a verificação da tradução ou uma escuta "
-              "confirma. Elas aparecem em Itens a verificar.",
-        "es": "{low} de {n} frases pueden no decir lo que dice el original (similitud por debajo de {min}). Esta "
-              "comparación rápida sin conexión puede confundirse con palabras mal reconocidas; la revisión de la "
-              "traducción o una escucha lo confirma. Aparecen en Cosas que revisar.",
-    },
-    "r.screen.off": {
-        "en": "The offline meaning comparison is turned off (DUBEVAL_MEANING_SCREEN=off).",
-        "ko": "오프라인 의미 비교가 꺼져 있습니다(DUBEVAL_MEANING_SCREEN=off).",
-        "pt": "A comparação de sentido offline está desligada (DUBEVAL_MEANING_SCREEN=off).",
-        "es": "La comparación de sentido sin conexión está desactivada (DUBEVAL_MEANING_SCREEN=off).",
-    },
-    "r.screen.not_installed": {
-        "en": "The offline meaning comparison isn't installed. Install it with: pip install \"dubeval[meaning]\".",
-        "ko": "오프라인 의미 비교가 설치되어 있지 않습니다. 설치: pip install \"dubeval[meaning]\".",
-        "pt": "A comparação de sentido offline não está instalada. Instale com: pip install \"dubeval[meaning]\".",
-        "es": "La comparación de sentido sin conexión no está instalada. Instálala con: pip install \"dubeval[meaning]\".",
-    },
-    "r.screen.no_lines": {
-        "en": "No line was spoken by both the original and the dub, so their meaning couldn't be compared.",
-        "ko": "원본과 더빙이 함께 말한 대사가 없어 의미를 비교할 수 없었습니다.",
-        "pt": "Nenhuma fala foi dita pelo original e pela dublagem, então o sentido não pôde ser comparado.",
-        "es": "Ninguna frase la dicen a la vez el original y el doblaje, así que no se pudo comparar el sentido.",
-    },
-    "r.screen.error": {
-        "en": "The offline meaning comparison couldn't run (the model couldn't be loaded); the other results are not affected.",
-        "ko": "오프라인 의미 비교를 실행하지 못했습니다(모델을 불러오지 못함). 다른 결과에는 영향이 없습니다.",
-        "pt": "A comparação de sentido offline não pôde ser executada (o modelo não carregou); os outros resultados não "
-              "são afetados.",
-        "es": "La comparación de sentido sin conexión no pudo ejecutarse (no se cargó el modelo); los demás resultados "
-              "no se ven afectados.",
-    },
-    "r.g.meaning_screen": {
-        "en": "A multilingual sentence model (BGE-M3) compares each original line with the dub line said at the same "
-              "time, from 0 to 1. Good when no line scores below {min}, otherwise Needs review. Never Poor: the translation "
-              "check decides.",
-        "ko": "다국어 문장 모델(BGE-M3)이 원본 대사와 같은 시간의 더빙 대사를 0~1로 비교합니다. {min} 미만인 대사가 없으면 "
-              "좋음, 있으면 검토 필요입니다. 미흡은 없습니다(번역 검토가 판단).",
-        "pt": "Um modelo de frases multilíngue (BGE-M3) compara cada fala original com a fala da dublagem no mesmo "
-              "momento, de 0 a 1. Bom quando nenhuma fala fica abaixo de {min}, senão Precisa de revisão. Nunca Ruim: a "
-              "verificação da tradução decide.",
-        "es": "Un modelo de frases multilingüe (BGE-M3) compara cada frase original con la frase del doblaje dicha al "
-              "mismo tiempo, de 0 a 1. Bien cuando ninguna frase queda por debajo de {min}, si no Necesita revisión. Nunca Deficiente: "
-              "la revisión de la traducción decide.",
-    },
     "r.cat.meaning_drift": {"en": "meaning may differ", "ko": "의미 다를 수 있음", "pt": "sentido pode diferir",
                             "es": "el sentido puede diferir"},
-    "r.int.meaning_drift": {
-        "en": "Line {n}: the dub may not mean what the original says (similarity {sim}).",
-        "ko": "{n}번 대사: 더빙이 원본과 뜻이 다를 수 있습니다(유사도 {sim}).",
-        "pt": "Fala {n}: a dublagem pode não dizer o que o original diz (semelhança {sim}).",
-        "es": "Frase {n}: el doblaje puede no decir lo que dice el original (similitud {sim}).",
-    },
     "r.m.numbers": {"en": "Numbers", "ko": "숫자", "pt": "Números", "es": "Números"},
     "r.num.good_one": {
         "en": "The line with numbers on both sides says the same numbers as the original.",
@@ -1284,24 +1245,24 @@ REPORT_TEXT = {
         "es": "Las {n} frases con números en ambos lados dicen los mismos números que el original.",
     },
     "r.num.check_one": {
-        "en": "{n} of {total} lines with numbers says a number the original doesn't. Speech recognition can mishear "
-              "a number, so listen before you fix it. It's listed under Things to check.",
-        "ko": "숫자가 있는 대사 {total}개 중 {n}개에서 원본에 없는 숫자가 들립니다. 음성 인식이 숫자를 잘못 들을 수 "
-              "있으니 고치기 전에 직접 들어 보세요. 확인할 항목에 표시했습니다.",
-        "pt": "{n} de {total} falas com números diz um número que o original não diz. O reconhecimento de fala pode "
-              "ouvir mal um número; ouça antes de corrigir. Ela aparece em Itens a verificar.",
-        "es": "{n} de {total} frases con números dice un número que el original no dice. El reconocimiento de voz "
-              "puede oír mal un número; escuche antes de corregir. Aparece en Cosas que revisar.",
+        "en": "{n} of {total} lines with numbers says a number the original doesn't. Speech recognition can "
+              "mishear a number, so listen before you fix it. It's listed under Things to check.",
+        "ko": "숫자가 있는 대사 {total}개 중 {n}개에서 원본에 없는 숫자가 들립니다. 음성 인식이 숫자를 잘못 들을 수 있으니 고치기 전에 직접 들어 보세요. 확인할 사항에 "
+              "표시했습니다.",
+        "pt": "{n} de {total} falas com números diz um número que o original não diz. O reconhecimento de fala "
+              "pode ouvir mal um número; ouça antes de corrigir. Ela aparece em Pontos a verificar.",
+        "es": "{n} de {total} frases con números dice un número que el original no dice. El reconocimiento de "
+              "voz puede oír mal un número; escúchalo antes de corregirlo. Aparece en Cosas que revisar.",
     },
     "r.num.check_many": {
-        "en": "{n} of {total} lines with numbers say numbers the original doesn't. Speech recognition can mishear "
-              "numbers, so listen before you fix them. They're listed under Things to check.",
-        "ko": "숫자가 있는 대사 {total}개 중 {n}개에서 원본에 없는 숫자가 들립니다. 음성 인식이 숫자를 잘못 들을 수 "
-              "있으니 고치기 전에 직접 들어 보세요. 확인할 항목에 표시했습니다.",
-        "pt": "{n} de {total} falas com números dizem números que o original não diz. O reconhecimento de fala pode "
-              "ouvir mal os números; ouça antes de corrigir. Elas aparecem em Itens a verificar.",
-        "es": "{n} de {total} frases con números dicen números que el original no dice. El reconocimiento de voz "
-              "puede oír mal los números; escuche antes de corregir. Aparecen en Cosas que revisar.",
+        "en": "{n} of {total} lines with numbers say numbers the original doesn't. Speech recognition can "
+              "mishear numbers, so listen before you fix them. They're listed under Things to check.",
+        "ko": "숫자가 있는 대사 {total}개 중 {n}개에서 원본에 없는 숫자가 들립니다. 음성 인식이 숫자를 잘못 들을 수 있으니 고치기 전에 직접 들어 보세요. 확인할 사항에 "
+              "표시했습니다.",
+        "pt": "{n} de {total} falas com números dizem números que o original não diz. O reconhecimento de fala "
+              "pode ouvir mal os números; ouça antes de corrigir. Elas aparecem em Pontos a verificar.",
+        "es": "{n} de {total} frases con números dicen números que el original no dice. El reconocimiento de "
+              "voz puede oír mal los números; escúchalos antes de corregirlos. Aparecen en Cosas que revisar.",
     },
     "r.num.display": {"en": "{changed} of {n} lines differ", "ko": "{n}개 중 {changed}개 다름",
                       "pt": "{changed} de {n} falas diferem", "es": "{changed} de {n} frases difieren"},
@@ -1310,6 +1271,18 @@ REPORT_TEXT = {
         "ko": "한쪽에서 숫자를 글자로 말해 비교할 수 없었습니다.",
         "pt": "Os números aparecem por extenso de um lado, então não puderam ser comparados.",
         "es": "Los números aparecen en palabras en un lado, así que no se pudieron comparar.",
+    },
+    "r.vq.display": {
+        "en": "{dub} vs {orig} original, out of {scale}",
+        "ko": "원본 {orig} 대비 {dub} ({scale}점 만점)",
+        "pt": "{dub} vs. {orig} do original, numa escala até {scale}",
+        "es": "{dub} frente a {orig} del original, sobre {scale}",
+    },
+    "r.num.words_display": {
+        "en": "Not compared (said in words)",
+        "ko": "비교 못 함 (숫자를 말로 풀어 씀)",
+        "pt": "Não comparados (por extenso)",
+        "es": "No comparados (en palabras)",
     },
     "r.num.none": {"en": "Neither side says a number.", "ko": "양쪽 모두 숫자가 없습니다.",
                    "pt": "Nenhum dos lados diz um número.", "es": "Ningún lado dice un número."},
@@ -1548,6 +1521,14 @@ REPORT_TEXT = {
         "es": "Esta evaluación usó una estimación antigua y aproximada de los labios, que DubEval ya no muestra por no "
               "ser fiable. Vuelve a ejecutarla con la comprobación de la sincronía labial para evaluar los labios.",
     },
+    "r.lips.short.skipped": {"en": "Off for this run", "ko": "이번 실행에서 꺼짐", "pt": "Desligada nesta execução",
+                             "es": "Desactivada en esta ejecución"},
+    "r.lips.short.no_download": {"en": "Needs its download", "ko": "다운로드 필요", "pt": "Precisa do download",
+                                 "es": "Necesita su descarga"},
+    "r.lips.short.not_lipsynced": {"en": "Not a lip-synced dub", "ko": "립싱크 더빙 아님",
+                                   "pt": "Dublagem sem sincronização labial", "es": "Doblaje sin sincronización labial"},
+    "r.lips.short.estimate_removed": {"en": "Old estimate, not shown", "ko": "예전 추정, 표시 안 함",
+                                      "pt": "Estimativa antiga, não exibida", "es": "Estimación antigua, no se muestra"},
     "r.lips.skipped": {
         "en": "Lips weren't checked: the lip check was off for this run. To check them, turn it on under More options "
               "when you start an evaluation (--lipsync on the command line).",
@@ -1562,7 +1543,8 @@ REPORT_TEXT = {
     # ----- things to check -----
     "r.cat.timing": {"en": "timing", "ko": "타이밍", "pt": "tempo", "es": "momento"},
     "r.cat.clarity": {"en": "clarity", "ko": "명료도", "pt": "clareza", "es": "claridad"},
-    "r.cat.missing": {"en": "missing speech", "ko": "누락된 말", "pt": "fala faltando", "es": "habla que falta"},
+    "r.cat.missing": {"en": "left out of the translation", "ko": "번역에서 빠짐", "pt": "omitido na tradução",
+                      "es": "omitido en la traducción"},
     "r.cat.added": {"en": "added speech", "ko": "추가된 말", "pt": "fala acrescentada", "es": "habla añadida"},
     "r.cat.noise": {"en": "noise", "ko": "잡음", "pt": "ruído", "es": "ruido"},
     "r.cat.long_silence": {"en": "long silence", "ko": "긴 무음", "pt": "silêncio longo", "es": "silencio largo"},
@@ -2209,7 +2191,7 @@ REPORT_TEXT = {
     "r.evaluated.dub": {"en": "dubbed video", "ko": "더빙 영상", "pt": "vídeo dublado", "es": "video doblado"},
 
     # ----- report labels (text and HTML versions) -----
-    "r.label.title": {"en": "Dubbing QA Report", "ko": "더빙 품질 보고서", "pt": "Relatório de qualidade da dublagem",
+    "r.label.title": {"en": "Dub Quality Report", "ko": "더빙 품질 보고서", "pt": "Relatório de qualidade da dublagem",
                       "es": "Informe de calidad del doblaje"},
     "r.label.overall": {"en": "Overall", "ko": "종합 판정", "pt": "Resultado", "es": "Resultado"},
     "r.label.things": {"en": "Things to check", "ko": "확인할 사항", "pt": "Pontos a verificar", "es": "Cosas que revisar"},
@@ -2232,11 +2214,26 @@ REPORT_TEXT = {
     "r.label.score": {"en": "Score", "ko": "점수 항목", "pt": "Nota", "es": "Nota"},
     "r.label.average": {"en": "Average of all lines", "ko": "전체 줄 평균", "pt": "Média de todas as falas",
                         "es": "Promedio de todas las frases"},
+    "r.label.part_line": {"en": "{label}: {avg} on average · {low} lines at {flag} or lower",
+                          "ko": "{label}: 평균 {avg} · {flag}점 이하: {low}",
+                          "pt": "{label}: média {avg} · {low} falas com {flag} ou menos",
+                          "es": "{label}: promedio {avg} · {low} frases con {flag} o menos"},
     "r.label.low_lines": {"en": "Lines scoring {flag} or lower", "ko": "{flag}점 이하인 줄", "pt": "Falas com {flag} ou menos",
                           "es": "Frases con {flag} o menos"},
     "r.label.attention": {"en": "Measures that need attention", "ko": "확인이 필요한 측정 항목",
                           "pt": "Medidas que pedem atenção", "es": "Medidas que piden atención"},
     "r.label.passed": {"en": "Passed", "ko": "통과한 항목", "pt": "Aprovadas", "es": "Aprobadas"},
+    "r.label.info": {
+        "en": "For information",
+        "ko": "참고",
+        "pt": "Apenas informativo",
+        "es": "Para información",
+    },
+    "r.label.tl_original": {"en": "Original speaking", "ko": "원본 말소리", "pt": "Original falando",
+                            "es": "Original hablando"},
+    "r.label.tl_dub": {"en": "Dub speaking", "ko": "더빙 말소리", "pt": "Dublagem falando", "es": "Doblaje hablando"},
+    "r.label.tl_moment": {"en": "Moment to check", "ko": "확인할 순간", "pt": "Momento a verificar",
+                          "es": "Momento que revisar"},
     "r.label.passed_note": {
         "en": "The HTML report and the app explain each one and how it is graded.",
         "ko": "각 항목의 설명과 평가 기준은 HTML 보고서와 앱에서 볼 수 있습니다.",
@@ -2277,12 +2274,16 @@ REPORT_TEXT = {
     "c.sec.not_ready": {"en": "Best starting point (not ready to deliver)", "ko": "가장 나은 출발점 (납품 준비 안 됨)",
                         "pt": "Melhor ponto de partida (não está pronta para entrega)",
                         "es": "Mejor punto de partida (no está listo para entregar)"},
-    "c.sec.intervals": {"en": "Problem intervals", "ko": "문제 구간", "pt": "Trechos com problemas",
-                        "es": "Tramos con problemas"},
+    "c.sec.intervals": {
+        "en": "Problems on the timeline",
+        "ko": "문제 구간",
+        "pt": "Problemas na linha do tempo",
+        "es": "Problemas en la línea de tiempo",
+    },
     "c.sec.reasoning": {"en": "Reasoning", "ko": "판단 근거", "pt": "Justificativa", "es": "Razonamiento"},
     "c.sec.table": {"en": "Every check, side by side", "ko": "전체 항목 나란히 보기", "pt": "Todas as verificações lado a lado",
                     "es": "Todas las comprobaciones, lado a lado"},
-    "c.sec.links": {"en": "The two links", "ko": "두 링크 정보", "pt": "Os dois links", "es": "Los dos enlaces"},
+    "c.sec.links": {"en": "The dubs", "ko": "더빙 정보", "pt": "As dublagens", "es": "Los doblajes"},
     "c.sec.notes": {"en": "Measurement notes", "ko": "측정 참고 사항", "pt": "Notas sobre a medição",
                     "es": "Notas de medición"},
     "c.dub": {"en": "Dub {d}", "ko": "더빙 {d}", "pt": "Dublagem {d}", "es": "Doblaje {d}"},
@@ -2308,6 +2309,26 @@ REPORT_TEXT = {
     },
     "c.recommend": {"en": "Deliver Dub {d}.", "ko": "더빙 {d} 버전을 납품하세요.", "pt": "Entregue a Dublagem {d}.",
                     "es": "Entrega el Doblaje {d}."},
+    "c.recommend_review": {"en": "Deliver Dub {d} after review.", "ko": "검토 후 더빙 {d} 버전을 납품하세요.",
+                           "pt": "Entregue a Dublagem {d} depois de revisá-la.",
+                           "es": "Entrega el Doblaje {d} después de revisarlo."},
+    "c.recommend_tie_review": {
+        "en": "Deliver Dub {d} after review. It is tied with Dub {other} on every rule, and comes first.",
+        "ko": "검토 후 더빙 {d} 버전을 납품하세요. 더빙 {other} 버전과 모든 규칙에서 동점이며 순서상 먼저입니다.",
+        "pt": "Entregue a Dublagem {d} depois de revisá-la. Ela empata com a Dublagem {other} em todas as regras e vem "
+              "primeiro.",
+        "es": "Entrega el Doblaje {d} después de revisarlo. Empata con el Doblaje {other} en todas las reglas y va primero.",
+    },
+    "c.why.more_moments": {
+        "en": "Dub {win} has more problems on the timeline ({win_n}; Dub {lose}: {lose_n}), but the rules above come "
+              "first: they count the checks that need attention, not the moments.",
+        "ko": "문제 구간은 더빙 {win} 쪽이 더 많지만({win_n}개, 더빙 {lose}: {lose_n}개) 위 규칙이 먼저입니다. 위 규칙은 "
+              "구간 수가 아니라 주의가 필요한 검사 항목 수를 셉니다.",
+        "pt": "A Dublagem {win} tem mais trechos com problemas ({win_n}; Dublagem {lose}: {lose_n}), mas as regras acima "
+              "vêm antes: elas contam as verificações que precisam de atenção, não os trechos.",
+        "es": "El Doblaje {win} tiene más tramos con problemas ({win_n}; Doblaje {lose}: {lose_n}), pero las reglas de "
+              "arriba van antes: cuentan las comprobaciones que necesitan atención, no los tramos.",
+    },
     "c.recommend_tie": {
         "en": "Deliver Dub {d}. It is tied with Dub {other} on every rule, and comes first.",
         "ko": "더빙 {d} 버전을 납품하세요. 더빙 {other} 버전과 모든 규칙에서 동점이며 순서상 먼저입니다.",
@@ -2349,15 +2370,19 @@ REPORT_TEXT = {
               "punto de partida.",
     },
     "c.ranking_label": {"en": "Ranking", "ko": "순위", "pt": "Classificação", "es": "Clasificación"},
+    "c.score_label": {"en": "Quality score (shown only; not part of the deciding rule)",
+                      "ko": "품질 점수(참고용이며 결정 규칙에는 쓰지 않음)",
+                      "pt": "Nota de qualidade (só exibida; não entra na regra de decisão)",
+                      "es": "Puntuación de calidad (solo se muestra; no forma parte de la regla de decisión)"},
     "c.fix_first": {"en": "Fix first", "ko": "먼저 고칠 것", "pt": "Corrija primeiro", "es": "Corrige primero"},
     "c.verdict": {"en": "Verdict", "ko": "판정", "pt": "Resultado", "es": "Resultado"},
-    "c.intervals_count_one": {"en": "{n} problem interval, {sec} s in total", "ko": "문제 구간 {n}개, 총 {sec}초",
+    "c.intervals_count_one": {"en": "{n} problem on the timeline, {sec} s in total", "ko": "문제 구간 {n}개, 총 {sec}초",
                               "pt": "{n} trecho com problema, {sec} s no total",
                               "es": "{n} tramo con problemas, {sec} s en total"},
-    "c.intervals_count_many": {"en": "{n} problem intervals, {sec} s in total", "ko": "문제 구간 {n}개, 총 {sec}초",
+    "c.intervals_count_many": {"en": "{n} problems on the timeline, {sec} s in total", "ko": "문제 구간 {n}개, 총 {sec}초",
                                "pt": "{n} trechos com problemas, {sec} s no total",
                                "es": "{n} tramos con problemas, {sec} s en total"},
-    "c.no_intervals": {"en": "No problem intervals.", "ko": "문제 구간이 없습니다.", "pt": "Nenhum trecho com problema.",
+    "c.no_intervals": {"en": "No problems on the timeline.", "ko": "문제 구간이 없습니다.", "pt": "Nenhum trecho com problema.",
                        "es": "Ningún tramo con problemas."},
     "c.asr": {"en": "Possible ASR errors (listed, not counted)", "ko": "음성 인식 오류 가능성(표시만 하고 집계하지 않음)",
               "pt": "Possíveis erros de reconhecimento de fala (listados, não contados)",
@@ -2403,7 +2428,7 @@ REPORT_TEXT = {
                           "es": "3. Menos elementos Deficientes"},
     "c.rule.check_items": {"en": "4. Fewer Needs review items", "ko": "4. 더 적은 검토 필요 항목", "pt": "4. Menos itens que precisam de revisão",
                            "es": "4. Menos elementos que necesitan revisión"},
-    "c.rule.problem_seconds": {"en": "5. Less total time in problem intervals", "ko": "5. 문제 구간의 총 시간이 더 짧음",
+    "c.rule.problem_seconds": {"en": "5. Less problem time on the timeline", "ko": "5. 문제 구간의 총 시간이 더 짧음",
                                "pt": "5. Menos tempo total em trechos com problemas",
                                "es": "5. Menos tiempo total en tramos con problemas"},
     "c.rule.meaning_score": {"en": "6. Higher translation meaning score", "ko": "6. 더 높은 번역 의미 점수",
@@ -2440,14 +2465,16 @@ REPORT_TEXT = {
               "{win} tiene menos elementos que necesitan revisión ({win_value}; Doblaje {lose}: {lose_value}).",
     },
     "c.why.problem_seconds": {
-        "en": "Dub {win} and Dub {lose} have the same verdict and item counts, and Dub {win} spends less time in "
-              "problem intervals ({win_value}; Dub {lose}: {lose_value}).",
-        "ko": "더빙 {win}, 더빙 {lose}의 판정과 항목 수는 같지만 더빙 {win} 쪽 문제 구간의 총 시간이 더 짧습니다"
-              "({win_value}, 더빙 {lose}: {lose_value}).",
-        "pt": "A Dublagem {win} e a Dublagem {lose} têm o mesmo resultado e contagens, e a Dublagem {win} passa menos "
-              "tempo em trechos com problemas ({win_value}; Dublagem {lose}: {lose_value}).",
-        "es": "El Doblaje {win} y el Doblaje {lose} tienen el mismo resultado y recuentos, y el Doblaje {win} pasa "
-              "menos tiempo en tramos con problemas ({win_value}; Doblaje {lose}: {lose_value}).",
+        "en": "Dub {win} and Dub {lose} have the same verdict and item counts, and Dub {win} has less problem "
+              "time on the timeline ({win_value}; Dub {lose}: {lose_value}).",
+        "ko": "더빙 {win}, 더빙 {lose}의 판정과 항목 수는 같지만 더빙 {win} 쪽 문제 구간의 총 시간이 더 짧습니다({win_value}, 더빙 {lose}: "
+              "{lose_value}).",
+        "pt": "A Dublagem {win} e a Dublagem {lose} têm o mesmo resultado e o mesmo número de itens, e a "
+              "Dublagem {win} tem menos tempo em trechos com problemas ({win_value}; Dublagem {lose}: "
+              "{lose_value}).",
+        "es": "El Doblaje {win} y el Doblaje {lose} tienen el mismo resultado y el mismo número de elementos, "
+              "y el Doblaje {win} tiene menos tiempo en tramos con problemas ({win_value}; Doblaje {lose}: "
+              "{lose_value}).",
     },
     "c.why.meaning_score": {
         "en": "Dub {win} and Dub {lose} are equal on verdict, items and problem time, and Dub {win} carries the "
@@ -2494,12 +2521,13 @@ REPORT_TEXT = {
         "es": "El Doblaje {dub} pasó todas las comprobaciones automáticas y se puede entregar.",
     },
     "c.ready.check": {
-        "en": "Dub {dub} can be delivered after a person reviews its Needs review items and problem intervals.",
-        "ko": "더빙 {dub} 버전은 사람이 검토 필요 항목과 문제 구간을 검토한 뒤 납품할 수 있습니다.",
-        "pt": "A Dublagem {dub} pode ser entregue depois que uma pessoa revisar os itens que precisam de revisão e os trechos com "
-              "problemas.",
-        "es": "El Doblaje {dub} se puede entregar después de que una persona revise los elementos que necesitan revisión y los "
-              "tramos con problemas.",
+        "en": "Dub {dub} can be delivered after a person reviews its Needs review items and its problems on "
+              "the timeline.",
+        "ko": "더빙 {dub} 버전은 사람이 검토 필요 항목과 문제 구간을 확인한 뒤 납품할 수 있습니다.",
+        "pt": "A Dublagem {dub} pode ser entregue depois que uma pessoa revisar os itens que precisam de "
+              "revisão e os trechos com problemas.",
+        "es": "El Doblaje {dub} se puede entregar después de que una persona revise los elementos que "
+              "necesitan revisión y los tramos con problemas.",
     },
     "c.ready.poor": {
         "en": "Fix Dub {dub}'s Poor items before delivering it.",
@@ -2519,27 +2547,29 @@ REPORT_TEXT = {
         "es": "La revisión de la traducción no se hizo para {dubs}, así que la decisión se tomó sin la traducción.",
     },
     "c.rules_order": {
-        "en": "Decision rule (stops at the first rule that separates the dubs): 1 more of the key checks measured "
-              "(speech timing, line length, voice clarity), 2 better verdict, 3 fewer Poor items, 4 fewer Needs review items, "
-              "5 less time in problem intervals, 6 higher meaning score, 7 higher speech-timing alignment; if still "
-              "tied, the earlier dub (A before B). When DubEval isn't sure of the dub ranked first (little or unclear "
-              "speech, or its translation wasn't checked), it holds the recommendation.",
-        "ko": "결정 규칙(두 더빙이 처음으로 갈리는 규칙에서 멈춤): 1 핵심 검사(발화 타이밍, 대사 길이, 음성 명료도)를 더 많이 "
-              "측정함, 2 더 좋은 판정, 3 더 적은 미흡 항목, 4 더 적은 검토 필요 항목, 5 더 짧은 문제 구간 시간, 6 더 높은 의미 "
-              "점수, 7 더 높은 발화 타이밍 일치도. 그래도 같으면 앞 순서의 더빙(A가 B보다 먼저). 1위 더빙을 확신할 수 없으면"
-              "(말소리가 적거나 불분명함, 또는 번역을 확인하지 않음) 추천을 보류합니다.",
-        "pt": "Regra de decisão (para na primeira regra que separa as dublagens): 1 mais verificações principais medidas "
-              "(momento da fala, duração das falas, clareza da voz), 2 melhor resultado, 3 menos itens Ruins, 4 menos "
-              "itens que precisam de revisão, 5 menos tempo em trechos com problemas, 6 maior nota de sentido, 7 maior alinhamento "
-              "do tempo de fala; se ainda empatar, a dublagem anterior (A antes de B). Quando o DubEval não tem "
-              "certeza da dublagem em primeiro (pouca fala ou fala pouco clara, ou tradução não verificada), ele "
-              "segura a recomendação.",
-        "es": "Regla de decisión (se detiene en la primera regla que separa los doblajes): 1 más comprobaciones clave "
-              "medidas (momento del habla, duración de las frases, claridad de la voz), 2 mejor resultado, 3 menos "
-              "elementos Deficientes, 4 menos elementos que necesitan revisión, 5 menos tiempo en tramos con problemas, 6 mayor nota "
-              "de sentido, 7 mayor alineación del habla; si siguen empatados, el doblaje anterior (A antes que B). "
-              "Cuando DubEval no está seguro del doblaje en primer lugar (poca voz o voz poco clara, o traducción sin "
-              "comprobar), retiene la recomendación.",
+        "en": "Decision rule (stops at the first rule that separates the dubs): (1) more of the key checks "
+              "measured (speech timing, line length, voice clarity), (2) better verdict, (3) fewer Poor items, "
+              "(4) fewer Needs review items, (5) less problem time on the timeline, (6) higher meaning score, "
+              "(7) higher speech-timing alignment; if still tied, the earlier dub (A before B). When DubEval "
+              "isn't sure of the dub ranked first (little or unclear speech, or its translation wasn't "
+              "checked), it holds the recommendation.",
+        "ko": "결정 규칙(두 더빙이 처음으로 갈리는 규칙에서 멈춤): (1) 핵심 검사(발화 타이밍, 대사 길이, 음성 명료도)를 더 많이 측정함, (2) 더 좋은 판정, (3) 더 "
+              "적은 미흡 항목, (4) 더 적은 검토 필요 항목, (5) 더 짧은 문제 구간 시간, (6) 더 높은 의미 점수, (7) 더 높은 발화 타이밍 일치도. 그래도 같으면 앞 "
+              "순서의 더빙(A가 B보다 먼저). 1위 더빙을 확신할 수 없으면(말소리가 적거나 불분명함, 또는 번역을 확인하지 않음) 추천을 보류합니다.",
+        "pt": "Regra de decisão (para na primeira regra que separa as dublagens): (1) mais verificações "
+              "principais medidas (momento da fala, duração das falas, clareza da voz), (2) melhor resultado, "
+              "(3) menos itens Ruins, (4) menos itens que precisam de revisão, (5) menos tempo em trechos com "
+              "problemas, (6) maior nota de sentido, (7) maior alinhamento do tempo de fala; se ainda empatar, "
+              "a dublagem anterior (A antes de B). Quando o DubEval não tem certeza da dublagem em primeiro "
+              "lugar (pouca fala ou fala pouco clara, ou tradução não verificada), ele deixa a recomendação em "
+              "suspenso.",
+        "es": "Regla de decisión (se detiene en la primera regla que separa los doblajes): (1) más "
+              "comprobaciones clave medidas (momento del habla, duración de las frases, claridad de la voz), "
+              "(2) mejor resultado, (3) menos elementos Deficientes, (4) menos elementos que necesitan "
+              "revisión, (5) menos tiempo en tramos con problemas, (6) mayor nota de sentido, (7) mayor "
+              "alineación del momento del habla; si siguen empatados, el doblaje anterior (A antes que B). "
+              "Cuando DubEval no está seguro del doblaje en primer lugar (se habla poco o la voz no se "
+              "entiende bien, o la traducción no se comprobó), retiene la recomendación.",
     },
     "c.table.check": {"en": "Check", "ko": "항목", "pt": "Verificação", "es": "Comprobación"},
     "c.open_report": {"en": "Full report", "ko": "전체 보고서", "pt": "Relatório completo", "es": "Informe completo"},
@@ -2552,8 +2582,37 @@ REPORT_TEXT = {
     "c.meta.link": {"en": "Link", "ko": "링크", "pt": "Link", "es": "Enlace"},
     "c.yes": {"en": "Yes", "ko": "예", "pt": "Sim", "es": "Sí"},
     "c.no": {"en": "No", "ko": "아니요", "pt": "Não", "es": "No"},
-    "c.note.not_measured": {"en": "Dub {dub}, not measured: {items}", "ko": "더빙 {dub}, 측정하지 못한 항목: {items}",
-                            "pt": "Dublagem {dub}, não medido: {items}", "es": "Doblaje {dub}, no medido: {items}"},
+    "c.note.not_measured": {
+        "en": "{label}, not measured for {dubs}. {reason}",
+        "ko": "{label}: 측정하지 못함 ({dubs}). {reason}",
+        "pt": "{label}: sem medição para {dubs}. {reason}",
+        "es": "{label}, no medido en: {dubs}. {reason}",
+    },
+    "c.note.not_measured_each": {
+        "en": "{label}, not measured. {items}",
+        "ko": "{label}: 측정하지 못함. {items}",
+        "pt": "{label}: sem medição. {items}",
+        "es": "{label}, no medido. {items}",
+    },
+    "c.title_two": {"en": "{a} vs {b}", "ko": "{a} 대 {b}", "pt": "{a} x {b}", "es": "{a} vs. {b}"},
+    "c.title_more": {"en": "{first} and {n} more", "ko": "{first} 외 {n}개", "pt": "{first} e mais {n}",
+                     "es": "{first} y {n} más"},
+    "c.note.same_reason": {
+        "en": "{label}, not measured for {dubs}, for the same reason. {first}: {reason}",
+        "ko": "{label}: 같은 이유로 측정하지 못함 ({dubs}). {first}: {reason}",
+        "pt": "{label}: sem medição para {dubs}, pelo mesmo motivo. {first}: {reason}",
+        "es": "{label}, no medido en: {dubs}, por el mismo motivo. {first}: {reason}",
+    },
+    "c.note.others_numbers_one": {"en": "The numbers for {others} are in its own report.",
+                                  "ko": "다음 더빙의 수치는 해당 보고서에 있습니다: {others}.",
+                                  "pt": "Os números de {others} estão no relatório dela.",
+                                  "es": "Las cifras de {others} están en su propio informe."},
+    "c.note.others_numbers_many": {"en": "The numbers for {others} are in their own reports.",
+                                   "ko": "다음 더빙의 수치는 각 보고서에 있습니다: {others}.",
+                                   "pt": "Os números de {others} estão nos relatórios delas.",
+                                   "es": "Las cifras de {others} están en sus propios informes."},
+    "c.every_dub": {"en": "any of the dubs", "ko": "모든 더빙", "pt": "todas as dublagens", "es": "todos los doblajes"},
+    "c.both_dubs": {"en": "either dub", "ko": "두 더빙 모두", "pt": "as duas dublagens", "es": "los dos doblajes"},
     "c.note.same_project": {
         "en": "Both links point to the same Perso project, so the two results describe the same dub.",
         "ko": "두 링크가 같은 Perso 프로젝트를 가리켜 두 결과가 같은 더빙에 대한 것입니다.",
@@ -2573,6 +2632,8 @@ REPORT_TEXT = {
     },
     "c.note.none": {"en": "Everything was measured for every dub.", "ko": "모든 더빙에서 모든 항목을 측정했습니다.",
                     "pt": "Tudo foi medido em todas as dublagens.", "es": "Se midió todo en todos los doblajes."},
+    "c.footer_no_time": {"en": "DubEval {version} · {time}", "ko": "DubEval {version} · {time}",
+                         "pt": "DubEval {version} · {time}", "es": "DubEval {version} · {time}"},
     "c.footer": {"en": "DubEval {version} · run time {sec} s · {time}",
                  "ko": "DubEval {version} · 실행 시간 {sec}초 · {time}",
                  "pt": "DubEval {version} · tempo de execução {sec} s · {time}",
@@ -2617,18 +2678,16 @@ REPORT_TEXT = {
                 "pt": "Nenhuma avaliação registrada ainda. Cada avaliação que você fizer aparece aqui.",
                 "es": "Todavía no hay evaluaciones registradas. Cada evaluación que hagas se añade aquí."},
     "h.totals": {
-        "en": "{runs} runs on {dubs} dubs (reruns of a link count once): {good} Good · {check} Needs review · {poor} "
-              "Poor. {good} passed every automatic check.",
-        "ko": "더빙 {dubs}개에 대해 {runs}번 실행(같은 링크의 재실행은 한 번으로 계산): 좋음 {good} · 검토 필요 {check} · "
-              "미흡 {poor}. 모든 자동 검사를 통과한 더빙은 {good}개입니다.",
-        "pt": "{runs} execuções em {dubs} dublagens (reexecuções de um link contam uma vez): {good} Bom · {check} Requer "
-              "revisão · {poor} Ruim. {good} passaram em todas as verificações automáticas.",
-        "es": "{runs} ejecuciones sobre {dubs} doblajes (las repeticiones de un enlace cuentan una vez): {good} Bien · "
-              "{check} Requiere revisión · {poor} Deficiente. {good} pasaron todas las comprobaciones automáticas.",
+        "en": "Dubs: {dubs} · evaluations run: {runs}. A dub evaluated again counts once.",
+        "ko": "더빙: {dubs}개 · 실행한 평가: {runs}번. 다시 평가한 더빙은 한 번으로 셉니다.",
+        "pt": "Dublagens: {dubs} · avaliações feitas: {runs}. Uma dublagem avaliada de novo conta só uma vez.",
+        "es": "Doblajes: {dubs} · evaluaciones hechas: {runs}. Un doblaje evaluado de nuevo cuenta una vez.",
     },
     "h.pairs": {"en": "By language pair", "ko": "언어 쌍별", "pt": "Por par de idiomas", "es": "Por par de idiomas"},
     "h.pair": {"en": "Languages", "ko": "언어", "pt": "Idiomas", "es": "Idiomas"},
     "h.dubs": {"en": "Dubs", "ko": "더빙 수", "pt": "Dublagens", "es": "Doblajes"},
+    "h.score": {"en": "Score", "ko": "점수", "pt": "Nota", "es": "Puntuación"},
+    "h.score_avg": {"en": "Score (avg)", "ko": "점수(평균)", "pt": "Nota (média)", "es": "Puntuación (media)"},
     "h.timing": {"en": "Timing (avg)", "ko": "타이밍(평균)", "pt": "Tempo (média)", "es": "Momento (media)"},
     "h.meaning": {"en": "Meaning (avg)", "ko": "의미(평균)", "pt": "Sentido (média)", "es": "Sentido (media)"},
     "h.problems": {"en": "Most frequent problems", "ko": "가장 자주 나오는 문제", "pt": "Problemas mais frequentes",
@@ -2655,7 +2714,7 @@ REPORT_TEXT = {
     # ----- reviewer feedback (dubeval/feedback.py) -----
     "f.title": {"en": "Reviewer feedback", "ko": "검토자 피드백", "pt": "Opinião dos revisores", "es": "Opinión de los revisores"},
     "f.empty": {
-        "en": "No votes yet. In the app, mark each problem interval as a real problem (👍) or a false alarm (👎); this "
+        "en": "No votes yet. In the app, mark each problem on the timeline as a real problem (👍) or a false alarm (👎); this "
               "summary then shows which checks flag too much.",
         "ko": "아직 투표가 없습니다. 앱에서 각 문제 구간을 실제 문제(👍) 또는 잘못된 경고(👎)로 표시하면, 어떤 검사가 지나치게 "
               "많이 표시하는지 이 요약에서 보여 줍니다.",
@@ -2686,4 +2745,348 @@ REPORT_TEXT = {
                      "es": "Marcado como problema real."},
     "f.saved_false": {"en": "Marked as a false alarm.", "ko": "잘못된 경고로 표시했습니다.", "pt": "Marcado como alarme falso.",
                       "es": "Marcado como falsa alarma."},
+    # The quality score (report._score)
+    "r.score.h.title": {"en": "Quality score", "ko": "품질 점수", "pt": "Nota de qualidade", "es": "Puntuación de calidad"},
+    "r.score.h.section": {"en": "Section", "ko": "항목", "pt": "Seção", "es": "Sección"},
+    "r.score.h.got": {"en": "Points", "ko": "반영 점수", "pt": "Pontos", "es": "Puntos"},
+    "r.score.value": {"en": "{score} / 100", "ko": "{score}/100", "pt": "{score} / 100", "es": "{score} / 100"},
+    "r.score.of": {"en": "{got} of {share}", "ko": "{share}점 중 {got}점", "pt": "{got} de {share}", "es": "{got} de {share}"},
+    "r.score.part_na": {"en": "Not checked", "ko": "확인 안 함", "pt": "Não verificado", "es": "No comprobado"},
+    "r.score.lost_total": {"en": "{lost} points lost, so {score} / 100", "ko": "{lost}점이 깎여 {score}/100",
+                           "pt": "{lost} pontos perdidos, então {score} / 100",
+                           "es": "{lost} puntos perdidos, así que {score} / 100"},
+    "r.score.lost_total_rounded": {"en": "{lost} points lost, so {score} / 100 (rounded)",
+                                   "ko": "{lost}점이 깎여 {score}/100 (반올림)",
+                                   "pt": "{lost} pontos perdidos, então {score} / 100 (arredondado)",
+                                   "es": "{lost} puntos perdidos, así que {score} / 100 (redondeado)"},
+    "r.score.lost_how": {
+        "en": "A check that needs review loses points by how far its result is from Good; a Poor one costs a "
+              "fixed amount by how serious it is: {critical} when it makes the dub unusable, {cost} for most "
+              "problems, {minor} for ones the mix can fix.",
+        "ko": "검토 필요인 검사는 결과가 좋음 기준에서 떨어진 만큼 점수를 잃고, 미흡인 검사는 심각한 정도에 따라 정해진 점수를 잃습니다: 더빙을 쓸 수 없게 만들면 "
+              "{critical}점, 대부분의 문제는 {cost}점, 믹싱으로 고칠 수 있으면 {minor}점.",
+        "pt": "Uma verificação que precisa de revisão perde pontos conforme o resultado se afasta de Bom; uma "
+              "Ruim custa um valor fixo conforme a gravidade: {critical} quando torna a dublagem inutilizável, "
+              "{cost} na maioria dos problemas, {minor} quando a mixagem resolve.",
+        "es": "Una comprobación que necesita revisión pierde puntos según lo lejos que esté su resultado de "
+              "Bien; una Deficiente cuesta una cantidad fija según su gravedad: {critical} si deja el doblaje "
+              "inservible, {cost} en la mayoría de los problemas, {minor} si la mezcla lo arregla.",
+    },
+    "r.score.part_doesnt_apply": {
+        "en": "Doesn't apply",
+        "ko": "해당 없음",
+        "pt": "Não se aplica",
+        "es": "No aplica",
+    },
+    "r.score.item_doesnt_apply": {
+        "en": "Doesn't apply to this dub · no share",
+        "ko": "이 더빙에는 해당 없음 · 배점 없음",
+        "pt": "Não se aplica a esta dublagem · sem parte",
+        "es": "No aplica a este doblaje · sin parte",
+    },
+    "r.score.item_zero": {
+        "en": "Counts as 0: the dub made it impossible to measure",
+        "ko": "0점으로 계산: 더빙 때문에 측정할 수 없음",
+        "pt": "Conta como 0: a dublagem impediu a medição",
+        "es": "Cuenta como 0: el doblaje impidió medirlo",
+    },
+    "r.score.why_poor": {
+        "en": "{result} · Poor: a serious problem",
+        "ko": "{result} · 미흡: 심각한 문제",
+        "pt": "{result} · Ruim: um problema sério",
+        "es": "{result} · Deficiente: un problema grave",
+    },
+    "r.score.why_poor_unsure": {
+        "en": "{result} · Poor, but DubEval isn't sure of it, so it loses only its share",
+        "ko": "{result} · 미흡이지만 DubEval이 확신하지 못해 배점만 잃습니다",
+        "pt": "{result} · Ruim, mas o DubEval não tem certeza, então só perde a sua parte",
+        "es": "{result} · Deficiente, pero DubEval no está seguro, así que solo pierde su parte",
+    },
+    "r.score.lost_how_check": {
+        "en": "A check that needs review loses points by how far its result is from Good.",
+        "ko": "검토 필요인 검사는 결과가 좋음 기준에서 떨어진 만큼 점수를 잃습니다.",
+        "pt": "Uma verificação que precisa de revisão perde pontos conforme o resultado se afasta de Bom.",
+        "es": "Una comprobación que necesita revisión pierde puntos según lo lejos que esté su resultado de "
+              "Bien.",
+    },
+    "r.score.poor_extra": {
+        "en": "Poor results cost {extra} points more than their share, so the sections add up to {raw} but the "
+              "score is {score}.",
+        "ko": "미흡 결과는 배점보다 {extra}점을 더 잃으므로 항목별 점수의 합은 {raw}점이지만 최종 점수는 {score}점입니다.",
+        "pt": "Os resultados Ruins custam {extra} pontos a mais que a sua parte, então as seções somam {raw}, "
+              "mas a nota é {score}.",
+        "es": "Los resultados Deficientes cuestan {extra} puntos más que su parte, así que las secciones suman "
+              "{raw}, pero la puntuación es {score}.",
+    },
+    "r.score.h.extra": {
+        "en": "Extra for Poor results",
+        "ko": "미흡 결과 추가 감점",
+        "pt": "Extra pelos resultados Ruins",
+        "es": "Extra por resultados Deficientes",
+    },
+    "r.score.also_missing_one": {
+        "en": "{checks} wasn't measured either, so its points go to the other checks in its section.",
+        "ko": "측정하지 못한 검사가 하나 더 있습니다: {checks}. 그 배점은 같은 항목의 다른 검사에 나눠 줍니다.",
+        "pt": "Também ficou sem medição: {checks}. Os seus pontos vão para as outras verificações da seção.",
+        "es": "{checks} tampoco se midió, así que sus puntos van a las demás comprobaciones de su sección.",
+    },
+    "r.score.also_missing_many": {
+        "en": "{checks} weren't measured either, so their points go to the other checks in their sections.",
+        "ko": "측정하지 못한 검사가 더 있습니다: {checks}. 그 배점은 같은 항목의 다른 검사에 나눠 줍니다.",
+        "pt": "Também ficaram sem medição: {checks}. Os seus pontos vão para as outras verificações das suas "
+              "seções.",
+        "es": "{checks} tampoco se midieron, así que sus puntos van a las demás comprobaciones de sus "
+              "secciones.",
+    },
+    "r.score.why_poor_unusable": {
+        "en": "{result} · Poor: makes the dub unusable",
+        "ko": "{result} · 미흡: 더빙을 쓸 수 없게 만드는 문제",
+        "pt": "{result} · Ruim: torna a dublagem inutilizável",
+        "es": "{result} · Deficiente: deja el doblaje inservible",
+    },
+    "r.score.why_poor_minor": {
+        "en": "{result} · Poor: the mix can fix it",
+        "ko": "{result} · 미흡: 믹싱으로 고칠 수 있음",
+        "pt": "{result} · Ruim: a mixagem resolve",
+        "es": "{result} · Deficiente: la mezcla lo arregla",
+    },
+    "r.score.why_zero": {
+        "en": "Couldn't be measured because of the dub itself, so it counts as 0",
+        "ko": "더빙 자체 때문에 측정할 수 없어 0점으로 계산합니다",
+        "pt": "Não pôde ser medida por causa da própria dublagem, então conta como 0",
+        "es": "No se pudo medir por culpa del propio doblaje, así que cuenta como 0",
+    },
+    "r.score.provisional_coverage": {
+        "en": "Provisional: only {pct}% of the checks that apply to this dub were measured (less than {min}%).",
+        "ko": "잠정 점수: 이 더빙에 해당하는 검사 중 {pct}%만 측정했습니다({min}% 미만).",
+        "pt": "Provisória: só foram medidas {pct}% das verificações que se aplicam a esta dublagem (menos de "
+              "{min}%).",
+        "es": "Provisional: solo se midió el {pct}% de las comprobaciones que aplican a este doblaje (menos "
+              "del {min}%).",
+    },
+    "r.score.na_from_one": {
+        "en": "{sections} doesn't apply to this dub, so its {weight} points are shared among the other "
+              "sections.",
+        "ko": "이 더빙에 해당하지 않는 항목: {sections}. 그 배점 {weight}점은 다른 항목에 나눠 줍니다.",
+        "pt": "A seção {sections} não se aplica a esta dublagem, então os seus {weight} pontos são divididos "
+              "entre as outras.",
+        "es": "{sections} no aplica a este doblaje, así que sus {weight} puntos se reparten entre las demás "
+              "secciones.",
+    },
+    "r.score.na_from_many": {
+        "en": "{sections} don't apply to this dub, so their {weight} points are shared among the other "
+              "sections.",
+        "ko": "이 더빙에 해당하지 않는 항목: {sections}. 그 배점 {weight}점은 다른 항목에 나눠 줍니다.",
+        "pt": "As seções {sections} não se aplicam a esta dublagem, então os seus {weight} pontos são "
+              "divididos entre as outras.",
+        "es": "{sections} no aplican a este doblaje, así que sus {weight} puntos se reparten entre las demás "
+              "secciones.",
+    },
+    "r.score.too_little": {
+        "en": "Only {pct}% of the checks that apply to this dub could be measured, too little for a score (it "
+              "takes {min}%).",
+        "ko": "이 더빙에 해당하는 검사 중 {pct}%만 측정할 수 있어 점수를 내기에 부족합니다({min}% 필요).",
+        "pt": "Só {pct}% das verificações que se aplicam a esta dublagem puderam ser medidas, pouco demais "
+              "para dar uma nota (são precisos {min}%).",
+        "es": "Solo se pudo medir el {pct}% de las comprobaciones que aplican a este doblaje, demasiado poco "
+              "para una puntuación (hace falta el {min}%).",
+    },
+    "r.score.too_little_display": {"en": "Too little measured", "ko": "측정한 검사가 너무 적음", "pt": "Pouco medido",
+                                   "es": "Muy poco medido"},
+    "r.score.coverage": {
+        "en": "{pct}% of the checks that apply to this dub were measured.",
+        "ko": "이 더빙에 해당하는 검사 중 {pct}%를 측정했습니다.",
+        "pt": "Foram medidas {pct}% das verificações que se aplicam a esta dublagem.",
+        "es": "Se midió el {pct}% de las comprobaciones que aplican a este doblaje.",
+    },
+    "r.score.dub_zero": {
+        "en": "Couldn't be measured because of the dub itself, so they count as 0 instead of being shared: "
+              "{checks}.",
+        "ko": "더빙 자체 때문에 측정할 수 없는 검사는 나눠 주지 않고 0점으로 계산합니다: {checks}.",
+        "pt": "Não puderam ser medidas por causa da própria dublagem e contam como 0, em vez de serem "
+              "divididas: {checks}.",
+        "es": "No se pudieron medir por culpa del propio doblaje y cuentan como 0 en vez de repartirse: "
+              "{checks}.",
+    },
+    "r.score.item": {"en": "{share}% of the score → {got} points", "ko": "점수의 {share}% → {got}점",
+                     "pt": "{share}% da nota → {got} pontos", "es": "{share}% de la puntuación → {got} puntos"},
+    "r.score.item_na": {"en": "Not measured · no share", "ko": "측정 안 함 · 반영 없음", "pt": "Não medido · sem peso",
+                        "es": "No medido · sin peso"},
+    "r.score.h.lost": {"en": "Points lost", "ko": "깎인 점수", "pt": "Pontos perdidos", "es": "Puntos perdidos"},
+    "r.score.h.how": {"en": "How the score is worked out", "ko": "점수 계산 방법", "pt": "Como a nota é calculada",
+                      "es": "Cómo se calcula la puntuación"},
+    "r.score.h.none": {"en": "No check lost points.", "ko": "점수가 깎인 검사가 없습니다.",
+                       "pt": "Nenhuma verificação perdeu pontos.", "es": "Ninguna comprobación perdió puntos."},
+    "r.score.lost": {"en": "−{lost} points", "ko": "−{lost}점", "pt": "−{lost} pontos", "es": "−{lost} puntos"},
+    "r.score.share": {
+        "en": "{got} of {share} points",
+        "ko": "점수 {share}점 중 {got}점",
+        "pt": "{got} de {share} pontos",
+        "es": "{got} de {share} puntos",
+    },
+    "r.score.section": {
+        "en": "{got} of {share} points",
+        "ko": "점수 {share}점 중 {got}점",
+        "pt": "{got} de {share} pontos",
+        "es": "{got} de {share} puntos",
+    },
+    "r.score.item_out": {"en": "Not counted in the score", "ko": "점수에 반영 안 됨", "pt": "Não entra na nota",
+                         "es": "No cuenta en la puntuación"},
+    "r.score.part_needs": {
+        "en": "Not counted: needs the {check}",
+        "ko": "반영 안 됨: 필요한 검사가 실행되지 않음({check})",
+        "pt": "Não conta: requer {check}",
+        "es": "No cuenta: necesita la {check}",
+    },
+    "r.score.value_provisional": {"en": "{score} / 100 (provisional)", "ko": "{score}/100 (잠정)",
+                                  "pt": "{score} / 100 (provisória)", "es": "{score} / 100 (provisional)"},
+    "r.score.provisional": {
+        "en": "Provisional: the translation wasn't checked, so {section} ({weight} points) isn't counted. The "
+              "{check} row says why and how to turn the check on; numbers alone can't tell whether a "
+              "translation is right.",
+        "ko": "잠정 점수: 번역을 검사하지 않아 {section} 항목(배점 {weight}점)이 빠졌습니다. 이유와 검사를 켜는 방법은 '{check}' 항목에 있습니다. 숫자만으로는 "
+              "번역이 맞는지 알 수 없습니다.",
+        "pt": "Provisória: a tradução não foi verificada, então a seção {section} ({weight} pontos) não conta. "
+              "A linha {check} diz por quê e como ativar a verificação; só os números não dizem se uma "
+              "tradução está certa.",
+        "es": "Provisional: la traducción no se comprobó, así que {section} ({weight} puntos) no cuenta. La "
+              "fila {check} dice por qué y cómo activar la comprobación; los números por sí solos no dicen si "
+              "una traducción es correcta.",
+    },
+    "r.tr.screen_removed": {
+        "en": "This evaluation was made with an offline meaning check that DubEval no longer has: it found only about 1 in "
+              "4 of the translation errors an AI checker finds, so its moments aren't shown any more.",
+        "ko": "이 평가에는 DubEval에서 없앤 오프라인 의미 검사가 쓰였습니다. AI 검사기가 찾는 번역 오류 중 약 4분의 1만 찾아서 "
+              "그 검사가 표시한 부분은 더 이상 보여 주지 않습니다.",
+        "pt": "Esta avaliação foi feita com uma verificação de sentido offline que o DubEval não tem mais: ela encontrava "
+              "só cerca de 1 em 4 dos erros de tradução que um verificador de IA encontra, então os seus momentos não "
+              "aparecem mais.",
+        "es": "Esta evaluación se hizo con una comprobación de sentido sin conexión que DubEval ya no tiene: encontraba "
+              "solo alrededor de 1 de cada 4 errores de traducción que encuentra un verificador de IA, así que sus "
+              "momentos ya no se muestran."},
+    "r.score.na": {
+        "en": "Not measured",
+        "ko": "측정 안 함",
+        "pt": "Não medido",
+        "es": "No medido",
+    },
+    "r.score.na_why": {"en": "No weighted check could be graded, so there is no score.",
+                       "ko": "가중치가 있는 검사 중 평가된 것이 없어 점수가 없습니다.",
+                       "pt": "Nenhuma verificação com peso pôde ser avaliada, então não há nota.",
+                       "es": "No se pudo evaluar ninguna comprobación con peso, así que no hay puntuación."},
+    "r.score.all": {"en": "Every section was measured.", "ko": "모든 항목이 측정되었습니다.",
+                    "pt": "Todas as seções foram medidas.", "es": "Se midieron todas las secciones."},
+    "r.score.from_one": {
+        "en": "{sections} wasn't checked, so its {weight} points are shared among the other sections.",
+        "ko": "확인하지 않은 항목: {sections}. 그 배점 {weight}점은 다른 항목에 나눠 줍니다.",
+        "pt": "A seção {sections} não foi verificada, então os seus {weight} pontos são divididos entre as "
+              "outras.",
+        "es": "{sections} no se comprobó, así que sus {weight} puntos se reparten entre las demás secciones.",
+    },
+    "r.score.from_many": {
+        "en": "{sections} weren't checked, so their {weight} points are shared among the other sections.",
+        "ko": "확인하지 않은 항목: {sections}. 그 배점 {weight}점은 다른 항목에 나눠 줍니다.",
+        "pt": "As seções {sections} não foram verificadas, então os seus {weight} pontos são divididos entre "
+              "as outras.",
+        "es": "{sections} no se comprobaron, así que sus {weight} puntos se reparten entre las demás "
+              "secciones.",
+    },
+    "r.score.and": {"en": " and ", "ko": ", ", "pt": " e ", "es": " y "},
+    "r.score.section_out": {"en": "Not in the score", "ko": "점수에 반영 안 됨", "pt": "Não entra na nota",
+                            "es": "No cuenta en la puntuación"},
+    "r.score.weight": {"en": "{section} {weight}%", "ko": "{section} {weight}%", "pt": "{section} {weight}%",
+                       "es": "{section} {weight}%"},
+    "r.score.rule": {
+        "en": "A summary for comparing dubs; it never replaces the checks.\n"
+              "Each check: Good {good}, Poor {poor}; Needs review by where its result sits between the two "
+              "limits (the translation check and voice quality: the share of lines or stretches without a "
+              "problem; a check with no number to place: {check}).\n"
+              "In a Poor verdict each Poor result costs at least a set amount by how serious it is, so one "
+              "serious problem can't hide behind good ones: {critical} when it makes the dub unusable (no "
+              "speech, the wrong language, another video, a broken file), {minor} when the mix can fix it "
+              "(loudness, silence), {cost} for anything else.\n"
+              "Each section: the average of its checks, added up by weight: {weights}.\n"
+              "Not measured: a check that doesn't apply to this dub (lip sync on a dub that isn't lip-synced) "
+              "is left out and its points shared; so is one that couldn't be measured, and the score says how "
+              "much of what applies it covers (provisional under {coverage}%, no score under {floor}%); one "
+              "the dub itself made impossible to measure (no speech in the dub) counts as 0.\n"
+              "Only a dub with every check Good scores 100. The video file must pass and has no weight. The "
+              "weights are reasoned, not yet tested against reviewers' grades.",
+        "ko": "더빙을 비교하기 위한 요약이며 검사 결과를 대신하지 않습니다.\n"
+              "검사별: 좋음 {good}점, 미흡 {poor}점이며, 검토 필요는 결과가 두 기준 사이 어디에 있는지에 따라 정합니다(번역 검사와 음성 품질은 문제가 없는 대사나 구간의 "
+              "비율, 비교할 수치가 없는 검사는 {check}점).\n"
+              "미흡 판정에서 미흡 결과는 심각한 정도에 따라 정해진 점수 이상을 잃으므로 심각한 문제 하나가 좋은 결과에 가려지지 않습니다: 더빙을 쓸 수 없게 만드는 문제(말소리 "
+              "없음, 다른 언어, 다른 영상, 손상된 파일)는 {critical}점, 믹싱으로 고칠 수 있는 문제(음량, 무음)는 {minor}점, 그 밖의 문제는 "
+              "{cost}점입니다.\n"
+              "항목별: 검사 점수의 평균에 가중치를 반영해 더합니다(가중치: {weights}).\n"
+              "측정 못 한 검사: 이 더빙에 해당하지 않는 검사(립싱크하지 않은 더빙의 립싱크)는 빼고 그 배점을 나눠 주며, 측정하지 못한 검사도 빼되 점수가 해당 검사의 몇 %를 "
+              "반영하는지 표시합니다({coverage}% 미만이면 잠정 점수, {floor}% 미만이면 점수 없음). 더빙 자체 때문에 측정할 수 없는 검사(더빙에 말소리가 없음)는 "
+              "0점으로 계산합니다.\n"
+              "모든 검사가 좋음인 더빙만 100점입니다. 영상 파일 검사는 통과해야 하고 가중치는 없습니다. 가중치는 근거를 두고 정했지만 아직 검토자 평가와 대조해 검증하지 "
+              "않았습니다.",
+        "pt": "Um resumo para comparar dublagens; nunca substitui as verificações.\n"
+              "Cada verificação: Bom {good}, Ruim {poor}; Precisa de revisão conforme o resultado fica entre "
+              "os dois limites (a verificação da tradução e a qualidade da voz: a parte das falas ou trechos "
+              "sem problema; uma verificação sem número para situar: {check}).\n"
+              "Num resultado geral Ruim, cada resultado Ruim custa pelo menos um valor fixo conforme a "
+              "gravidade, para que um problema sério não se esconda atrás dos bons: {critical} quando torna a "
+              "dublagem inutilizável (sem fala, idioma errado, outro vídeo, arquivo danificado), {minor} "
+              "quando a mixagem resolve (volume, silêncio), {cost} nos demais casos.\n"
+              "Cada seção: a média das suas verificações, somada pelo peso: {weights}.\n"
+              "Sem medição: uma verificação que não se aplica a esta dublagem (sincronia labial numa dublagem "
+              "sem ela) fica de fora e os seus pontos são divididos; o mesmo vale para uma que não pôde ser "
+              "medida, e a nota diz quanto do que se aplica ela cobre (provisória abaixo de {coverage}%, sem "
+              "nota abaixo de {floor}%); uma que a própria dublagem impediu de medir (sem fala na dublagem) "
+              "conta como 0.\n"
+              "Só uma dublagem com todas as verificações Bom chega a 100. O arquivo de vídeo precisa passar e "
+              "não tem peso. Os pesos foram definidos com critério, mas ainda não foram comparados com as "
+              "notas de revisores.",
+        "es": "Un resumen para comparar doblajes; nunca sustituye a las comprobaciones.\n"
+              "Cada comprobación: Bien {good}, Deficiente {poor}; Necesita revisión según dónde queda su "
+              "resultado entre los dos límites (la revisión de la traducción y la calidad de la voz: la parte "
+              "de frases o tramos sin problema; una comprobación sin número que situar: {check}).\n"
+              "Con un resultado general Deficiente, cada resultado Deficiente cuesta al menos una cantidad "
+              "fija según su gravedad, para que un problema grave no se esconda tras los buenos: {critical} "
+              "cuando deja el doblaje inservible (sin voz, idioma equivocado, otro video, archivo dañado), "
+              "{minor} cuando la mezcla lo arregla (volumen, silencio), {cost} en los demás casos.\n"
+              "Cada sección: la media de sus comprobaciones, sumada según su peso: {weights}.\n"
+              "Sin medir: una comprobación que no aplica a este doblaje (la sincronización labial en un "
+              "doblaje sin ella) queda fuera y sus puntos se reparten; igual una que no se pudo medir, y la "
+              "puntuación dice cuánto de lo que aplica cubre (provisional por debajo del {coverage}%, sin "
+              "puntuación por debajo del {floor}%); una que el propio doblaje impidió medir (sin voz en el "
+              "doblaje) cuenta como 0.\n"
+              "Solo un doblaje con todas las comprobaciones en Bien llega a 100. El archivo de video debe "
+              "pasar y no tiene peso. Los pesos son razonados, pero aún no se han contrastado con las notas de "
+              "revisores.",
+    },
+    "r.score.rule_short": {
+        "en": "Each check scores {good} when Good, {poor} when Poor, and in between by its result when Needs "
+              "review ({check} when it has no number); in a Poor verdict a Poor result costs {critical} points "
+              "when it makes the dub unusable, otherwise at least {cost} ({minor} when the mix can fix it); "
+              "sections are averaged and weighted ({weights}); checks that don't apply are left out, checks "
+              "that couldn't be measured are left out and the score says how much it covers (provisional under "
+              "{coverage}%, no score under {floor}%), and checks the dub itself made unmeasurable count as 0. "
+              "The weights are reasoned, not yet tested against reviewers' grades.",
+        "ko": "검사별 점수는 좋음 {good}점, 미흡 {poor}점이고, 검토 필요는 결과에 따라 그 사이(수치가 없으면 {check}점)입니다. 미흡 판정에서 미흡 결과는 더빙을 쓸 "
+              "수 없게 만들면 {critical}점, 그 밖에는 최소 {cost}점(믹싱으로 고칠 수 있으면 {minor}점)을 잃습니다. 항목별 평균에 가중치를 "
+              "반영합니다({weights}). 해당하지 않는 검사는 빼고, 측정하지 못한 검사도 빼되 반영 비율을 표시하며({coverage}% 미만이면 잠정 점수, {floor}% "
+              "미만이면 점수 없음), 더빙 때문에 측정할 수 없는 검사는 0점입니다. 가중치는 근거를 두고 정했지만 아직 검토자 평가와 대조해 검증하지 않았습니다.",
+        "pt": "Cada verificação vale {good} quando Bom, {poor} quando Ruim e, quando Precisa de revisão, um "
+              "valor entre os dois conforme o resultado ({check} se não tem número); num resultado geral Ruim, "
+              "um resultado Ruim custa {critical} pontos se torna a dublagem inutilizável e, nos demais casos, "
+              "pelo menos {cost} ({minor} se a mixagem resolve); as seções são médias com pesos ({weights}); "
+              "verificações que não se aplicam ficam de fora, as que não puderam ser medidas também, e a nota "
+              "diz quanto cobre (provisória abaixo de {coverage}%, sem nota abaixo de {floor}%), e as que a "
+              "própria dublagem impediu de medir contam como 0. Os pesos foram definidos com critério, mas "
+              "ainda não foram comparados com as notas de revisores.",
+        "es": "Cada comprobación vale {good} si es Bien, {poor} si es Deficiente y, si Necesita revisión, un "
+              "valor entre ambos según su resultado ({check} si no tiene número); con un resultado general "
+              "Deficiente, un resultado Deficiente cuesta {critical} puntos si deja el doblaje inservible y, "
+              "en los demás casos, al menos {cost} ({minor} si la mezcla lo arregla); las secciones se "
+              "promedian y se ponderan ({weights}); las comprobaciones que no aplican quedan fuera, las que no "
+              "se pudieron medir también, y la puntuación dice cuánto cubre (provisional por debajo del "
+              "{coverage}%, sin puntuación por debajo del {floor}%), y las que el propio doblaje impidió medir "
+              "cuentan como 0. Los pesos son razonados, pero aún no se han contrastado con las notas de "
+              "revisores.",
+    },
 }

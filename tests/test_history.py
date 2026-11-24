@@ -66,7 +66,7 @@ def test_summary_counts_reruns_once_and_groups_by_language_pair():
 def test_history_text_in_two_languages():
     s = history.summarize([rec("2026-09-01 10:00:00", "good", 1), rec("2026-09-02 10:00:00", "poor", 2, clarity="poor")])
     text = history.render_history_text(s, "en")
-    assert "EVALUATION HISTORY" in text and "2 runs on 2 dubs" in text and "Voice clarity" in text
+    assert "EVALUATION HISTORY" in text and "Dubs: 2 · evaluations run: 2" in text and "Voice clarity" in text
     assert "평가 기록" in history.render_history_text(s, "ko")
     assert "No evaluations recorded yet" in history.render_history_text(history.summarize([]), "en")
 
@@ -87,7 +87,7 @@ def test_history_cli_prints_the_summary_and_writes_csv(tmp_path, capsys):
     history.record(evaluated(), "single")
     out = tmp_path / "h.csv"
     assert cli.main(["history", "--lang", "en", "--csv", str(out)]) == 0
-    assert "1 runs on 1 dubs" in capsys.readouterr().out
+    assert "Dubs: 1 · evaluations run: 1" in capsys.readouterr().out
     rows = list(csv.DictReader(open(out, encoding="utf-8-sig")))
     assert rows[0]["verdict"] == "good" and rows[0]["languages"] == "English (US) → Korean"
     assert cli.main(["history", "--json"]) == 0 and json.loads(capsys.readouterr().out)["dubs"] == 1
@@ -110,3 +110,17 @@ def test_renaming_a_run_changes_its_title_in_the_history(tmp_path):
     history.record(r, "web")
     history.rename(str(tmp_path / "report.html"), "New name")
     assert [e["title"] for e in history.load()] == ["New name"]
+
+
+
+def test_a_record_keeps_the_quality_score_and_a_pair_averages_it():
+    from dubeval import history
+    from dubeval.report import build_report
+    from sample_results import make_results
+    r = make_results()
+    r["report"] = build_report(r, "en")
+    rec = history.entry(r, "single")
+    assert rec["score"] == r["report"]["score"]["value"] and isinstance(rec["score_provisional"], bool)
+    old = {**rec, "score": None}                                  # a record from before scores
+    summary = history.summarize([rec, {**old, "seq": None, "link": "other", "inputs": "x|y"}])
+    assert summary["pairs"][0]["score"] == rec["score"]           # the record without one doesn't pull it down

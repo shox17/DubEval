@@ -30,7 +30,7 @@ RUN_ID_RE = re.compile(r"^\d{8}-\d{6}_[0-9a-f]{8}$")
 DRAFT_ID_RE = re.compile(r"^[0-9a-f]{12}$")
 MAX_DRAFT_BYTES = 512 * 1024                 # the fields and a small picture; a bigger draft is refused
 MAX_THUMB_BYTES = 400 * 1024
-CARD_VERSION = 3                             # bump when a card gains or changes a field
+CARD_VERSION = 6                             # bump when a card gains or changes a field, or the score's rules change
 THUMB = "thumb.jpg"
 THUMB_REDONE = "thumb.redone"      # a black thumb.jpg was made again once: don't try on every look
 NO_SUCH_EVALUATION = "That evaluation is gone. It may have been deleted."
@@ -69,7 +69,7 @@ def _write(path: Path, data: dict) -> None:
 
 def run_folder(run_id: str) -> Path:
     """The folder of an evaluation by its id; ValueError if the id is malformed or the folder is gone."""
-    if not RUN_ID_RE.match(str(run_id or "")):
+    if not RUN_ID_RE.fullmatch(str(run_id or "")):
         raise ValueError(NO_SUCH_EVALUATION)
     folder = _runs() / run_id
     if not ((folder / "report.json").is_file() or (folder / "comparison.json").is_file()):
@@ -107,17 +107,37 @@ def _card_from_files(folder: Path) -> Optional[dict]:
                                 if isinstance(p := ((r.get("results") or {}).get("pipeline") or {}).get(key), str) and p))
     if comp:
         rec = comp.get("recommendation") or {}
-        title, verdict = comp.get("custom_title") or rec.get("title") or first.get("title"), rec.get("verdict")
+        from dubeval.compare import comparison_title
+        title = comp.get("custom_title") or comparison_title(
+            [(r["report"].get("project") or {}).get("title") for r in reports], comp.get("lang") or "en")
+        verdict = rec.get("verdict")
+        ranked = (comp.get("ranking") or [{}])[0].get("dub")       # a comparison's card shows its first dub's score
+        scored = reports[comp["dubs"].index(ranked)] if ranked in (comp.get("dubs") or []) else reports[0]
     else:
         title, verdict = first.get("title"), (reports[0]["report"].get("overall") or {}).get("level")
+        scored = reports[0]
     return {"card_version": CARD_VERSION, "id": folder.name, "kind": "comparison" if comp else "single",
-            "title": title, "verdict": verdict, "dubs": len(reports),
+            "title": title, "verdict": verdict, "dubs": len(reports), "score": _score(scored),
+            # whose verdict and score a comparison's card shows: its first place ("A · Needs review")
+            "lead_dub": ranked if comp else None,
             "source_language": first.get("source_language"), "source_language_code": source_code,
             "target_language": first.get("target_language"),
             "target_language_code": first.get("target_language_code"), "duration_sec": first.get("duration_sec"),
             "created": first.get("timestamp") or time.strftime("%Y-%m-%d %H:%M:%S",
                                                                time.localtime(folder.stat().st_mtime)),
             "inputs": inputs, "sources": _signature(folder)}
+
+
+def _score(saved: dict) -> Optional[dict]:
+    """A saved report's quality score as the current rules give it ({value, provisional}; None before scores or when
+    it can't be worked out): the review rebuilds its report too, so the card and the review never disagree."""
+    try:
+        from dubeval.report import build_report
+        sc = build_report(saved["results"])["score"] if saved.get("results") else (saved["report"].get("score") or {})
+    except Exception as e:                       # an old or damaged report: the card shows no score
+        log.warning("Could not work out a card's score: %s", e)
+        return None
+    return {"value": sc["value"], "provisional": bool(sc.get("provisional"))} if sc.get("value") is not None else None
 
 
 def card(folder: Path) -> Optional[dict]:
@@ -141,7 +161,7 @@ def evaluations() -> list[dict]:
     folder = _runs()
     if not folder.is_dir():
         return []
-    cards = [c for c in (card(d) for d in folder.iterdir() if d.is_dir() and RUN_ID_RE.match(d.name)) if c]
+    cards = [c for c in (card(d) for d in folder.iterdir() if d.is_dir() and RUN_ID_RE.fullmatch(d.name)) if c]
     return sorted(cards, key=lambda c: c["id"], reverse=True)       # run ids start with their date and time
 
 
@@ -297,7 +317,7 @@ def delete(run_id: str) -> list[Path]:
 # ----- drafts -----
 
 def _draft_path(draft_id: str) -> Path:
-    if not DRAFT_ID_RE.match(str(draft_id or "")):
+    if not DRAFT_ID_RE.fullmatch(str(draft_id or "")):
         raise ValueError(NO_SUCH_DRAFT)
     return _drafts() / f"{draft_id}.json"
 
@@ -319,7 +339,7 @@ def _drop_unfinished_run(draft: dict) -> None:
     if job is not None and job.status == "running":
         return
     folder = Path(started.get("folder") or "")
-    if (folder.name and RUN_ID_RE.match(folder.name) and folder.parent.resolve() == _runs().resolve()
+    if (folder.name and RUN_ID_RE.fullmatch(folder.name) and folder.parent.resolve() == _runs().resolve()
             and folder.is_dir() and not _sources(folder)):
         shutil.rmtree(folder, ignore_errors=True)
 
@@ -367,7 +387,7 @@ def drafts() -> list[dict]:
     folder = _drafts()
     if not folder.is_dir():
         return []
-    found = [d for d in (_read(f) for f in folder.glob("*.json")) if d and DRAFT_ID_RE.match(str(d.get("id")))]
+    found = [d for d in (_read(f) for f in folder.glob("*.json")) if d and DRAFT_ID_RE.fullmatch(str(d.get("id")))]
     return sorted(found, key=lambda d: d.get("updated") or 0, reverse=True)
 
 

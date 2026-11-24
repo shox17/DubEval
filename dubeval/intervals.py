@@ -56,6 +56,9 @@ VOICE_CHANGE_MEDIAN = 0.45           # ...in a dub that otherwise clones its spe
 LINE_MATCH_SEC = 1.0                 # a translation issue belongs to the original line starting this close to it
 JUDGE_DEFAULT_SEC = 2.0              # length of a translation issue when no transcript line contains it
 MOMENT_OVERLAP = 0.5                 # two findings are one moment when they share this much of their combined time
+MOMENT_INSIDE = 0.8                  # ...or when this much of a finding without a line lies inside one about a line (a
+                                     # 1 s gap in a 6 s line too short: the same line, listed twice when only shared
+                                     # time counted). A 9 s voice window around a line's finding stays apart: no line.
                                      # (or are about the same line): on 20 graded dubs, 9 listed a moment twice
 QUOTE_MIN_SEC = 0.2                  # a transcript line is quoted for a moment it shares at least this long with
 QUOTE_MAX_CHARS = 240                # longer quotes are cut: the moment's card shows the lines in full
@@ -80,12 +83,14 @@ CATEGORIES = {
     "sound_sync": "r.cat.sound_sync",
     "line_length": "r.cat.line_length",
     "line_overrun": "r.cat.line_overrun",
-    "meaning_drift": "r.cat.meaning_drift",
+    "meaning_drift": "r.cat.meaning_drift",          # the removed meaning screen's: kept for the votes cast on it
     "translation_wording": "r.cat.wording",
 }
 JUDGE_CATEGORY = {"missing": "missing_speech", "added": "added_speech", "mistranslation": "mistranslation",
                   "name_or_number": "names_numbers", "wording": "translation_wording"}
 SEVERITY_RANK = {"check": 1, "poor": 2}
+# Error types that only repeat the moment's name ("Left out of the translation · Omission: …"): not said twice.
+SAME_AS = {"omission": "missing_speech", "distortion": "mistranslation"}
 # Which finding speaks for a moment that several checks flagged: the one that says most about what is wrong. The
 # checks that read the words come first; "one track speaks and the other doesn't" last, since a named cause beats it.
 LEAD_ORDER = ("missing_speech", "added_speech", "mistranslation", "names_numbers", "translation_wording",
@@ -182,11 +187,18 @@ def _voice_gaps(tr: Tr, ta: dict, sr: dict) -> list[dict]:
             if g["original_sec"] >= LONG_SILENCE_SEC[0]]
 
 
+def listed_mismatches(ta: dict) -> list[dict]:
+    """The timing mismatches that become moments (a long silence, or a mismatch of TIMING_MIN_SEC or more): the report's
+    speech-timing row counts these, not every mismatch, or it promised moments the list didn't have."""
+    return [m for m in ta.get("mismatches") or [] if m["end"] - m["start"] >= TIMING_MIN_SEC
+            or (m["kind"] == "original_only" and m["end"] - m["start"] >= LONG_SILENCE_SEC[0])]
+
+
 def _timing(tr: Tr, ta: dict, sr: dict) -> list[dict]:
     """Stretches where only one track speaks: long silences in the dub, or timing mismatches. Each quotes the words
     of the track that speaks: "a line may be missing" didn't say which."""
     out = []
-    for m in ta.get("mismatches") or []:
+    for m in listed_mismatches(ta):
         length = m["end"] - m["start"]
         if m["kind"] == "original_only" and length >= LONG_SILENCE_SEC[0]:
             out.append(_long_silence(tr, m["start"], m["end"], length, sr))
@@ -226,17 +238,6 @@ def _numbers(tr: Tr, nc: Optional[dict]) -> list[dict]:
     return [_item(tr, ln["start"], ln["end"], "names_numbers", "check", "numbers",
                   tr("r.int.number", n=ln["n"], orig=", ".join(ln["original"]), dub=", ".join(ln["dub"])), line=ln["n"])
             for ln in nc["lines"]]
-
-
-def _screen_items(tr: Tr, ms: Optional[dict], judged: bool) -> list[dict]:
-    """Lines the offline meaning screen found low, when no judge ran (the judge's own issues are more precise) and the
-    video isn't mostly music (judged is then true too: recognized words aren't reliable enough there)."""
-    from dubeval.report import screen_low_lines
-    if judged:
-        return []
-    return [_item(tr, ln["start"], ln["end"], "meaning_drift", "check", "meaning_screen",
-                  tr("r.int.meaning_drift", n=ln["n"], sim=f"{ln['similarity']:.2f}"), line=ln["n"])
-            for ln in screen_low_lines(ms)]
 
 
 def _missing_parts(tr: Tr, pr: Optional[dict]) -> list[dict]:
@@ -327,7 +328,7 @@ def _loudness(tr: Tr, ac: dict) -> list[dict]:
 def _language(tr: Tr, sr: dict, expected: Optional[str], source: Optional[str], names: dict) -> list[dict]:
     """Windows where the dub sounds like another language, or like the original's (original voice left in)."""
     out = []
-    name = lambda code: names.get(code) or _language_name(code)
+    name = lambda code: names.get(code) or _language_name(code, tr)
     for w in sr.get("dubbed_language_windows") or []:
         is_source = bool(source) and w["language"] == source
         bands = LANG_SOURCE if is_source else LANG_OTHER
@@ -344,10 +345,10 @@ def _language(tr: Tr, sr: dict, expected: Optional[str], source: Optional[str], 
     return out
 
 
-def _language_name(code: str) -> str:
-    """A readable name for a Whisper language code ("nn" -> "Nynorsk"), or the code itself."""
-    from dubeval.asr import language_names
-    return language_names().get(code, code).title()
+def _language_name(code: str, tr: Optional[Tr] = None) -> str:
+    """A readable name for a Whisper language code, in the report's language when tr is given ("nn" -> "Nynorsk")."""
+    from dubeval.languages import display_name
+    return display_name(code, tr("r.lang_code") if tr else "en")
 
 
 def voice_window_level(w: dict) -> str:
@@ -442,7 +443,7 @@ def _translation(tr: Tr, tj: Optional[dict], sr: dict, lang: str,
         # Very low meaning: a mishearing or a real error, the judge can't tell; a person listens (Check, never Poor).
         doubtful = maybe and i.get("criterion") == "semantic_accuracy" and (i.get("score") or 10) <= RUBRIC_POOR
         kind = i.get("error_type")                 # the rubric's error type, with its suggested translation
-        problem = (tr(f"r.tcat.{kind}") + ": " if kind and kind != "no_error" else "") \
+        problem = (tr(f"r.tcat.{kind}") + ": " if kind and kind != "no_error" and SAME_AS.get(kind) != category else "") \
             + judge_text(i.get("explanation"), lang, i.get("original"), i.get("dubbed"))
         start = float(i.get("start_sec") or 0.0)
         end = _line_end(sr.get("original_segments"), start)
@@ -513,13 +514,18 @@ def merge_intervals(items: list[dict], length: Optional[float], gap: float = MER
 def group_moments(intervals: list[dict]) -> list[dict]:
     """The moments a person looks at: the intervals (in time order, as merge_intervals returns them) put together when
     they are about the same moment, i.e. they share MOMENT_OVERLAP of their combined time or are about the same line
-    (a line too long that also runs into the next). Each moment {"start", "end", "severity" (its worst), "intervals"
+    (a line too long that also runs into the next; a finding without a line that lies inside one about a line,
+    MOMENT_INSIDE). Each moment {"start", "end", "severity" (its worst), "intervals"
     (indexes, the one that speaks for it first: LEAD_ORDER)}; every interval gets its "moment" index."""
     def same(a: dict, b: dict) -> bool:
         if a.get("line") is not None and a.get("line") == b.get("line"):
             return True
         shared = min(a["end"], b["end"]) - max(a["start"], b["start"])
         combined = max(a["end"], b["end"]) - min(a["start"], b["start"])
+        if (a.get("line") is None) != (b.get("line") is None):          # one is about a line, the other has none
+            loose = a if a.get("line") is None else b
+            if loose["end"] > loose["start"] and shared / (loose["end"] - loose["start"]) >= MOMENT_INSIDE:
+                return True
         return combined > 0 and shared / combined >= MOMENT_OVERLAP
     groups: list[list[int]] = []
     for i, iv in enumerate(intervals):
@@ -579,7 +585,10 @@ def build_intervals(r: dict, tr: Tr, lang: str, clipping_poor: bool = False, dub
     expected = whisper_language(p.get("target_language_code") or meta.get("target_language"))
     share = p.get("input") or p.get("share") or {}
     source = whisper_language(share.get("source_language_code") or meta.get("detected_source_language"))
-    names = {expected: p.get("target_language_name"), source: share.get("source_language_name"),
+    # in the report's language; in English the names the results keep ("English (US)" from a share link)
+    stored = tr("r.lang_code") == "en"
+    names = {expected: (stored and p.get("target_language_name")) or (_language_name(expected, tr) if expected else None),
+             source: (stored and share.get("source_language_name")) or (_language_name(source, tr) if source else None),
              **(language_names or {})}
     names = {base_lang(k): v for k, v in names.items() if k and v}
     tj = r.get("translation_judge") or {}
@@ -599,8 +608,7 @@ def build_intervals(r: dict, tr: Tr, lang: str, clipping_poor: bool = False, dub
             # The subtitles confirm the dub's language: other languages heard in a window are recognition noise; the
             # original's language heard there is still worth reporting (the original voice left in).
             languages = [i for i in languages if source and names.get(source) and names[source] in i["description"]]
-        counted += _screen_items(tr, r.get("meaning_screen"), bool(tj.get("measured")) or music) \
-            + _numbers(tr, r.get("numbers")) + _timing(tr, r.get("timing_alignment") or {}, sr) + languages \
+        counted += _numbers(tr, r.get("numbers")) + _timing(tr, r.get("timing_alignment") or {}, sr) + languages \
             + _clarity(tr, sr) + ([] if music else _line_items(tr, r.get("segment_alignment"), sr))
     else:
         # The original's language left in the dub is still worth reporting; other languages are recognition noise.

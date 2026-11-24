@@ -12,4 +12,6 @@ contextBridge.exposeInMainWorld("dubevalShell", {
   restartToUpdate: () => ipcRenderer.invoke("update:restart"),
   justUpdated: () => ipcRenderer.invoke("update:just-updated"),
   onUpdate: callback => { ipcRenderer.on("update:state", (_event, state) => callback(state)); },
+  // A click on the "finished" notification (main.js notifyFinished): the screen to open, such as "#/report/<id>".
+  onOpen: callback => { ipcRenderer.on("app:open", (_event, hash) => callback(hash)); },
 });

@@ -57,7 +57,7 @@ export function h(tag, attrs = {}, ...children) {
 export function fmtTime(sec) {
   if (sec === null || sec === undefined || !isFinite(sec)) return "–";
   const m = Math.floor(sec / 60), s = sec - m * 60;
-  return `${m}:${s.toFixed(1).padStart(4, "0")}`;
+  return `${String(m).padStart(2, "0")}:${s.toFixed(1).padStart(4, "0")}`;      // as the reports and the headline write it
 }
 
 // Replaces el's children, skipping empty ones (null, false) and flattening lists.
@@ -89,7 +89,7 @@ export function openModal(title, body, buttons = [], { width = null } = {}) {
   const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
   const onKey = e => { if (e.key === "Escape" && onTop(overlay)) close(); };
   const foot = buttons.map(b => h("button", { type: "button", class: b.primary ? "primary" : "",
-    hidden: b.hidden, onclick: () => (b.onclick ? b.onclick(close) : close()) }, b.label));
+    hidden: b.hidden, onclick: e => (b.onclick ? b.onclick(close, e.currentTarget) : close()) }, b.label));
   const modal = h("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-label": title,
     style: width ? `width: min(${width}px, 92vw)` : null },
     h("div", { class: "modal-head" }, h("h2", {}, title)),

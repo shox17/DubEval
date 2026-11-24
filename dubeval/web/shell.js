@@ -4,7 +4,7 @@
 // version in the background and reports {phase, version, pct}; phase is idle | checking | none | downloading |
 // ready | download-failed | error. In a plain browser there is no shell, so nothing is announced and the card only
 // shows the notes.
-import { api, h, openModal, state, t } from "./app.js";
+import { api, go, h, openModal, setLanguage, state, t } from "./app.js";
 
 const shell = window.dubevalShell || null;
 let update = { phase: "idle" };
@@ -52,10 +52,26 @@ function setUpdate(next) {
 export function refreshSidebar() {
   const card = document.getElementById("nav-whats-new");
   if (!card || !state.info) return;
+  const pick = document.querySelector("#nav-lang select");
+  pick.setAttribute("aria-label", t("w.about.language"));
+  pick.replaceChildren(...Object.entries(state.info.languages).map(([code, name]) =>
+    h("option", { value: code, selected: code === state.lang }, name)));
   card.classList.toggle("live", live(update));
   card.title = live(update) ? t("w.nav.update_available") : "";
   card.querySelector(".side-label").textContent = update.phase === "ready"
     ? t("w.nav.update_ready", { version: update.version }) : t("w.nav.whats_new", { version: state.info.version });
+}
+
+// Send feedback: on Discord (no account needed to read, a free one to write) or as a GitHub issue. Opening GitHub
+// straight away left anyone without a GitHub account no way to say anything.
+function feedbackDialog() {
+  const way = (href, title, text) => h("a", { href, target: "_blank", rel: "noopener" }, h("b", {}, title),
+    h("span", { class: "muted small" }, text));
+  openModal(t("w.nav.feedback"), h("div", { class: "feedback-ways" },
+    h("p", { class: "muted" }, t("w.fb.intro")),
+    way(state.info.discord, t("w.fb.discord"), t("w.fb.discord_text")),
+    way(`${state.info.repository}/issues/new`, t("w.fb.github"), t("w.fb.github_text"))),
+  [{ label: t("w.close") }]);
 }
 
 // Help, in PersoDub's shape: one darker panel of parts (a title, what it does, a grey line on how or where), then
@@ -101,11 +117,11 @@ function updateLines(u) {
   return own && own.length ? own : noteLines(u.releaseNotes, u.version);
 }
 
-// Whether an evaluation is running now (restarting would stop it): a started draft's card says so.
+// Whether an evaluation is running or waiting in line now (restarting would stop it): a started draft's card says so.
 export async function evaluationRunning() {
   try {
     const list = await fetch("/api/evaluations", { credentials: "same-origin" }).then(r => r.json());
-    return (list.drafts || []).some(d => d.state === "running");
+    return (list.drafts || []).some(d => d.state === "running" || d.state === "queued");
   } catch { return false; }
 }
 
@@ -263,12 +279,14 @@ export function initSidebar() {
   initResize();
   document.getElementById("nav-help").addEventListener("click", helpDialog);
   // DubEval has no feedback form of its own; the repository's issues page is where feedback goes (as in PersoDub).
-  document.getElementById("nav-feedback").addEventListener("click", () =>
-    window.open(`${state.info.repository}/issues`, "_blank", "noopener"));
+  document.getElementById("nav-feedback").addEventListener("click", feedbackDialog);
+  document.querySelector("#nav-lang select").addEventListener("change", e => setLanguage(e.target.value));
   document.getElementById("nav-whats-new").addEventListener("click", versionWindow);
   updatedBanner();
   askUsageStats();
   if (shell) {
+    // A click on the desktop app's "finished" notification opens that evaluation (an older app has no onOpen).
+    if (shell.onOpen) shell.onOpen(hash => { if (/^#\/(report|compare|job)\/[0-9a-f]{12}$/.test(hash)) go(hash); });
     shell.onUpdate(setUpdate);
     // The state can change before this answer comes: it never replaces what the listener has had since.
     shell.getUpdate().then(u => { if (update.phase === "idle") setUpdate(u); }).catch(() => {});

@@ -54,10 +54,10 @@ def client(monkeypatch, tmp_path, media, isolated_output):
 def finished(client, job_id: str) -> dict:
     for _ in range(200):
         body = client.get(f"/api/jobs/{job_id}").json()
-        if body["status"] != "running":
+        if body["status"] not in ("running", "queued"):
             return body
         time.sleep(0.02)
-    raise AssertionError("job did not finish")
+    raise AssertionError(f"job did not finish: {body}")
 
 
 def test_only_the_launch_link_opens_the_page():
@@ -202,7 +202,8 @@ def compare_client(client, monkeypatch, media):
         client.seen.update(original=original, dubs=dubs, out_dir=out_dir, **options)
         res = {}
         for letter, extra in zip("ABC", [{"dubbed_duration_sec": 40.0}, {}, {}][:len(dubs)]):
-            r = make_results(acoustic_metrics=extra)
+            # dub A's speech timing needs review too, so it has a moment to vote on
+            r = make_results(acoustic_metrics=extra, **({"timing_alignment": {"overlap_pct": 70.0}} if letter == "A" else {}))
             r["pipeline"].update(input_video_path=str(media / "o.mp4"), dubbed_video_path=str(media / "d.mp4"))
             res[letter] = r
         comp = build_ranking(list(res.values()), report_lang, run_seconds=3.0)
@@ -436,7 +437,7 @@ def test_history_summarizes_past_runs_and_reopens_only_known_reports(client, mon
     run.mkdir(parents=True)
     (run / "report.html").write_text("<p>old report</p>", encoding="utf-8")
     (tmp_path / "secret.html").write_text("not a report", encoding="utf-8")
-    r = make_results()
+    r = make_results(timing_alignment={"overlap_pct": 70.0})
     r["report"] = build_report(r, "en")
     r["pipeline"]["report_files"] = {"html": str(run / "report.html")}
     history.record(r, "web")
@@ -586,7 +587,7 @@ def test_downloads_are_listed_installed_and_removed_through_the_page(client, mon
     monkeypatch.setattr(packs, "remove", lambda pid: installed.discard(pid))
 
     listing = client.get("/api/packs").json()
-    assert {p["id"]: p["available"] for p in listing["packs"]} == {"meaning": True, "gpu": False, "large_model": True,
+    assert {p["id"]: p["available"] for p in listing["packs"]} == {"gpu": False, "large_model": True,
                                                                    "local_judge": True, "lip_sync": True,
                                                                    "voice_quality": True}
     assert client.post("/api/packs/gpu/install").status_code == 400
@@ -621,10 +622,10 @@ def test_a_download_can_be_stopped(client, monkeypatch):
         raise packs.Stopped()
     monkeypatch.setattr(packs, "install", slow)
     monkeypatch.setattr(packs, "available", lambda pid: True)
-    job = client.post("/api/packs/meaning/install").json()
+    job = client.post("/api/packs/large_model/install").json()
     go.wait(2)
-    assert client.post("/api/packs/meaning/install").json()["id"] == job["id"]        # one download per pack
-    assert client.delete("/api/packs/meaning").status_code == 409
+    assert client.post("/api/packs/large_model/install").json()["id"] == job["id"]        # one download per pack
+    assert client.delete("/api/packs/large_model").status_code == 409
     client.post(f"/api/jobs/{job['id']}/cancel")
     assert finished(client, job["id"])["status"] == "cancelled"
 
@@ -653,7 +654,7 @@ def test_a_bad_key_request_never_echoes_what_was_sent(client, body):
 def test_the_models_tab_lists_built_in_and_downloadable_models_by_group(client):
     data = client.get("/api/models").json()
     groups = {g["id"]: [r["id"] for r in g["rows"]] for g in data["groups"]}
-    assert groups == {"speech": ["whisper_base", "large_model"], "meaning": ["meaning", "local_judge"],
+    assert groups == {"speech": ["whisper_base", "large_model"], "meaning": ["local_judge"],
                       "voice": ["speaker", "dnsmos", "voice_quality", "face", "lip_sync"], "speed": ["gpu"],
                       "base": ["engine"]}
     rows = {r["id"]: r for g in data["groups"] for r in g["rows"]}
@@ -681,9 +682,8 @@ def test_the_report_says_how_to_fix_rows_that_need_a_key_or_a_model(client, monk
     from dubeval.translation_judge import not_measured
     monkeypatch.setattr(packs, "state", lambda pid: "absent")
     monkeypatch.setattr(packs, "available", lambda pid: True)
-    r = make_results(translation_judge=not_measured("r.judge.no_key"),
-                     meaning_screen={"measured": False, "reason_key": "r.screen.not_installed", "lines": []})
-    assert webapp._fixes(r) == {"translation_check": "keys", "meaning_screen": "models"}
+    r = make_results(translation_judge=not_measured("r.judge.no_key"))
+    assert webapp._fixes(r) == {"translation_check": "keys"}
     monkeypatch.setattr(packs, "state", lambda pid: "installed")
     r2 = make_results(translation_judge=not_measured("r.judge.busy", model="Gemini"))
     assert webapp._fixes(r2) == {}
@@ -772,7 +772,7 @@ def test_the_launch_link_is_printed_only_once_the_port_is_ours(monkeypatch, caps
 
 def test_a_job_that_isnt_an_evaluation_has_no_report(client):
     from dubeval import jobs
-    job = jobs.start_job(lambda report, cancel: True, {"kind": "pack", "pack": "meaning"}, ["pack"])
+    job = jobs.start_job(lambda report, cancel: True, {"kind": "pack", "pack": "large_model"}, ["pack"])
     for _ in range(200):
         if jobs.get_job(job.id).status != "running":
             break
@@ -805,7 +805,7 @@ def test_a_comparisons_problem_sheet_says_which_dub_by_name(compare_client, monk
     finished(compare_client, job_id)
     compare_client.put(f"/api/jobs/{job_id}/dub-name?dub=A", json={"name": "Perso"})
     assert compare_client.get(f"/api/jobs/{job_id}/export?kinds=xlsx&lang=en").status_code == 200
-    assert {row[0] for row in seen} == {"A · Perso", "B"}
+    assert seen and {row[0] for row in seen} == {"A · Perso"}          # dub B passed every check: no rows
 
 
 def test_a_comparison_exports_the_comparison_and_every_dubs_report(compare_client):
@@ -842,7 +842,8 @@ def test_the_problem_list_also_has_checks_about_the_whole_dub():
 
 def test_the_page_gets_speech_languages_release_notes_and_the_repository(client):
     info = client.get("/api/info?lang=ko").json()
-    assert info["speech_languages"]["uz"] == "Uzbek" and len(info["speech_languages"]) > 90
+    assert info["speech_languages"]["uz"] == "우즈베크어" and len(info["speech_languages"]) > 90     # in the page's language
+    assert client.get("/api/info?lang=pt").json()["speech_languages"]["es"] == "Espanhol"
     assert info["whats_new"] and info["repository"].startswith("https://github.com/")
 
 
@@ -911,11 +912,13 @@ def test_the_start_page_previews_a_source_and_explains_one_it_cant_read(client, 
 
 
 def test_the_start_page_can_name_the_translation_checker(client):
-    client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4", "judge": "gemini"})
+    run = lambda **body: finished(client, client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4",
+                                                                               **body}).json()["id"])
+    run(judge="gemini")                                    # each waits for its turn: one runs at a time
     assert client.seen["use_translation_judge"] == "gemini"
-    client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4", "judge": "off"})
+    run(judge="off")
     assert client.seen["use_translation_judge"] is False
-    client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"})
+    run()
     assert client.seen["use_translation_judge"] is True                     # auto: the first one set up
     assert client.post("/api/evaluations", json={"original": "o", "dub": "d", "judge": "bard"}).status_code == 422
 
@@ -1160,7 +1163,7 @@ def test_share_is_gone(client):
 
 def test_a_vote_on_a_file_evaluation_survives_renaming_it(client, monkeypatch):
     def from_files(original, dub, out_dir=None, report_lang="en", **_):
-        r = make_results()
+        r = make_results(timing_alignment={"overlap_pct": 70.0})        # a moment to vote on
         r["pipeline"].pop("share", None)
         r["pipeline"].update(input_video_path=original, dubbed_video_path=dub)
         r["report"] = build_report(r, report_lang)
@@ -1202,3 +1205,141 @@ def test_renaming_a_comparison_from_its_card_renames_every_dubs_report(isolated_
         assert saved["report"]["project"]["title"] == "Weather, two dubs"
 
 
+
+
+def test_storage_says_how_much_room_each_kind_of_data_takes(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(webapp, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(webapp, "UPLOADS_DIR", tmp_path / "uploads")
+    (tmp_path / "uploads" / "x").mkdir(parents=True)
+    (tmp_path / "uploads" / "x" / "v.mp4").write_bytes(b"0" * 1000)
+    got = client.get("/api/settings/storage").json()
+    sizes = {p["id"]: p["bytes"] for p in got["parts"]}
+    assert set(sizes) == {"evaluations", "uploads", "cache"} and sizes["uploads"] == 1000 and got["total"] >= 1000
+
+
+def test_the_progress_screen_is_told_which_video_it_is(client):
+    job_id = client.post("/api/evaluations", json={"original": "C:/videos/o.mp4", "dub": "C:/videos/my dub.mp4"}).json()["id"]
+    assert finished(client, job_id)["dub_names"] == ["my dub.mp4"]
+    assert webapp._input_name("https://example.com/" + "x" * 100).endswith("…")
+
+
+# ---------------- evaluations take turns ----------------
+
+def test_an_evaluation_started_while_another_runs_waits_in_line(client, monkeypatch):
+    import threading
+    gate, real = threading.Event(), pipeline.run_files_evaluation
+    monkeypatch.setattr(pipeline, "run_files_evaluation", lambda *a, **k: gate.wait(5) and real(*a, **k))
+    assert client.get("/api/queue").json() == {"running": None, "waiting": 0}
+    first = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    second = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    third = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    assert client.get("/api/queue").json() == {"running": first, "waiting": 2}
+    state = client.get(f"/api/jobs/{second}?lang=ko").json()
+    assert state["status"] == "queued" and state["queue_position"] == 1 and state["progress"] == 0.0
+    assert state["message"] == "앞의 평가가 끝나기를 기다리는 중입니다." and state["remaining_sec"] is None
+    assert state["waiting_for"]["id"] == first and state["waiting_for"]["name"] == "d.mp4"   # what it waits for
+    assert client.get(f"/api/jobs/{first}").json()["waiting_after"] == 2 and state["waiting_after"] == 0
+    cards = {c["job_id"]: c for c in client.get("/api/evaluations").json()["drafts"] if c["job_id"]}
+    assert client.post(f"/api/jobs/{third}/cancel").status_code == 200        # leaves the line at once
+    removed = client.get(f"/api/jobs/{third}?lang=ko").json()
+    assert removed["status"] == "cancelled" and removed["removed"] and removed["can_continue"]   # can join again
+    assert removed["error"] == "시작하기 전에 이 평가를 대기열에서 뺐습니다."
+    assert cards == {}                                     # (no drafts in this test: the cards follow drafts)
+    gate.set()
+    assert finished(client, first)["status"] == "done" and finished(client, second)["status"] == "done"
+    assert client.get("/api/queue").json() == {"running": None, "waiting": 0}
+
+
+def test_the_desktop_app_is_told_the_progress_only_when_it_asked(monkeypatch, capsys):
+    from dubeval import jobs
+    monkeypatch.setattr(webapp, "_last_progress", [None])
+    monkeypatch.setattr(webapp, "_progress_peak", {})
+    job = jobs.Job(id="0123456789ab", params={"kind": "files"}, stages=["evaluate"], takes_turns=True)
+    job.stage_fraction, job.stage = 0.5, "evaluate"
+    webapp._job_progress(job)
+    assert webapp.PROGRESS_LINE not in capsys.readouterr().out
+    monkeypatch.setenv("DUBEVAL_NOTIFY", "1")
+    webapp._job_progress(job)
+    webapp._job_progress(job)                                   # the same again: no second line
+    job.stage_fraction = 0.45
+    webapp._job_progress(job)                                   # a dip: the bar doesn't step back
+    lines = [x for x in capsys.readouterr().out.splitlines() if x.startswith(webapp.PROGRESS_LINE)]
+    assert [json.loads(x[len(webapp.PROGRESS_LINE):]) for x in lines] == [
+        {"progress": 0.5, "failed": False, "waiting": 0}]
+    job.status = "failed"
+    webapp._progress_after(job)
+    job.status = "done"
+    webapp._progress_after(job)
+    shown = [json.loads(x[len(webapp.PROGRESS_LINE):]) for x in capsys.readouterr().out.splitlines()]
+    assert shown == [{"progress": None, "failed": True, "waiting": 0}, {"progress": None, "failed": False, "waiting": 0}]
+    monkeypatch.setattr(jobs, "running_evaluation", lambda: job)
+    job.status = "running"
+    monkeypatch.setattr(jobs, "waiting_count", lambda: 2)
+    webapp._line_changed()                                      # one joined the line: the new count at once
+    assert json.loads(capsys.readouterr().out.strip()[len(webapp.PROGRESS_LINE):])["waiting"] == 2
+    download = jobs.Job(id="0123456789ac", params={"kind": "pack"}, stages=["pack"])
+    webapp._job_progress(download)                              # model downloads don't show on the icon
+    assert capsys.readouterr().out == ""
+
+
+def test_export_can_add_problem_clips_in_their_folder(client, monkeypatch):
+    import io
+    import zipfile
+    from dubeval import clips
+    given = {}
+
+    def fake_clips(dubs, folder, lang, title, on_clip=None):
+        given.update(dubs=dubs, lang=lang, title=title)
+        (folder / "clips").mkdir(parents=True)
+        (folder / "문제 클립.html").write_text("<html></html>", encoding="utf-8")
+        (folder / "clips" / "01 00m01s Line length.mp4").write_bytes(b"clip")
+        return [folder / "문제 클립.html", folder / "clips" / "01 00m01s Line length.mp4"]
+    monkeypatch.setattr(clips, "write_clips", fake_clips)
+    job_id = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    finished(client, job_id)
+    z = zipfile.ZipFile(io.BytesIO(client.get(f"/api/jobs/{job_id}/export?kinds=html,clips&lang=ko").content))
+    assert z.namelist() == ["report.html", "문제 클립.html", "clips/01 00m01s Line length.mp4"]
+    assert z.getinfo("clips/01 00m01s Line length.mp4").compress_type == zipfile.ZIP_STORED
+    dub = given["dubs"][0]
+    assert given["lang"] == "ko" and dub["offset"] == 0.4 and dub["dub"].endswith("d.mp4") and dub["label"] is None
+    assert dub["report"]["lang"] == "ko" and all(len(row) == 3 for row in dub["general"])
+
+
+def test_export_says_plainly_when_the_videos_for_clips_are_gone(client, media):
+    job_id = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    finished(client, job_id)
+    (media / "d.mp4").unlink()
+    resp = client.get(f"/api/jobs/{job_id}/export?kinds=clips&lang=en", headers={"Accept-Language": "ko"})
+    assert resp.status_code == 409 and "클립을 만들 수 없습니다" in resp.json()["detail"]
+
+
+def test_a_waiting_draft_card_says_where_it_is_in_line(client, monkeypatch):
+    import threading
+    gate, real = threading.Event(), pipeline.run_files_evaluation
+    monkeypatch.setattr(pipeline, "run_files_evaluation", lambda *a, **k: gate.wait(5) and real(*a, **k))
+    ids = []
+    for name in ("first", "second", "third"):
+        draft = client.post("/api/drafts", json={"name": name, "form": {"dubs": [{}]}}).json()["id"]
+        ids.append(client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4", "draft_id": draft}).json()["id"])
+    cards = {c["name"]: c for c in client.get("/api/evaluations").json()["drafts"]}
+    assert cards["first"]["state"] == "running" and cards["first"]["queue_position"] is None
+    assert (cards["second"]["state"], cards["second"]["queue_position"]) == ("queued", 1)
+    assert (cards["third"]["state"], cards["third"]["queue_position"]) == ("queued", 2)
+    gate.set()
+    for job_id in ids:
+        finished(client, job_id)
+
+
+def test_joining_the_queue_again_is_a_fresh_run_not_a_continue(client, monkeypatch):
+    import threading
+    gate, real = threading.Event(), pipeline.run_files_evaluation
+    monkeypatch.setattr(pipeline, "run_files_evaluation", lambda *a, **k: gate.wait(5) and real(*a, **k))
+    first = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    second = client.post("/api/evaluations", json={"original": "o.mp4", "dub": "d.mp4"}).json()["id"]
+    client.post(f"/api/jobs/{second}/cancel")
+    again = client.post(f"/api/jobs/{second}/continue").json()["id"]
+    from dubeval import jobs
+    assert not jobs.get_job(again).params.get("continued")        # nothing was measured: its time is this computer's
+    gate.set()
+    finished(client, first)
+    finished(client, again)

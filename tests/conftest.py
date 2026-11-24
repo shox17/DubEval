@@ -32,13 +32,17 @@ def isolated_output(tmp_path, monkeypatch):
 @pytest.fixture(autouse=True)
 def isolated_cache(tmp_path, monkeypatch):
     """Downloads and Whisper results are cached per share link; each test gets its own empty cache."""
-    from dubeval import feedback, history, jobs, library, pipeline
+    from dubeval import feedback, history, jobs, library, pipeline, speed
     monkeypatch.setattr(pipeline, "CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(pipeline, "RUNS_DIR", str(tmp_path / "runs"))           # pruning reads the Evaluations list
     monkeypatch.setattr(library, "DRAFTS_DIR", tmp_path / "drafts")             # never the real drafts
     monkeypatch.setattr(history, "HISTORY_FILE", tmp_path / "history.jsonl")    # never the real history
     monkeypatch.setattr(feedback, "FEEDBACK_FILE", tmp_path / "feedback.jsonl")  # nor the real votes
     monkeypatch.setattr(jobs, "JOBS_DIR", tmp_path / "jobs")                     # nor the real job files
+    # each test its own job list and line: an evaluation one test leaves running would make the next ones wait
+    monkeypatch.setattr(jobs, "_jobs", {})
+    monkeypatch.setattr(jobs, "_waiting", [])
+    monkeypatch.setattr(speed, "SPEED_FILE", tmp_path / "speed.json")            # nor this computer's speeds
     return tmp_path / "cache"
 
 
@@ -116,9 +120,3 @@ def no_real_translation_judge(monkeypatch, tmp_path):
     voice_quality.unload()
 
 
-@pytest.fixture(autouse=True)
-def no_real_meaning_screen(monkeypatch):
-    """Tests never load the meaning model (the ONNX pack or the original): the screen acts as if neither were
-    installed. Tests of the screen itself pass their own encode function, which doesn't need the model."""
-    from dubeval import meaning
-    monkeypatch.setattr(meaning, "backend", lambda: None)

@@ -55,6 +55,31 @@ jobs:
       - name: Fast tests
         run: python -m pytest -m "not slow" -q
 
+  # The page's and the desktop app's JavaScript has no tests and no build step, so a syntax error in one file would pass
+  # every check above and leave the page blank. Each file is parsed the way it is loaded: a file with import/export as
+  # an ES module (from stdin: `node --check` on a .js file that has to be guessed a module misses errors in it), any
+  # other as a plain script (boot.js, desktop/).
+  javascript:
+    name: javascript syntax
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - name: Parse every script
+        run: |
+          failed=0
+          for f in $(git ls-files '*.js' '*.mjs'); do     # every script in the repository, new ones included
+            if grep -qE '^(import|export) ' "$f"; then
+              node --input-type=module --check < "$f" || { echo "::error file=$f::not valid JavaScript (module)"; failed=1; }
+            else
+              node --check "$f" || { echo "::error file=$f::not valid JavaScript"; failed=1; }
+            fi
+          done
+          exit $failed
+
   # Fails the build if a credential was ever committed, on this branch or anywhere in the history behind it.
   # gitleaks is downloaded from its own release and checked against its published SHA-256, instead of a
   # marketplace action, so no third-party action gets the repository token. (Same approach as PersoDub's CI.)

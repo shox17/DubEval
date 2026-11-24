@@ -52,6 +52,8 @@ def entry(results: dict, mode: str, when: Optional[str] = None) -> dict:
         "poor": counts["poor"],
         "check": counts["check"],
         "problem_seconds": rep.get("problem_seconds"),
+        "score": (rep.get("score") or {}).get("value"),               # records before 0.1.8 have none
+        "score_provisional": bool((rep.get("score") or {}).get("provisional")),
         "meaning_score": tj.get("meaning_score") if tj.get("measured") else None,
         "meaning_scale": (tj.get("scale") or 5) if tj.get("measured") else None,
         "overlap_pct": (results.get("timing_alignment") or {}).get("overlap_pct"),
@@ -163,6 +165,7 @@ def summarize(records: list[dict], days: Optional[int] = None, today: Optional[d
         "pairs": sorted(({"pair": k, "languages": v[-1]["languages"], "dubs": len(v),
                           **{lv: sum(1 for r in v if r["verdict"] == lv) for lv in LEVELS},
                           "overlap_pct": mean([r["overlap_pct"] for r in v if r.get("overlap_pct") is not None]),
+                          "score": mean([r["score"] for r in v if r.get("score") is not None]),
                           # out of 10: the rubric scores 1-10, records made before it scored 1-5
                           "meaning_score": mean([r["meaning_score"] * 10 / (r.get("meaning_scale") or 5)
                                                  for r in v if r.get("meaning_score") is not None])}
@@ -188,10 +191,12 @@ def render_history_text(summary: dict, lang: str = "en", width: int = 100) -> st
                      poor=v["poor"], pct=f"{summary['good_pct']:.0f}"), width, " ")
     lines += [thin, f" {tr('h.pairs').upper()}"]
     lines.append("   " + pad(tr("h.pair"), 34) + "".join(pad(x, 14) for x in (
-        tr("h.dubs"), tr("verdict.good"), tr("verdict.check"), tr("verdict.poor"), tr("h.timing"), tr("h.meaning"))))
+        tr("h.dubs"), tr("verdict.good"), tr("verdict.check"), tr("verdict.poor"), tr("h.score_avg"), tr("h.timing"),
+        tr("h.meaning"))))
     for p in summary["pairs"]:
         lines.append("   " + pad(p["languages"], 34) + "".join(pad(str(x), 14) for x in (
             p["dubs"], p["good"], p["check"], p["poor"],
+            f"{p['score']:.0f}" if p.get("score") is not None else "—",
             f"{p['overlap_pct']:.0f}%" if p["overlap_pct"] is not None else "—",
             f"{p['meaning_score']:.1f}/10" if p["meaning_score"] is not None else "—")))
     lines += [thin, f" {tr('h.problems').upper()}"]

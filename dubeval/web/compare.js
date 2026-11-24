@@ -1,7 +1,7 @@
 // Comparison screen: the recommended dub and why, the ranking, every check side by side, then one tab per dub with
 // its own review (synced players and timeline). Decisions and levels come from the server; nothing is ranked here.
 import { api, fill, h, noteUsageStep, setAddress, state, t } from "./app.js";
-import { renderReview } from "./review.js";
+import { editableTitle, renderReview } from "./review.js";
 import { exportButton } from "./export.js";
 
 function badge(comp, level, text) {
@@ -10,12 +10,16 @@ function badge(comp, level, text) {
 
 function recommendation(comp, jobId) {
   const r = comp.recommendation, why = comp.reasoning, lb = comp.labels;
+  // The comparison's own title (editable; a new one goes to every dub's tab and the Home card), "Dub comparison" over it,
+  // and the first place's verdict said as Dub A's: a comparison has no verdict of its own.
   return h("section", { class: `verdict card ${r.verdict}` },
-    h("div", { class: "row" }, h("h1", {}, lb.title), h("span", { class: "grow" }),
+    h("p", { class: "title-note muted small" }, t("w.cmp.kind")),
+    h("div", { class: "row" }, editableTitle(comp.title || lb.title, jobId, null), h("span", { class: "grow" }),
       h("div", { class: "head-actions" },
         r.ready ? null : h("span", { class: "badge check" }, r.status_label),      // first place, not a recommendation
-        badge(comp, r.verdict, r.verdict_label),
-        h("a", { class: "button", href: "#/new" }, t("w.review.new")), exportButton(jobId))),
+        badge(comp, r.verdict, t("w.cmp.lead_verdict", { d: r.dub, verdict: r.verdict_label })),
+        // "Evaluate another dub" here read as adding a dub to this comparison
+        h("a", { class: "button", href: "#/new" }, t("w.nav.new")), exportButton(jobId, comp.ranking.map(x => x.moments || 0)))),
     h("p", { class: "headline big" }, r.headline),
     r.caution ? h("p", { class: "caution", role: "note" }, r.caution) : null,
     r.warning ? h("p", { class: "error" }, r.warning) : null,
@@ -34,13 +38,17 @@ function ranking(comp, open) {
     h("table", { class: "ranking" },
       h("thead", {}, h("tr", {}, h("th", {}, "#"), h("th", {}, t("w.cmp.dub")), h("th", {}, lb.verdict),
         h("th", { class: "num" }, comp.badges.poor), h("th", { class: "num" }, comp.badges.check),
-        h("th", {}, t("w.cmp.problems")))),
+        h("th", { class: "num" }, t("w.cmp.moments")), h("th", { class: "num" }, t("w.cmp.problems")),
+        h("th", { class: "num", title: lb.score_label }, t("w.cmp.score")))),
       h("tbody", {}, comp.ranking.map(r => h("tr", { class: comp.recommendation.ready && r.dub === comp.recommendation.dub ? "winner" : "" },
         h("td", {}, String(r.rank)),
         h("td", {}, h("button", { type: "button", class: "link", onclick: () => open(r.dub) }, lb[`dub_${r.dub}`])),
         h("td", {}, badge(comp, r.verdict, r.verdict_label)),
         h("td", { class: "num" }, String(r.poor)), h("td", { class: "num" }, String(r.check)),
-        h("td", { class: "muted" }, lb[`count_${r.dub}`]))))));
+        // a comparison saved before the two columns has only the sentence
+        r.moments == null ? h("td", { class: "muted", colspan: "2" }, lb[`count_${r.dub}`])
+          : [h("td", { class: "num" }, String(r.moments)), h("td", { class: "num" }, r.problem_time)],
+        h("td", { class: "num" }, r.score_display ? h("strong", {}, r.score_display) : "—"))))));
 }
 
 function sideBySide(comp) {

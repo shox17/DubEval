@@ -22,7 +22,7 @@ from dubeval.batch import agreement, render_batch_text, summary_row, to_csv
 from dubeval import history
 from dubeval.paths import DATA_DIR
 from dubeval.compare import GENERIC_NAMES, LABELS, build_ranking, render_comparison_html, render_comparison_text
-from dubeval import asr, inputs, meaning, numbers, pairing, schema, speaker, translation_judge
+from dubeval import asr, inputs, numbers, pairing, schema, speaker, translation_judge
 from dubeval.version import TOOL_VERSION
 from dubeval.evaluate import (run_full_evaluation, DEFAULT_WHISPER_MODEL, CACHE_VERSION, base_lang, load_both,
                               detect_language, extract_audio, get_whisper_model, load_audio, FFMPEG_EXE,
@@ -126,10 +126,15 @@ class JsonCache:
             self.data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         except (OSError, json.JSONDecodeError):
             self.data = {}
+        self.hits = 0                               # values found: a run that reused measurements (speed.py)
 
     def get(self, key: str, default=None):
         """The cached value for key, or default."""
-        return self.data.get(key, default)
+        value = self.data.get(key)
+        if value is None:
+            return default
+        self.hits += 1
+        return value
 
     def __setitem__(self, key: str, value) -> None:
         self.data[key] = value
@@ -274,9 +279,10 @@ def evaluate_share(
     cache = JsonCache(folder / "whisper_cache.json")
     notify("download", "Reading the sound of both videos...", 0.85)
     audio = _load_both(original_path, dubbed_path)              # once, for the check and the evaluation
-    notify("download", "Checking that both files are the same video...", 0.9)
+    notify("download", "Checking that both files are the same video...", 0.9, media_sec=len(audio[0]) / SAMPLE_RATE if audio else None)
     pair = pair_videos(original_path, dubbed_path, cache, audio,
-                       lambda message, fraction: notify("download", message, 0.9 + 0.1 * fraction))
+                       lambda message, fraction: notify("download", message, 0.9 + 0.1 * fraction),
+                       check=check_cancel)
     check_cancel()
     eval_results = run_full_evaluation(
         original_video_path=original_path,
@@ -323,12 +329,12 @@ def evaluate_share(
         },
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "logs": "Read from a Perso share link; videos and speech recognition are cached per link. No credits were spent.",
+        "reused_measurements": cache.hits > 0,     # some came from an earlier run: not this computer's speed
     }
     eval_results["subtitles"] = {"original": original_subs, "dub": dub_subs}
     eval_results["subtitle_match"] = subtitle_match(eval_results)
     apply_dub_type(eval_results, dub_type)
     judge_cache = JsonCache(folder / "judge_cache.json")
-    _abandonable(lambda: check_meaning_screen(eval_results, notify, cache=judge_cache), check_cancel)
     check_numbers(eval_results)
     _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache,
                                            audio=audio), check_cancel)
@@ -433,11 +439,10 @@ def check_translation(results: dict, enabled, notify: Callable[..., None], cache
         results["translation_judge"] = {**cached, "cached": True}
     else:
         def free_card(judge: Optional[str]) -> None:
-            # A local judge shares the GPU: free the recognizer and the sentence model first, or the judge spills onto
-            # the CPU and takes many minutes instead of seconds.
+            # A local judge shares the GPU: free the recognizer first, or the judge spills onto the CPU and takes many
+            # minutes instead of seconds.
             if judge == "ollama":
                 asr.unload()
-                meaning.unload()
         free_card(named or judge_provider())
         results["translation_judge"] = judge_translation(*args, lines=lines, dub_type=dub_type, provider=named,
                                                          description=title, lock=lock, on_switch=free_card)
@@ -535,23 +540,6 @@ def check_numbers(results: dict) -> None:
     results["numbers"] = numbers.check(judge_lines(results))
 
 
-def check_meaning_screen(results: dict, notify: Callable[..., None], cache=None) -> None:
-    """Adds the offline meaning screen (dubeval/meaning.py) to results, cached like the judge; never fails."""
-    if _speech_unrecognized(results):
-        results["meaning_screen"] = meaning.not_measured("r.screen.unrecognized")
-        return
-    lines = judge_lines(results)
-    key = _short_hash(json.dumps(["screen", meaning.model_name(), lines], ensure_ascii=False, sort_keys=True))
-    cached = cache.get(key) if cache is not None else None
-    if cached:
-        results["meaning_screen"] = cached
-        return
-    notify("evaluate", "Comparing the meaning of each line...", 0.95)
-    results["meaning_screen"] = meaning.screen(lines)
-    if cache is not None and results["meaning_screen"].get("measured"):
-        cache[key] = results["meaning_screen"]
-
-
 def subtitle_match(results: dict) -> dict:
     """How closely each side's transcript matches its subtitle file (evaluate.subtitle_agreement); None per side
     without a file. The report uses the dub's to confirm its language when recognition can't tell (Uzbek is often
@@ -572,10 +560,10 @@ def apply_dub_type(results: dict, dub_type: Optional[str]) -> None:
 
 def _notifier(report: Optional[Callable[[Progress], None]]):
     """A notify(stage, message, fraction) function that forwards to report, if anyone is listening."""
-    def notify(stage: str, message: str, fraction: float = 0.0):
-        """Sends a progress update to the UI."""
+    def notify(stage: str, message: str, fraction: float = 0.0, media_sec: Optional[float] = None):
+        """Sends a progress update to the UI; media_sec, the original's length once known, is for the time estimate."""
         if report:
-            report(Progress(stage=stage, message=message, stage_fraction=fraction))
+            report(Progress(stage=stage, message=message, stage_fraction=fraction, media_sec=media_sec))
     return notify
 
 
@@ -699,11 +687,13 @@ def _load_both(original_path: str, dub_path: str):
 
 
 def pair_videos(original_path: str, dub_path: str, cache, audio=None,
-                progress: Optional[Callable[[str, float], None]] = None) -> dict:
+                progress: Optional[Callable[[str, float], None]] = None,
+                check: Optional[Callable[[], None]] = None) -> dict:
     """Same video or not, the dub's time shift and coverage (dubeval/pairing.py), cached by both files.
 
     audio: both waveforms when already loaded (evaluate.load_both). progress(message, fraction) follows the check.
-    Never fails the run: a pairing that can't be measured is reported as not measured, with no shift applied.
+    Never fails the run: a pairing that can't be measured is reported as not measured, with no shift applied. check
+    (Stop) is called while the pictures are read; a stopped run stops here too.
     """
     from dubeval.pairing import VERSION as PAIRING_VERSION
     key = f"v{CACHE_VERSION}|pair{PAIRING_VERSION}|{inputs.fingerprint(original_path)}|{inputs.fingerprint(dub_path)}"
@@ -712,7 +702,10 @@ def pair_videos(original_path: str, dub_path: str, cache, audio=None,
         return found
     try:
         y_o, y_d = audio if audio is not None else load_both(original_path, dub_path)
-        found = pairing.pair(original_path, dub_path, y_o, y_d, SAMPLE_RATE, FFMPEG_EXE, progress=progress)
+        found = pairing.pair(original_path, dub_path, y_o, y_d, SAMPLE_RATE, FFMPEG_EXE, progress=progress,
+                             **({"check": check} if check else {}))
+    except Cancelled:
+        raise
     except Exception as e:                   # pairing is a check: it must never stop the evaluation
         log.warning("Pairing not measured: %s", e)
         return pairing.not_measured("error")
@@ -791,9 +784,10 @@ def evaluate_files(
     notify("prepare", "Reading the sound of both videos...", 0.5)
     audio = _load_both(original_path, dub_path)                # once, for the check and the evaluation
     check_cancel()
-    notify("prepare", "Checking that both files are the same video...", 0.55)
+    notify("prepare", "Checking that both files are the same video...", 0.55, media_sec=len(audio[0]) / SAMPLE_RATE if audio else None)
     pair = pair_videos(original_path, dub_path, cache, audio,
-                       lambda message, fraction: notify("prepare", message, 0.55 + 0.25 * fraction))
+                       lambda message, fraction: notify("prepare", message, 0.55 + 0.25 * fraction),
+                       check=check_cancel)
     if pair.get("same_video") is False and not allow_different:
         raise inputs.InputError(DIFFERENT_VIDEOS)              # the same two files would differ again
     check_cancel()
@@ -854,6 +848,7 @@ def evaluate_files(
         },
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "logs": "Read from local files or links; downloads and speech recognition are cached.",
+        "reused_measurements": cache.hits > 0,     # some came from an earlier run: not this computer's speed
     }
     eval_results["subtitles"] = {"original": original_subs, "dub": dub_subs}
     eval_results["subtitle_match"] = subtitle_match(eval_results)
@@ -863,7 +858,6 @@ def evaluate_files(
             "key": "r.warn.lang_guess", "params": {"lang": _language_name(target_lang), "pct": round(target_prob * 100)},
             "text": f"The dub's language was guessed as {target_lang}, only {target_prob:.0%} sure."})
     judge_cache = JsonCache(folder / "judge_cache.json")
-    _abandonable(lambda: check_meaning_screen(eval_results, notify, cache=judge_cache), check_cancel)
     check_numbers(eval_results)
     _abandonable(lambda: check_translation(eval_results, use_translation_judge, notify, cache=judge_cache,
                                            audio=audio), check_cancel)
@@ -966,10 +960,10 @@ def run_comparison(
     for dub, url, own in zip(LABELS, urls, per_dub):
         span = {"fetch": (0.0, 0.03), "download": (0.03, 0.15), "evaluate": (0.15, 1.0)}
 
-        def notify(stage, message, fraction=0.0, _dub=dub):
+        def notify(stage, message, fraction=0.0, media_sec=None, _dub=dub):
             """Maps one dub's fetch/download/evaluate progress onto its dub_a / dub_b stage."""
             lo, hi = span.get(stage, (0.0, 1.0))
-            outer(f"dub_{_dub.lower()}", message, lo + (hi - lo) * fraction)
+            outer(f"dub_{_dub.lower()}", message, lo + (hi - lo) * fraction, media_sec)
         results[dub] = evaluate_share(url, notify, check_cancel, whisper_model_name=whisper_model_name,
                                       include_lipsync=include_lipsync, use_translation_judge=use_translation_judge,
                                       original=original, use_cache=use_cache, session=session, sleep=sleep,
@@ -1023,10 +1017,10 @@ def run_files_comparison(
     for dub, path, own in zip(LABELS, dubs, per_dub):
         span = {"prepare": (0.0, 0.15), "evaluate": (0.15, 1.0)}
 
-        def notify(stage, message, fraction=0.0, _dub=dub):
+        def notify(stage, message, fraction=0.0, media_sec=None, _dub=dub):
             """Maps one dub's prepare/evaluate progress onto its dub_a / dub_b ... stage."""
             lo, hi = span.get(stage, (0.0, 1.0))
-            outer(f"dub_{_dub.lower()}", message, lo + (hi - lo) * fraction)
+            outer(f"dub_{_dub.lower()}", message, lo + (hi - lo) * fraction, media_sec)
         results[dub] = evaluate_files(original, path, notify, check_cancel,
                                       **{**options, **{k: v for k, v in own.items() if v is not None}})
     _name_dubs(results, names)

@@ -257,6 +257,19 @@
           "description": "The scores inside this measure (the translation check's five criteria), each {id, label, level, value, display, low}",
           "title": "Parts"
         },
+        "score_points": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its points out of 100 in the quality score (Good 100, Poor 0, Needs review by where the result sits between the limits); null when it doesn't count",
+          "title": "Score Points"
+        },
         "thresholds": {
           "anyOf": [
             {
@@ -617,6 +630,18 @@
           "title": "Report Version",
           "type": "integer"
         },
+        "score": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Score"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The quality score out of 100 (reports since 0.1.8)"
+        },
         "sections": {
           "items": {
             "$ref": "#/$defs/Section"
@@ -656,6 +681,350 @@
         "method"
       ],
       "title": "Report",
+      "type": "object"
+    },
+    "Score": {
+      "additionalProperties": true,
+      "description": "The quality score out of 100: a summary next to the verdict, never instead of it, and never part of the\ncompare decision rule.",
+      "properties": {
+        "coverage": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How much of what applies to this dub was measured, in %: checks that don't apply are left out of it; under report.COVERAGE_MIN the score is provisional",
+          "title": "Coverage"
+        },
+        "display": {
+          "title": "Display",
+          "type": "string"
+        },
+        "lost": {
+          "description": "The checks that lost points, biggest first: id, label, level, lost (a Poor one at least its report.POOR_COSTS), severity (a Poor one's: unusable, serious, minor), why (the check's result), display",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Lost",
+          "type": "array"
+        },
+        "lost_display": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The heading over the list, with the sum",
+          "title": "Lost Display"
+        },
+        "lost_how": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How a check loses points, in one sentence",
+          "title": "Lost How"
+        },
+        "lost_total": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "All the points lost: 100 minus this is the score (up to rounding)",
+          "title": "Lost Total"
+        },
+        "measured_weight": {
+          "description": "The weight of the sections that were measured, out of 100",
+          "title": "Measured Weight",
+          "type": "integer"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/ScorePart"
+          },
+          "title": "Parts",
+          "type": "array"
+        },
+        "poor_cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What Poor results cost beyond their own share (each costs at least report.POOR_COSTS by its POOR_SEVERITY): value = raw - poor_cost, rounded, never below 0, and at most 99 unless the verdict is Good",
+          "title": "Poor Cost"
+        },
+        "provisional": {
+          "default": false,
+          "description": "The translation check didn't run, or less than report.COVERAGE_MIN % of what applies was measured",
+          "title": "Provisional",
+          "type": "boolean"
+        },
+        "raw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The weighted sum of the checks, before what Poor results cost beyond their share",
+          "title": "Raw"
+        },
+        "rule": {
+          "description": "How the score is worked out, with the weights",
+          "title": "Rule",
+          "type": "string"
+        },
+        "rule_short": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The same in one line, for the text report",
+          "title": "Rule Short"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "0-100; None when no weighted check was graded",
+          "title": "Value"
+        }
+      },
+      "required": [
+        "measured_weight",
+        "parts",
+        "display",
+        "message",
+        "rule"
+      ],
+      "title": "Score",
+      "type": "object"
+    },
+    "ScoreItem": {
+      "additionalProperties": true,
+      "description": "One check's share of the quality score: the section's share split evenly among its graded checks.",
+      "properties": {
+        "absent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why it has no level: na (doesn't apply to this dub: no share, its points shared), missing (couldn't be measured: shared too, and the score's coverage drops) or dub (the dub itself made it impossible: counts as 0); None when graded",
+          "title": "Absent"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The share and points alone, without the level",
+          "title": "Detail"
+        },
+        "display": {
+          "title": "Display",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "points": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The points it adds",
+          "title": "Points"
+        },
+        "share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its share of the score, in %; None when not measured",
+          "title": "Share"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "level",
+        "display"
+      ],
+      "title": "ScoreItem",
+      "type": "object"
+    },
+    "ScorePart": {
+      "additionalProperties": true,
+      "description": "One section's share of the quality score.",
+      "properties": {
+        "applies": {
+          "default": true,
+          "description": "False when nothing in it applies to this dub: its weight is shared and the coverage doesn't count it",
+          "title": "Applies",
+          "type": "boolean"
+        },
+        "checks": {
+          "description": "Checks counted in the section: graded, or 0 because of the dub",
+          "title": "Checks",
+          "type": "integer"
+        },
+        "contribution": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The points it adds to the score",
+          "title": "Contribution"
+        },
+        "display": {
+          "title": "Display",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "items": {
+          "description": "The section's checks, each with its share",
+          "items": {
+            "$ref": "#/$defs/ScoreItem"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "of_display": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its points of the most it could get, under a heading that names the unit (22.5 of 31.6); None when not counted",
+          "title": "Of Display"
+        },
+        "points": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The section's own score, 0-100; None when nothing was graded",
+          "title": "Points"
+        },
+        "share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Its weight among the sections that were measured, in %",
+          "title": "Share"
+        },
+        "weight": {
+          "description": "Its published weight out of 100 (report.SCORE_WEIGHTS)",
+          "title": "Weight",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "weight",
+        "checks",
+        "display"
+      ],
+      "title": "ScorePart",
       "type": "object"
     },
     "Section": {

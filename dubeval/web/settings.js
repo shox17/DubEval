@@ -13,7 +13,7 @@ const PROVIDERS = [
   { id: "openai", judge: "openai", link: "https://platform.openai.com/api-keys" },
 ];
 const LICENSES = [
-  ["faster-whisper / CTranslate2", "MIT"], ["Whisper models", "MIT"], ["BGE-M3", "MIT"],
+  ["faster-whisper / CTranslate2", "MIT"], ["Whisper models", "MIT"],
   ["WeSpeaker ResNet34", "CC BY 4.0"], ["DNSMOS P.835", "CC BY 4.0"], ["MediaPipe Face Landmarker", "Apache-2.0"],
   ["LatentSync StableSyncNet (download)", "CreativeML OpenRAIL++-M"],
   ["librosa", "ISC"], ["onnxruntime", "MIT"], ["FFmpeg", "LGPL / GPL"], ["Onest typeface", "OFL-1.1"],
@@ -143,10 +143,20 @@ function modelsTab(panel, timers, alive) {
 function storageTab(panel) {
   const open = h("button", { type: "button", class: "btn", onclick: () => api(`/api/settings/open-data?lang=${state.lang}`, { method: "POST" })
     .catch(e => alert(e.message)) }, t("w.priv.open"));
+  // What takes room, and how to free it: the tab was one button in an empty panel.
+  const sizes = h("div", { class: "model-rows" }, h("p", { class: "muted small" }, t("w.loading")));
   fill(panel,
     band(t("w.store.group.folder"), ""),
     h("div", { class: "model-rows" },
-      h("div", { class: "model-row folder" }, h("span", { class: "settings-hint" }, t("w.priv.data_text")), open)));
+      h("div", { class: "model-row folder" }, h("span", { class: "settings-hint" }, t("w.priv.data_text")), open)),
+    band(t("w.store.group.used"), ""),
+    sizes);
+  api("/api/settings/storage").then(s => fill(sizes,
+    ...s.parts.map(p => h("div", { class: "model-row" }, h("span", { class: "model-name" }, t(`w.store.${p.id}`)),
+      h("span", { class: "model-size" }, p.bytes ? gb(p.bytes) : "0 MB"), h("span", { class: "settings-hint" }, t(`w.store.${p.id}_hint`)))),
+    h("div", { class: "model-row" }, h("strong", {}, t("w.store.total")), h("strong", { class: "model-size" }, gb(s.total))),
+    h("p", { class: "settings-hint store-free" }, t("w.store.free"))))
+    .catch(e => fill(sizes, h("p", { class: "error" }, e.message)));
 }
 
 // ---------- API keys ----------

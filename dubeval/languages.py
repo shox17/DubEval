@@ -128,3 +128,23 @@ LARGE_MODEL = "large-v3-turbo"           # the better of the two, a download (as
 def recognition_error(model, lang):
     """The measured share of characters (%) `model` reads wrong in `lang` (a Whisper code), or None if not measured."""
     return RECOGNITION_ERRORS.get(model or "", {}).get(lang or "")
+
+
+_NAMES: dict = {}
+
+
+def display_name(code: str, ui: str = "en", start: bool = False) -> str:
+    """A language's name in the interface language ("es" -> "스페인어" in Korean, "espanhol" in Portuguese), from the
+    Unicode CLDR names in language_names.json (tools/build_language_names.mjs); start: capitalized, for a name that
+    begins a line. Unknown codes fall back to Whisper's English name, then to the code."""
+    if not _NAMES:
+        import json
+        from pathlib import Path
+        try:
+            _NAMES.update(json.loads((Path(__file__).parent / "language_names.json").read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            _NAMES["en"] = {}
+    base = (code or "").split("-")[0].split("_")[0].lower()
+    name = ((_NAMES.get(ui) or {}).get(base) or (_NAMES.get("en") or {}).get(base) or LANGUAGES.get(base, "").title()
+            or code or "")
+    return name[:1].upper() + name[1:] if start else name

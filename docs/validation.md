@@ -677,6 +677,9 @@ minutes with billing on the key.
 
 ## What the offline meaning check's false alarms really are (2026-11-02)
 
+> This check was removed on 2026-11-20: finding 6 of Gemini's 25 low lines made a clean result look like a translation
+> check that hadn't happened (`docs/design.md`). The numbers below are why.
+
 Meaning similarity was the biggest false-alarm source left: 19 of 46. They only show when no translation check ran, so these
 are the only meaning signal someone without an AI key gets. Comparing it with Gemini, line by line, on 122 lines of 16 real dubs:
 
@@ -792,6 +795,30 @@ What else it could have changed:
 Still open: this rests on one drifting dub. Its 5 lines flagged for length may be fair, since they do run longer than the
 original's, but a viewer may not notice when the picture was slowed to fit them. Whether to grade those differently needs
 more drifting dubs.
+
+## Agreement with a person: a second round (2026-11-24)
+
+The reviewer graded 19 more dubs blind (no service names, shuffled): 6 videos dubbed English → Korean and Russian by
+HeyGen, ElevenLabs, Perso and others, taken from earlier evaluations on the test PC (`data/testset/round2`, local). Both
+rounds were then regraded with the same rules, rebuilt from each saved report's measurements.
+
+| | Same as the reviewer | DubEval stricter | DubEval gentler |
+|---|---|---|---|
+| Verdict, 39 dubs (before the change below) | 28 | 9 | 2 |
+| Verdict, 39 dubs (after) | 29 | 8 | 2 |
+| Length / timing, 39 dubs (after) | 24 | 7 | 8 |
+| Meaning, 35 dubs | 21 | 11 | 3 |
+
+- Meaning agreed on 14 of 19 dubs in the second round, against 7 of 16 in the first.
+- Three of the "stricter" verdicts are the Uzbek dubs, which recognition can't read: DubEval never calls them Good.
+- The reviewer gave every dub of one video the same grades, so the round says little about telling one service's dub
+  from another's. Two of its dubs were dubs of the first round under other file names (identical measurements): one got
+  the same grade, the other Needs review the first time and Poor the second.
+- The quality score followed the grades: dubs graded Poor mostly scored 60 or less, Needs review 75–98, Good 82–100.
+
+**Changed on this evidence (owner's decision):** speech timing is Poor below 45% (was 55%): every graded dub at 47–54%
+was Needs review on timing, none Poor. Loudness is Poor beyond 10 dB (was 6): a dub Poor only for being 6.6 dB louder
+was graded Needs review, and one 5.1 dB off had been graded Good. Both rest on one reviewer.
 
 ## Tuning and held-out pairs
 

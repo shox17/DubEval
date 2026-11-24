@@ -22,8 +22,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/shox17/DubEval/releases/latest/download/DubEval-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows%20(.exe)-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
-  <a href="https://github.com/shox17/DubEval/releases/latest/download/DubEval-Mac.dmg"><img src="https://img.shields.io/badge/Download-Mac%20(.dmg)-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" /></a>
+  <a href="https://github.com/shox17/DubEval/releases/latest/download/DubEval-Setup.exe"><img src="https://img.shields.io/badge/Download-Windows%20(.exe)-0078D4?style=for-the-badge&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTAgMGgxMS40djExLjRIMHptMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHptMTIuNiAwSDI0VjI0SDEyLjZ6Ii8+PC9zdmc+" alt="Download for Windows" /></a>
+  <a href="https://github.com/shox17/DubEval/releases/latest/download/DubEval-Mac.dmg"><img src="https://img.shields.io/badge/Download-Mac%20(.dmg)-0078D4?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac" /></a>
 </p>
 
 <p align="center">
@@ -50,7 +50,7 @@ Two files, two links or a Perso share link. Dubs from any service or from voice 
 </td>
 <td width="50%" valign="top">
 
-<img src="docs/images/compare-screen.png" alt="A comparison of two dubs: Deliver Dub A, the reasoning, both dubs ranked by verdict and problems, and every check side by side" />
+<img src="docs/images/compare-screen.png" alt="A comparison of two dubs: Deliver Dub A, the reasoning, both dubs ranked by verdict and problems with their quality score out of 100, and every check side by side" />
 
 ### Compare dubs
 
@@ -74,7 +74,7 @@ Every evaluation is kept: the pass rate week by week, each language pair, and th
 
 ### Runs on your computer
 
-Speech, voice and picture checks run here. Add a larger speech model or an offline meaning check in **Settings**.
+Speech, voice and picture checks run here. Add a larger speech model or the local translation checker in **Settings**.
 
 </td>
 </tr>
@@ -157,8 +157,8 @@ Finish the setup, not just a plan. Tell me any step you could not do.
 DubEval measures; it doesn't replace watching the dub. Use the verdict to decide where to look first.
 
 - **Tested two ways.** With problems put into dubs on purpose, DubEval catches 102 of 112 (18 of 24 on dubs it was never
-  tuned on). Against one person's grades on 20 real dubs it agrees on 12 to 15, mostly depending on which AI model
-  reviewed the translation: 9 to 12 of 14 English → Korean, 2 of 2 English → Spanish, 1 of 4 English → Uzbek.
+  tuned on). Against one person's grades on 39 real dubs its verdict matches on 29 (on the first 20: 12 to 15, mostly
+  depending on which AI model reviewed the translation).
 - **It says when it isn't sure.** Mostly music, very little speech, or a language it couldn't make out: the verdict
   is "Needs review" with the reason, never a confident Good or Poor.
 - **Speech recognition makes mistakes, and they spread.** Timing, clarity and the translation check read what
@@ -180,7 +180,7 @@ How each check works, how it was tested and what it can't do yet: [How DubEval m
 | **Translation check** | Claude, Gemini or ChatGPT with your own key, or a local model. Five scores per line: meaning, naturalness, context, terms, localization. A changed number is caught offline too, without an AI. [How it works](docs/metrics.md) |
 | **Privacy** | Videos and audio never leave this computer; the translation check sends text only, and only if you turn it on. Usage stats stay off unless you say yes. [What is sent](docs/privacy.md) |
 | **Beyond the app** | Command line, batch checks of many links, a REST API and Docker. [Usage](docs/usage.md) |
-| **How it works** | Motion and picture fingerprints, Whisper, DNSMOS or Audiobox Aesthetics, WeSpeaker, BGE-M3, an LLM judge. [Architecture](docs/architecture.md) · [Every check and its bands](docs/metrics.md) · [Roadmap](docs/roadmap.md) |
+| **How it works** | Motion and picture fingerprints, Whisper, DNSMOS or Audiobox Aesthetics, WeSpeaker, an LLM judge. [Architecture](docs/architecture.md) · [Every check and its bands](docs/metrics.md) · [Roadmap](docs/roadmap.md) |
 | **Build from source** | [INSTALL.md](INSTALL.md) · [Development](docs/development.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) |
 
 ## License

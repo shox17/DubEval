@@ -188,6 +188,9 @@ def test_file_host_share_links_become_links_to_the_file():
     one = inputs.direct_link("https://1drv.ms/v/s!AbCd")
     assert one.startswith("https://api.onedrive.com/v1.0/shares/u!") and one.endswith("/root/content")
     assert inputs.direct_link("https://www.youtube.com/watch?v=1") == "https://www.youtube.com/watch?v=1"
+    # Only Dropbox itself: a host that merely ends in the same letters is another site's link, left as it is.
+    assert inputs.direct_link("https://dropbox.com/s/abc/dub.mp4?dl=0") == "https://dropbox.com/s/abc/dub.mp4?dl=1"
+    assert inputs.direct_link("https://evildropbox.com/s/abc/dub.mp4?dl=0") == "https://evildropbox.com/s/abc/dub.mp4?dl=0"
 
 
 def test_a_share_link_is_downloaded_as_a_file_and_a_page_link_falls_back_to_a_direct_download(tmp_path, monkeypatch):

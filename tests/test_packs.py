@@ -7,7 +7,7 @@ import zipfile
 
 import pytest
 
-from dubeval import meaning, packs
+from dubeval import packs
 
 
 class FakeResponse:
@@ -50,45 +50,38 @@ def pack(monkeypatch, tmp_path):
     model, tok = b"model-bytes-" * 10, b'{"tokenizer": true}'
     spec = {"folder": lambda: tmp_path / "pack", "source": "test", "license": "MIT",
             "files": [entry("https://x/model.onnx", "model.onnx", model), entry("https://x/tok.json", "tokenizer.json", tok)]}
-    monkeypatch.setattr(packs, "PACKS", {"meaning": spec})
+    monkeypatch.setattr(packs, "PACKS", {"large_model": spec})
     return {"dir": tmp_path / "pack", "server": FakeServer({"https://x/model.onnx": model, "https://x/tok.json": tok}),
             "model": model}
 
 
 def test_a_pack_is_downloaded_checked_and_marked_installed(pack):
     seen = []
-    info = packs.install("meaning", lambda message, fraction: seen.append(fraction), session=pack["server"])
-    assert info["state"] == "installed" and packs.state("meaning") == "installed"
+    info = packs.install("large_model", lambda message, fraction: seen.append(fraction), session=pack["server"])
+    assert info["state"] == "installed" and packs.state("large_model") == "installed"
     assert (pack["dir"] / "model.onnx").read_bytes() == pack["model"]
     listed = json.loads((pack["dir"] / "pack.json").read_text(encoding="utf-8"))["files"]
     assert listed == {"model.onnx": {"bytes": len(pack["model"])}, "tokenizer.json": {"bytes": 19}}
     assert seen[-1] == 1.0 and seen == sorted(seen) and not (pack["dir"].parent / "pack.download").exists()
 
 
-def test_the_installed_meaning_pack_is_what_the_screen_looks_for(pack, monkeypatch):
-    monkeypatch.setattr(meaning, "PACK_DIR", pack["dir"])
-    assert not meaning._pack_ready()
-    packs.install("meaning", session=pack["server"])
-    assert meaning._pack_ready()
-
-
 def test_a_wrong_checksum_installs_nothing(pack):
     pack["server"].files["https://x/model.onnx"] = b"tampered" * 15
     with pytest.raises(ValueError, match="checksum"):
-        packs.install("meaning", session=pack["server"])
-    assert packs.state("meaning") != "installed" and not (pack["dir"] / "model.onnx").exists()
+        packs.install("large_model", session=pack["server"])
+    assert packs.state("large_model") != "installed" and not (pack["dir"] / "model.onnx").exists()
 
 
 def test_a_stopped_download_resumes_where_it_left_off(pack):
     calls = iter(range(1000))
     with pytest.raises(packs.Stopped):
-        packs.install("meaning", stop=lambda: next(calls) > 5, session=pack["server"])
-    assert packs.state("meaning") == "partial"
+        packs.install("large_model", stop=lambda: next(calls) > 5, session=pack["server"])
+    assert packs.state("large_model") == "partial"
     part = pack["dir"].parent / "pack.download" / "model.onnx.part"
     have = part.stat().st_size
     assert 0 < have < len(pack["model"])
     pack["server"].requests.clear()
-    packs.install("meaning", session=pack["server"])
+    packs.install("large_model", session=pack["server"])
     assert ("https://x/model.onnx", f"bytes={have}-") in pack["server"].requests
     assert (pack["dir"] / "model.onnx").read_bytes() == pack["model"]
 
@@ -96,33 +89,33 @@ def test_a_stopped_download_resumes_where_it_left_off(pack):
 def test_a_server_that_ignores_ranges_starts_the_file_over(pack):
     with pytest.raises(packs.Stopped):
         calls = iter(range(1000))
-        packs.install("meaning", stop=lambda: next(calls) > 5, session=pack["server"])
+        packs.install("large_model", stop=lambda: next(calls) > 5, session=pack["server"])
     pack["server"].ranges = False
-    packs.install("meaning", session=pack["server"])
+    packs.install("large_model", session=pack["server"])
     assert (pack["dir"] / "model.onnx").read_bytes() == pack["model"]
 
 
 def test_a_pack_installed_with_an_earlier_file_list_is_outdated_until_updated(pack):
-    packs.install("meaning", session=pack["server"])
+    packs.install("large_model", session=pack["server"])
     newer = b"a better model " * 20                          # the pack now names another model file
-    spec = packs.PACKS["meaning"]
+    spec = packs.PACKS["large_model"]
     spec["files"] = [entry("https://x/newer.onnx", "newer.onnx", newer), spec["files"][1]]
     pack["server"].files["https://x/newer.onnx"] = newer
-    assert packs.state("meaning") == "outdated"              # not "installed": nothing uses the old model
-    assert next(p for p in packs.summary() if p["id"] == "meaning")["disk_mb"] is None
+    assert packs.state("large_model") == "outdated"              # not "installed": nothing uses the old model
+    assert next(p for p in packs.summary() if p["id"] == "large_model")["disk_mb"] is None
     pack["server"].requests.clear()
-    packs.install("meaning", session=pack["server"])
-    assert packs.state("meaning") == "installed"
+    packs.install("large_model", session=pack["server"])
+    assert packs.state("large_model") == "installed"
     assert [url for url, _ in pack["server"].requests] == ["https://x/newer.onnx"]     # the kept file wasn't sent again
     assert sorted(f.name for f in pack["dir"].iterdir()) == ["newer.onnx", "pack.json", "tokenizer.json"]
 
 
 def test_an_outdated_pack_can_be_removed(pack):
-    packs.install("meaning", session=pack["server"])
-    packs.PACKS["meaning"]["files"] = [entry("https://x/newer.onnx", "newer.onnx", b"x" * 40)]
-    assert packs.state("meaning") == "outdated"
-    packs.remove("meaning")
-    assert packs.state("meaning") == "absent" and not pack["dir"].exists()
+    packs.install("large_model", session=pack["server"])
+    packs.PACKS["large_model"]["files"] = [entry("https://x/newer.onnx", "newer.onnx", b"x" * 40)]
+    assert packs.state("large_model") == "outdated"
+    packs.remove("large_model")
+    assert packs.state("large_model") == "absent" and not pack["dir"].exists()
 
 
 def test_files_are_taken_out_of_a_zip_and_the_zip_is_dropped(monkeypatch, tmp_path):
@@ -144,14 +137,14 @@ def test_the_gpu_pack_is_only_offered_with_an_nvidia_card_on_windows(monkeypatch
     assert not packs.available("gpu")
     with pytest.raises(ValueError, match="isn't available"):
         packs.install("gpu", session=FakeServer({}))
-    assert packs.available("meaning") and packs.available("large_model")
+    assert packs.available("large_model")
 
 
 def test_removing_a_pack_deletes_it_and_any_half_download(pack):
-    packs.install("meaning", session=pack["server"])
+    packs.install("large_model", session=pack["server"])
     (pack["dir"].parent / "pack.download").mkdir()
-    packs.remove("meaning")
-    assert packs.state("meaning") == "absent" and not pack["dir"].exists()
+    packs.remove("large_model")
+    assert packs.state("large_model") == "absent" and not pack["dir"].exists()
 
 
 def test_every_real_pack_has_a_pinned_source_and_checksum():
@@ -310,3 +303,21 @@ def test_the_voice_quality_pack_is_metas_file_unchanged_from_a_pinned_revision()
     assert weights["url"].startswith("https://huggingface.co/facebook/audiobox-aesthetics/resolve/")
     assert "/main/" not in weights["url"] and weights["bytes"] == 415472992      # a fixed revision, never "main"
     assert packs.available("voice_quality")                      # every computer: it runs on the processor
+
+
+def test_the_removed_meaning_screens_download_is_deleted_and_nothing_else(monkeypatch, tmp_path):
+    monkeypatch.setenv("DUBEVAL_MODELS", str(tmp_path))
+    monkeypatch.delenv("DUBEVAL_MEANING_PACK", raising=False)
+    old = tmp_path / "bge-m3-int8"
+    old.mkdir()
+    (old / "model.onnx").write_bytes(b"x" * 10)
+    (old / "pack.json").write_text(json.dumps({"name": "bge-m3-int8"}), encoding="utf-8")
+    other = tmp_path / "audiobox-aesthetics"
+    other.mkdir()
+    packs.remove_retired()
+    assert not old.exists() and other.exists()
+    # a folder of that name that isn't the pack (no pack.json naming it) is left alone, and nothing fails
+    old.mkdir()
+    (old / "mine.txt").write_text("keep", encoding="utf-8")
+    packs.remove_retired()
+    assert (old / "mine.txt").exists()

@@ -91,10 +91,8 @@ a { color: var(--primary-ink); }
   background: var(--well); border: 1px solid var(--border); border-radius: 10px; }
 .side .side-brand a { padding: 0; border-radius: 6px; }
 .side .side-brand .side-gh:hover { background: none; }
-.side .side-pill { justify-content: center; padding: 4px 6px; font-weight: 700; color: #0b1220;
-  background: linear-gradient(90deg, #dfe8ff, #bfe3ff); }
-.side .side-brand .side-pill:hover { background: linear-gradient(90deg, #dfe8ff, #bfe3ff); color: #0b1220;
-  filter: brightness(1.05); }
+.side .side-pill { display: flex; justify-content: center; padding: 4px 6px; border-radius: 6px; font-weight: 700;
+  color: #0b1220; background: linear-gradient(90deg, #dfe8ff, #bfe3ff); }
 .side .side-gh { gap: 8px; font-weight: 600; }
 .side .side-gh:hover .side-label { text-decoration: underline; }
 .side-gh-mark { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 50%;
@@ -107,6 +105,15 @@ a { color: var(--primary-ink); }
 .side-fb { justify-content: flex-start; height: auto; gap: 9px; padding: 10px; margin-top: 4px; font-weight: 500;
   background: none; border: 1px solid var(--border); border-radius: var(--radius); }
 .side-fb:hover { background: var(--secondary); }
+.side-lang { display: flex; align-items: center; gap: 9px; padding: 0 0 0 10px; margin-top: 4px;
+  border: 1px solid var(--border); border-radius: var(--radius); }
+.side-lang .icon { flex: none; }
+.side-lang select { flex: 1; min-width: 0; border: none; background-color: transparent; }
+.feedback-ways { display: flex; flex-direction: column; gap: 10px; }
+.feedback-ways a { display: block; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  color: inherit; text-decoration: none; }
+.feedback-ways a:hover { background: var(--secondary); }
+.feedback-ways b { display: block; margin-bottom: 2px; }
 .side-promo { position: relative; justify-content: flex-start; height: auto; margin-top: 8px; padding: 12px 10px;
   border: none; border-radius: 10px; color: #ffffff; text-align: left;
   background: linear-gradient(135deg, #1d3b8a, #166CFB 70%, #4fa3ff); }
@@ -152,6 +159,11 @@ a { color: var(--primary-ink); }
 .export-row input { margin-top: 2px; }
 .export-row b { display: block; }
 .export-note { margin: 12px 0 0; }
+.progress .waiting-for { margin: 4px 16px 12px; overflow-wrap: anywhere; }
+.export-making { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; }
+.spinner { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 1.5px solid var(--primary-ink);
+  border-top-color: transparent; animation: spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
 
 /* ---------- the "?" next to a field: its explanation on hover or focus ---------- */
 .tip { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 15px;
@@ -212,6 +224,8 @@ input::placeholder { color: var(--muted-foreground); }
 input[type=checkbox] { accent-color: var(--primary); width: 14px; height: 14px; }
 :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .actions { margin-top: 16px; display: flex; gap: 8px; }
+.actions .no-check { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0; }
+.actions .no-check[hidden], .no-check .fix-link[hidden] { display: none; }
 progress { width: 100%; height: 6px; appearance: none; border: 0; border-radius: 6px; background: var(--secondary);
   overflow: hidden; }
 progress::-webkit-progress-bar { background: var(--secondary); border-radius: 6px; }
@@ -233,6 +247,8 @@ progress::-webkit-progress-value { background: var(--primary); border-radius: 6p
 .skipped-banner .row { align-items: baseline; }
 .skipped-banner p { margin: 6px 0 0; }
 .skipped-banner .action { color: var(--primary-ink); }
+.no-checker { border-left-color: var(--warning); margin-bottom: 14px; }
+.no-checker .row { gap: 8px; margin-top: 10px; }
 
 /* ---------- start ---------- */
 .start .lead { margin: 0 0 16px; color: var(--muted-foreground); }
@@ -240,6 +256,8 @@ progress::-webkit-progress-value { background: var(--primary); border-radius: 6p
 .pair > *, .drop-row .path { min-width: 0; }
 .drop { border: 1.5px dashed var(--divider); border-radius: var(--radius-lg); padding: 16px; background: var(--well); }
 .drop.over { border-color: var(--primary); background: var(--primary-accent); }
+.drop.missing { border-color: var(--poor); }
+.dub-settings > p { margin: 4px 0 0; }
 .drop-head { display: flex; flex-direction: column; margin-bottom: 10px; }
 .drop-head strong { font-size: 14px; font-weight: 600; }
 .dubs { display: flex; flex-direction: column; gap: 10px; }
@@ -254,6 +272,7 @@ progress::-webkit-progress-value { background: var(--primary); border-radius: 6p
 .options { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 14px; align-items: center; }
 .options label { display: flex; gap: 8px; align-items: center; }
 .options label.check { flex-wrap: wrap; }
+.options label.check:has(input:disabled) { opacity: 0.45; cursor: default; }   /* off with the translation check */
 details.more { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
 details.more > summary { cursor: pointer; color: var(--primary-ink); font-weight: 600; list-style: none; }
 details.more > summary::before { content: "▸ "; }
@@ -266,6 +285,7 @@ details.more .pair { margin-top: 10px; }
   font-weight: 500; background: var(--head-bg); border-bottom: 1px solid var(--border); }
 .progress > :not(h1) { margin-left: 16px; margin-right: 16px; }
 .progress > .actions { margin-bottom: 16px; }
+.progress-what { margin: 12px 16px 0; overflow-wrap: anywhere; }
 /* The stages, as PersoDub's running screen lists its steps: a green circled tick for each one done, the running one
    on a lit row with a spinning ring, an empty ring for the ones to come. */
 .stages { list-style: none; padding: 0; margin: 12px 0; display: flex; flex-direction: column; gap: 2px; }
@@ -290,6 +310,30 @@ details.more .pair { margin-top: 10px; }
 /* ---------- review ---------- */
 /* The result's summary card: a plain card as in PersoDub; the verdict is the badge, not a coloured edge. */
 .verdict .badge { font-size: 12px; padding: 2px 12px; }
+/* The quality score beside the verdict, in the verdict's colour, and its breakdown card. */
+.score-pill { display: inline-flex; align-items: baseline; gap: 2px; font-size: var(--font-label); padding: 2px 12px;
+  border-radius: 99px; background: var(--secondary); white-space: nowrap; }
+.score-pill strong { font-size: 13px; font-variant-numeric: tabular-nums; }
+.score-pill.good strong { color: var(--success); }
+.score-pill.check strong { color: var(--warning-ink); }
+.score-pill.poor strong { color: var(--destructive); }
+.score-table { width: auto; margin: 8px 0; border-collapse: collapse; font-size: var(--font-label); }
+.score-table th { padding: 2px 18px 4px 10px; text-align: left; font-weight: 500; color: var(--muted-foreground); }
+.score-table td { padding: 4px 18px 4px 10px; border-top: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.score-table .num { text-align: right; }
+.score-table tr.na td { color: var(--muted-foreground); }
+.score-card h3 { margin: 10px 0 4px; font-weight: 600; }
+.score-lost { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.score-lost button { height: auto; justify-content: flex-start; gap: 8px; padding: 0; border: 0; background: none;
+  font-size: var(--font-label); font-weight: 400; text-align: left; }
+.score-lost button:hover { background: none; }
+.score-lost .score-cap { display: inline-flex; align-items: center; gap: 8px; font-size: var(--font-label); }
+.score-lost button:hover span:not(.badge) { text-decoration: underline; }
+.score-how summary { cursor: pointer; }
+.score-how p { white-space: pre-line; }
+/* The points beside a section's name and each check's points in a column of their own at the row's right end. */
+.section .score-note { margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.metric .score-share { margin-left: auto; padding-left: 24px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* Buttons keep their label on one line; in a narrow window the row wraps instead (it squeezed "Evaluate another dub"
    into three lines that ran out of the button). */
 .verdict .head-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; align-items: center; }
@@ -339,6 +383,7 @@ details.more .pair { margin-top: 10px; }
 .texts dd, .facts dd { margin: 0; }
 .issue { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
 .issue:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.issue-tail { margin-top: 8px; }
 .votes { margin-top: 6px; }
 .votes button { height: 26px; padding: 0 10px; }
 .vote.on { background: var(--primary-soft); color: var(--primary-ink); border-color: var(--primary-line, #5682bb); }
@@ -470,6 +515,7 @@ tr.winner td { background: color-mix(in srgb, var(--success) 7%, transparent); }
 /* two buttons (Remove, Update) don't fit beside the text: they get their own line */
 .model-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
 .model-name { font-weight: 500; overflow-wrap: anywhere; padding-right: 12px; }
+.store-free { margin: 0; padding: 10px 14px; }
 .model-size { color: color-mix(in srgb, var(--foreground) 80%, transparent); font-size: 11.5px;
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 .model-state { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
@@ -563,6 +609,8 @@ input.switch:checked::after { left: 21px; }
 .proj-chip.verdict-check { background: var(--warning); color: #1f1606; }
 .proj-chip.verdict-good { background: var(--success); color: #0b1f10; }
 .proj-dur { position: absolute; right: 5px; bottom: 5px; padding: 0 5px; border-radius: 4px; font-size: 10px;
+  line-height: 16px; color: #ffffff; background: rgba(0, 0, 0, 0.65); }
+.proj-score { position: absolute; left: 5px; bottom: 5px; padding: 0 5px; border-radius: 4px; font-size: 10px;
   line-height: 16px; color: #ffffff; background: rgba(0, 0, 0, 0.65); }
 .proj-row { display: flex; align-items: flex-start; gap: 4px; margin-top: 5px; }
 .proj-info { flex: 1; min-width: 0; }
@@ -663,7 +711,7 @@ canvas.timeline.dragging { cursor: grabbing; }
 .what-to-check .item .head { display: flex; align-items: baseline; gap: 8px; }
 /* A problem's kind is written to sit inside a sentence ("timing"); as a title it starts with a capital, like the
    measures listed with it ("Loudness match"). */
-.what-to-check .item .head strong::first-letter { text-transform: uppercase; }
+.what-to-check .item .head strong::first-letter, .issue strong.cat::first-letter { text-transform: uppercase; }
 .what-to-check .item .time { font-variant-numeric: tabular-nums; color: var(--muted-foreground); }
 .what-to-check .item .why { display: block; margin-top: 2px; color: var(--muted-foreground); font-size: var(--font-label);
   line-height: 1.45; }

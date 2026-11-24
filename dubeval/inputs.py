@@ -60,7 +60,7 @@ def direct_link(url: str) -> str:
     parts = urlsplit(url.strip())
     host = (parts.hostname or "").lower()
     query = parse_qs(parts.query, keep_blank_values=True)
-    if host.endswith("dropbox.com") and parts.path not in ("", "/"):
+    if (host == "dropbox.com" or host.endswith(".dropbox.com")) and parts.path not in ("", "/"):
         query.pop("dl", None)
         query["dl"] = ["1"]
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query, doseq=True), ""))

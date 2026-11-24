@@ -39,7 +39,7 @@ def test_the_headline_names_what_is_wrong_and_keeps_how_sure_apart():
     rep = build_report(make_results(acoustic_metrics={"dubbed_duration_sec": 34.0}))
     o = rep["overall"]
     assert o["summary"].startswith("1 serious problem to fix before publishing: Length match")
-    music = build_report(make_results(acoustic_metrics={"rms_ratio": 2.5},
+    music = build_report(make_results(acoustic_metrics={"rms_ratio": 4.0},
                                       timing_alignment={"original_speech": [[0.0, 6.0], [10.0, 14.0]]}))["overall"]
     assert "isn't sure of it: Loudness match" in music["summary"] and "35%" not in music["summary"]
     assert len(music["sure"]) == 2 and "35%" in music["sure"][0]          # the reason, then "Listen to the dub yourself."
@@ -53,16 +53,17 @@ def test_the_headline_names_what_is_wrong_and_keeps_how_sure_apart():
     moments = [{"check": "speech_overlap", "start": 75.2, "end": 77.0},           # 1.8 s
                {"check": "translation_check", "start": 12.9, "end": 19.8},        # a translation moment is the meaning row's
                {"check": "translation_check", "start": 4.0, "end": 5.0}]
-    assert _headline(en, "check", rows, moments) ==         "3 items need review: Meaning preserved (from 0:04), Speech timing (from 1:15), Loudness match."   # most flagged time first
+    assert _headline(en, "check", rows, moments) ==         "3 items need review: Meaning preserved (from 00:04.0), Speech timing (from 01:15.2), Loudness match."   # most flagged time first
     many = [{"id": f"m{i}", "label": f"M{i}", "level": "check"} for i in range(5)]
     for lang in ("en", "ko", "pt", "es"):
         text = _headline(lambda key, **p: t(key, lang, **p), "check", many, [])
         assert "M0, M1, M2" in text and "M3" not in text and "{" not in text, lang     # three names, then "and 2 more"
 
 
-# Good within 3 dB, Check within 6, Poor beyond (a dub 5.1 dB off was graded Good by a person).
-@pytest.mark.parametrize("ratio, level", [(1.0, "good"), (0.75, "good"), (0.6, "check"), (0.4, "poor"),
-                                          (1.3, "good"), (1.6, "check"), (2.5, "poor")])
+# Good within 3 dB, Check within 10, Poor beyond (a dub 5.1 dB off was graded Good by a person, one 6.6 dB off Needs
+# review).
+@pytest.mark.parametrize("ratio, level", [(1.0, "good"), (0.75, "good"), (0.6, "check"), (0.4, "check"), (0.3, "poor"),
+                                          (1.3, "good"), (1.6, "check"), (2.5, "check"), (4.0, "poor")])
 def test_loudness_bands(ratio, level):
     assert metric(build_report(make_results(acoustic_metrics={"rms_ratio": ratio})), "loudness_match")["level"] == level
 
@@ -89,9 +90,12 @@ def test_unclear_speech_is_listed_with_timestamps():
 def test_speech_timing_bands_and_mismatch_items():
     rep = build_report(make_results())
     assert metric(rep, "speech_overlap")["level"] == "good"            # 81%: a real Perso dub
-    t = rep["things_to_check"][0]
+    assert not rep["things_to_check"]                   # a check that passed lists no moments (its mismatch is allowed)
+    mid = build_report(make_results(timing_alignment={"overlap_pct": 70.0}))
+    t = mid["things_to_check"][0]
     assert (t["start"], t["end"], t["category"]) == (19.4, 20.4, "timing")
-    low = build_report(make_results(timing_alignment={"overlap_pct": 50.0}))
+    assert metric(build_report(make_results(timing_alignment={"overlap_pct": 50.0})), "speech_overlap")["level"] == "check"
+    low = build_report(make_results(timing_alignment={"overlap_pct": 40.0}))     # Poor below 45%
     assert metric(low, "speech_overlap")["level"] == "poor"
 
 
@@ -154,6 +158,10 @@ def test_lipsync_never_counts_toward_verdict():
     skipped["pipeline"]["share"]["is_lipsync"] = False
     row = metric(build_report(skipped), "lip_sync")
     assert row["level"] == "not_measured" and "isn't lip-synced" in row["message"]
+    # a few words in the row's value, so a comparison's cell isn't empty beside "Not measured"
+    assert row["display"] == "Not a lip-synced dub"
+    skipped["pipeline"]["share"]["is_lipsync"] = None
+    assert metric(build_report(skipped), "lip_sync")["display"] == "Off for this run"
 
 
 def test_a_lip_check_that_didnt_run_isnt_called_experimental():
@@ -182,7 +190,7 @@ def test_renderers_show_verdict_sections_and_things_to_check():
     r = make_results()
     rep = build_report(r)
     text = render_text(rep)
-    assert "OVERALL:  ✅  GOOD" in text and "PASSED (" in text and "00:19.4–00:20.4" in text
+    assert "OVERALL:  ✅  GOOD" in text and "PASSED (" in text and "00:19.4–00:20.4" not in text   # passed: not listed
     assert "Perso #100001" in text
     assert "NOT MEASURED" in render_text(build_report(make_results(translation_judge=JUDGE_OFF)))
     page = render_html(rep, r, "original.mp4", "dubbed_ko.mp4")
@@ -465,7 +473,8 @@ def test_things_to_check_list_each_moment_once_in_parts_and_the_misheard_apart()
     assert len(moments) == len(rep["moments"]) <= len(rep["problem_intervals"])
     assert sorted(i for m in rep["moments"] for i in m["intervals"]) == list(range(len(rep["problem_intervals"])))
     wrong = next(x for x in moments if x["interval"]["category"] == "mistranslation")
-    assert wrong["problem"].startswith("Meaning distorted") and "“" not in wrong["problem"]     # the parts are apart...
+    # the error type isn't said again when the moment's name already says it ("Mistranslation · Meaning distorted:")
+    assert not wrong["problem"].startswith("Meaning distorted") and "“" not in wrong["problem"]  # the parts are apart...
     assert wrong["original"] == "line 2" and wrong["dubbed"] == "줄 2" and wrong["suggestion"] == "더 나은 번역"
     assert "“line 2” → “줄 2”" in wrong["message"] and "더 나은 번역" in wrong["message"]            # ...and whole in one text
     misheard = [x for x in things if x["kind"] == "misheard"]
@@ -473,7 +482,7 @@ def test_things_to_check_list_each_moment_once_in_parts_and_the_misheard_apart()
         and misheard[0]["interval"] is None
     text = render_text(rep)
     assert "POSSIBLY MISHEARD (NOT COUNTED)" in text and "Suggested translation: “더 나은 번역”" in text
-    assert text.index("POSSIBLY MISHEARD") > text.index("Meaning distorted")
+    assert text.index("POSSIBLY MISHEARD") > text.index("[Mistranslation]")
     for lang in ("ko", "pt", "es"):
         assert "{" not in render_text(build_report(make_results(translation_judge=judged), lang))
 
@@ -515,7 +524,7 @@ def test_the_translation_row_takes_the_worst_of_its_scores_and_says_which():
     assert (wording_score["display"], wording_score["low"], wording_score["low_display"]) == ("7.7 / 10", 1, "1 of 3")
     assert "(1)" not in only_wording["message"]
     printed = " ".join(render_text(build_report(make_results(translation_judge=rubric_result(good, good, wording)))).split())
-    assert "Natural wording: Average of all lines 7.7 / 10 · Lines scoring 6 or lower: 1 of 3" in printed
+    assert "Natural wording: 7.7 / 10 on average · 1 of 3 lines at 6 or lower" in printed
     some = row(good, lost, wording)
     assert some["level"] == "check" and "Lines that lose or change the original's meaning: 1 of 3" in some["message"]
     assert some["display"].startswith("2 of 3 lines flagged")
@@ -571,7 +580,7 @@ def test_a_rubric_problem_is_a_timed_interval_with_its_type_and_suggested_transl
     wrong = [i for i in rep["problem_intervals"] if i["category"] == "mistranslation"]
     wording = [i for i in rep["problem_intervals"] if i["category"] == "translation_wording"]
     # One line scoring 4 leaves Meaning at Needs review, so its moment is Needs review too (see the test below).
-    assert wrong and wrong[0]["severity"] == "check" and "Meaning distorted" in wrong[0]["description"]
+    assert wrong and wrong[0]["severity"] == "check" and "Meaning distorted" not in wrong[0]["description"]
     assert "Suggested translation: “더 나은 번역”" in wrong[0]["description"]
     assert wording and wording[0]["severity"] == "check" and "Word choice" in wording[0]["description"]
 
@@ -589,7 +598,7 @@ def _verdict(r, lang="en"):
 
 
 def test_a_poor_result_on_mostly_music_is_needs_review_with_the_reason():
-    loud = {"rms_ratio": 2.5}                                            # 8 dB louder: Poor on its own
+    loud = {"rms_ratio": 4.0}                                            # 12 dB louder: Poor on its own
     assert _verdict(make_results(acoustic_metrics=loud))[0] == "poor"
     music = make_results(acoustic_metrics=loud, timing_alignment={"original_speech": [[0.0, 6.0], [10.0, 14.0]]})
     level, unsure, headline = _verdict(music)                            # 10 s of speech in 28.7 s: 35% is the line
@@ -599,9 +608,9 @@ def test_a_poor_result_on_mostly_music_is_needs_review_with_the_reason():
 
 
 def test_too_little_or_unclear_speech_is_not_sure_either():
-    short = make_results(acoustic_metrics={"rms_ratio": 2.5}, timing_alignment={"original_speech": [[0.0, 6.7]]})
+    short = make_results(acoustic_metrics={"rms_ratio": 4.0}, timing_alignment={"original_speech": [[0.0, 6.7]]})
     assert _verdict(short)[:2] == ("check", ["short_speech"])
-    unclear = make_results(acoustic_metrics={"rms_ratio": 2.5},
+    unclear = make_results(acoustic_metrics={"rms_ratio": 4.0},
                            speech_recognition={"clarity": {"confident_pct": 81.5, "unclear_segments": []}})
     assert _verdict(unclear)[:2] == ("check", ["unclear_speech"])
 
@@ -736,3 +745,452 @@ def test_the_original_language_is_noted_too_and_unmeasured_ones_say_nothing():
 def test_the_weak_language_notes_exist_in_every_report_language(lang):
     weak = sure_lines(lang, target_language="ja", detected_source_language="fr", whisper_model="base")
     assert sum("base" in s for s in weak["sure"]) == 2 and sum("21%" in s or "11%" in s for s in weak["sure"]) == 2
+
+
+# ---------- the quality score (report._score, SCORE_WEIGHTS) ----------
+def _sections(**levels):
+    """Sections by id, each with graded rows at the given levels (a list) or no rows (None)."""
+    # the translation section's first row is the translation check itself (report.SCORE_REQUIRES)
+    ids = lambda sid, i: "translation_check" if (sid, i) == ("translation", 0) else f"{sid}{i}"
+    return [{"id": sid, "title": sid, "metrics": [{"id": ids(sid, i), "label": f"{sid} {i}", "level": lv}
+                                                  for i, lv in enumerate(lvs or [])]}
+            for sid, lvs in levels.items()]
+
+
+def _score_of(level="good", lang="en", **levels):
+    from dubeval.i18n import t as i18n_t
+    from dubeval.report import _score
+    return _score(lambda key, **p: i18n_t(key, lang, **p), _sections(**levels), level)
+
+
+def test_the_score_adds_the_sections_up_by_their_weights():
+    from dubeval.report import POOR_COST, SCORE_WEIGHTS
+    assert sum(SCORE_WEIGHTS.values()) == 100
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    sc = _score_of(**every)
+    assert sc["value"] == 100 and sc["measured_weight"] == 100 and sc["coverage"] == 100 and sc["poor_cost"] == 0
+    assert [p["id"] for p in sc["parts"]] == sorted(SCORE_WEIGHTS, key=lambda s: -SCORE_WEIGHTS[s])   # heaviest first
+    # Translation (30) at Needs review loses half its weight; one of two alignment checks is Poor: its share is 12.5,
+    # but a Poor result costs POOR_COST (40), so 27.5 more: 72.5 − 27.5 = 45, the number worked out, no cap.
+    sc = _score_of("poor", **{**every, "translation": ["check"], "alignment": ["good", "poor"]})
+    assert sc["raw"] == 72.5 and sc["poor_cost"] == POOR_COST - 12.5 and sc["value"] == 45
+    assert sc["lost_total"] == 55 and sc["lost_display"] == "55.0 points lost, so 45 / 100"
+    sc = _score_of("check", **{**every, "translation": ["check"]})
+    assert sc["value"] == 85
+    by = {p["id"]: p for p in sc["parts"]}
+    assert by["translation"]["points"] == 50 and by["translation"]["contribution"] == 15 and by["speech"]["share"] == 15
+
+
+def test_a_section_with_nothing_graded_gives_its_weight_to_the_others():
+    # Lip sync wasn't measured (a missing check: shared, and the coverage says so); no Same video rows at all (a share
+    # link has no pairing): nothing there applies, so its weight is shared without lowering the coverage.
+    sc = _score_of("check", translation=["check"], alignment=["good"], speech=["good"], timing_audio=["good"],
+                   pairing=None, lipsync=["not_measured"])
+    assert sc["measured_weight"] == 85 and sc["raw"] == round(100 * (15 + 25 + 15 + 15) / 85, 1)
+    na = {p["id"]: p for p in sc["parts"]}
+    assert na["lipsync"]["points"] is None and na["pairing"]["contribution"] is None
+    assert sc["coverage"] == round(100 * 85 / 90) and not sc["provisional"]
+    assert sc["message"] == ("Lip sync wasn't checked, so its 5 points are shared among the other sections. Same video "
+                             "doesn't apply to this dub, so its 10 points are shared among the other sections. 94% of the checks that "
+                             "apply to this dub were measured.")
+    assert na["lipsync"]["display"] == "Not checked" and na["pairing"]["display"] == "Doesn't apply"
+    one = _score_of("check", translation=["check"], alignment=["good"], speech=["good"], timing_audio=["good"],
+                    pairing=["good"], lipsync=["not_measured"])
+    assert one["message"] == ("Lip sync wasn't checked, so its 5 points are shared among the other sections. 95% of the checks that "
+                              "apply to this dub were measured.")
+    assert "pairing" in na
+    assert _score_of(translation=None, lipsync=None)["value"] is None
+
+
+def test_the_score_is_the_number_worked_out_and_only_all_good_is_100():
+    from dubeval.report import SCORE_WEIGHTS
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    assert _score_of(**every)["display"] == "100 / 100"
+    # No cap at 89 for Needs review any more: the score is what the checks add up to...
+    sc = _score_of("check", **{**every, "alignment": ["good", "check", "good"]})
+    assert sc["value"] == round(100 - 25 / 3 * 0.5) == 96 and "cap" not in sc and "ranking_display" not in sc
+    # ...but 100 is only for a dub whose checks are all Good: Needs review for a reason outside them shows 99 at most.
+    assert _score_of("check", **every)["value"] == 99
+    assert sc["lost_total"] == round(sum(x["lost"] for x in sc["lost"]), 1)      # the heading is the lines' sum
+
+
+def test_a_check_that_needs_review_scores_by_where_its_result_sits_between_the_limits():
+    from dubeval.report import SCORE_CHECK_MAX, SCORE_WEIGHTS, _scale, _share_ok
+    assert _scale(100 * 15 / 18, 90, 50) == 83.3           # line length: 15 of 18 lines fit
+    assert _scale(4.5, 3.0, 6.0) == 50                     # lower is better: halfway between the dB limits
+    assert _scale(95, 90, 50) == 100 and _scale(30, 90, 50) == 0       # outside the limits: clamped
+    assert _share_ok(9, 10) == 90 and _share_ok(0, 0) is None
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    sections = _sections(**{**every, "alignment": ["good", "check", "good"]})
+    line = next(s for s in sections if s["id"] == "alignment")["metrics"][1]
+    line["score_points"] = 83.3
+    from dubeval.i18n import t as i18n_t
+    from dubeval.report import _score
+    sc = _score(lambda key, **p: i18n_t(key, "en", **p), sections, "check")
+    # 25 points over three checks: 8.3 each; the line-length check keeps 83.3% of its 8.3 and loses 1.4
+    assert line["score_points"] == 83.3 and line["score_display"] == "6.9 of 8.3 points"   # one decimal
+    assert sc["raw"] == round(100 - 25 / 3 * (1 - 0.833), 1) and sc["value"] == 99    # 98.6, the real number
+    assert [x["lost"] for x in sc["lost"]] == [1.4]
+    align = next(s for s in sections if s["id"] == "alignment")["score"]
+    assert align["display"] == "23.6 of 25.0 points"
+    # the list's heading does the sum, and the line under it says how checks lose points
+    assert sc["lost_display"] == "1.4 points lost, so 99 / 100 (rounded)" and "how far" in sc["lost_how"]
+    # no Poor result cost anything here, so the 100 / 40 / 20 part isn't said
+    assert sc["lost_how"] == "A check that needs review loses points by how far its result is from Good."
+    # A Needs review check never scores as a Good one, and one with no number to place keeps 50.
+    line["score_points"] = 100
+    _score(lambda key, **p: i18n_t(key, "en", **p), sections, "check")
+    assert line["score_points"] == SCORE_CHECK_MAX
+    line["score_points"] = None
+    _score(lambda key, **p: i18n_t(key, "en", **p), sections, "check")
+    assert line["score_points"] == 50
+
+
+@pytest.mark.parametrize("lang", ["en", "ko", "pt", "es"])
+def test_the_score_is_in_every_report_and_every_language(lang):
+    rep = build_report(make_results(), lang)
+    sc = rep["score"]
+    assert sc["value"] is not None and "{" not in sc["message"] + sc["rule"] + sc["display"]
+    assert all("{" not in p["display"] for p in sc["parts"])
+    assert rep["labels"]["score_title"].upper() in render_text(rep)
+    page = render_html(rep, make_results())
+    from html import escape
+    assert rep["labels"]["score_title"] in page and all(escape(p["label"]) in page for p in sc["parts"])
+    for k in ("score_section", "score_got"):
+        assert rep["labels"][k] and "{" not in rep["labels"][k]
+
+
+def test_each_check_shows_its_level_and_its_own_share_of_the_score():
+    from dubeval.report import SCORE_WEIGHTS
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    sc = _score_of("check", **{**every, "speech": ["good", "good", "check", "not_measured"]})
+    speech = next(p for p in sc["parts"] if p["id"] == "speech")
+    graded = [i for i in speech["items"] if i["share"] is not None]
+    # Speech weighs 15 of 100; its three graded checks share it evenly, the unmeasured one is listed with no share.
+    assert [i["share"] for i in graded] == [5.0, 5.0, 5.0] and [i["points"] for i in graded] == [5.0, 5.0, 2.5]
+    assert speech["items"][3]["share"] is None and speech["items"][3]["detail"] is None
+    assert graded[2]["display"].startswith("Needs review · 5%")
+    # Every check's points add up to the score itself.
+    assert round(sum(i["points"] or 0 for p in sc["parts"] for i in p["items"]), 1) == sc["raw"] == 97.5
+
+
+
+def test_without_the_translation_check_translation_isnt_counted_and_the_score_is_provisional():
+    from dubeval.report import SCORE_WEIGHTS
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    # The check didn't run; the numbers check (Good) is there but doesn't stand in for it.
+    sc = _score_of("check", **{**every, "translation": ["not_measured", "good"]})
+    tr_part = next(p for p in sc["parts"] if p["id"] == "translation")
+    assert sc["provisional"] and tr_part["points"] is None and not tr_part["counted"]
+    assert sc["measured_weight"] == 70 and "(provisional" in sc["display"] and "Provisional" in sc["message"]
+    assert [i["display"] for i in tr_part["items"][1:]] == ["Not counted in the score"]
+    # With the check, the section counts as before and the score isn't provisional.
+    sc = _score_of("check", **{**every, "translation": ["check", "good"]})
+    assert not sc["provisional"] and next(p for p in sc["parts"] if p["id"] == "translation")["points"] == 75
+
+
+def test_a_one_check_sections_row_and_header_give_the_same_points():
+    from dubeval.report import SCORE_WEIGHTS, _score
+    from dubeval.i18n import t as i18n_t
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    sections = _sections(**{**every, "translation": ["check"], "lipsync": None})
+    sections[0]["metrics"][0]["score_points"] = 71.4                 # 2 of 7 lines flagged
+    sc = _score(lambda key, **p: i18n_t(key, "en", **p), sections, "check")
+    row, header = sections[0]["metrics"][0]["score_display"], sections[0]["score"]["display"]
+    assert row == header == "22.5 of 31.6 points"            # the row once said 22.6 (from the rounded 31.6)
+    # from the exact points (31.58 × 28.6%), not 31.6 − 22.5: the list then adds up to 100 minus the score
+    assert sc["lost"][0]["lost"] == 9.0
+
+
+def test_the_points_lost_heading_says_rounded_when_the_sum_is_not_the_score():
+    from dubeval.report import SCORE_WEIGHTS, _score
+    from dubeval.i18n import t as i18n_t
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    sections = _sections(**{**every, "alignment": ["good", "check", "good"]})
+    sections[1]["metrics"][1]["score_points"] = 60          # alignment: 25 over three, one at 60 → 3.3 lost
+    sc = _score(lambda key, **p: i18n_t(key, "en", **p), sections, "good")
+    assert sc["value"] == 97 and sc["lost_display"] == "3.3 points lost, so 97 / 100 (rounded)"
+
+
+def test_points_lost_lists_only_the_checks_that_lost_some_biggest_first():
+    from dubeval.report import SCORE_WEIGHTS
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    sections = _sections(**{**every, "translation": ["check"], "timing_audio": ["good", "poor", "good"]})
+    sections[0]["metrics"][0]["display"] = "2 of 7 lines flagged"
+    crackle = next(x for x in sections if x["id"] == "timing_audio")["metrics"][1]
+    crackle["display"] = "Crackles"
+    from dubeval.i18n import t as i18n_t
+    from dubeval.report import _score
+    sc = _score(lambda key, **p: i18n_t(key, "en", **p), sections, "poor")
+    # the Poor check's share is 5 (15 over three), but a Poor result costs at least 40: it leads the list
+    assert [(x["label"], x["lost"]) for x in sc["lost"]] == [("timing_audio 1", 40.0), ("translation 0", 15.0)]
+    assert [x["why"] for x in sc["lost"]] == ["Crackles · Poor: a serious problem", "2 of 7 lines flagged"]
+    assert "100 when it makes the dub unusable, 40 for most problems, 20" in sc["lost_how"]
+    # the sections add up to 80, the score is 45: the message and the table's last row say why
+    assert "Poor results cost 35.0 points more than their share, so the sections add up to 80.0 but the score is 45"         in sc["message"] and sc["extra_display"] == "−35.0 points"
+    assert sc["lost_total"] == 55 and sc["value"] == 45 and crackle["score_display"] == "−40.0 points"
+    assert sc["lost"][1]["display"] == "−15.0 points" and _score_of(**every)["lost"] == []
+
+
+def test_each_section_and_check_carries_its_share_for_the_page():
+    rep = build_report(make_results())
+    speech = next(s for s in rep["sections"] if s["id"] == "speech")
+    assert speech["score"]["display"].endswith(" points")
+    graded = [m for m in rep["sections"][0]["metrics"] + speech["metrics"] if m["level"] in ("good", "check", "poor")]
+    # every graded check keeps its share; only the ones that lost points say "got of share" on their row (on every Good
+    # row it hid the few that lost some); the section's header has the total
+    assert graded and all(m["score_share"] for m in graded)
+    lost = [m for m in graded if m["score_points"] < 100]
+    assert all(" of " in m["score_display"] and m["score_display"].endswith(" points") for m in lost)
+    assert all(m["score_display"] is None for m in graded if m["score_points"] == 100)
+    assert all(m.get("score_display") is None for s in rep["sections"] for m in s["metrics"] if m["level"] == "info")
+    # The video file has no weight, and its section says so rather than saying nothing.
+    file = next(s for s in rep["sections"] if s["id"] == "integrity")
+    assert file["score"]["display"] == "Not in the score"
+
+
+def test_the_card_counts_in_score_points_only_and_says_the_weights_are_untested():
+    from dubeval.report import SCORE_WEIGHTS
+    every = {sid: ["good"] for sid in SCORE_WEIGHTS}
+    sc = _score_of("check", **{**every, "translation": ["check"]})
+    tr_part = next(p for p in sc["parts"] if p["id"] == "translation")
+    # one unit: the points it got of the most it could; no section score out of 100 beside the dub's
+    assert tr_part["display"] == "15.0 of 30.0 points" and "/ 100" not in tr_part["display"]
+    assert tr_part["of_display"] == "15.0 of 30.0"                 # in the table, under the "Score points" heading
+    assert "not yet tested" in sc["rule"] and "not yet tested" in sc["rule_short"]
+    assert len(sc["rule_short"]) < len(sc["rule"])
+
+
+def test_every_report_shows_the_score_in_the_same_order_with_the_rule_folded_or_short():
+    rep = build_report(make_results())
+    lb, sc = rep["labels"], rep["score"]
+    text = render_text(rep)
+    block = text[text.index(lb["score_title"].upper()):]
+    # why, the points lost, the sections under their headings, then the rule in one line (not the long one)
+    heading = sc.get("lost_display") or lb["score_lost"]          # without points lost: the plain heading
+    assert block.index(heading) < block.index(lb["score_section"]) < block.index(sc["rule_short"][:40])
+    assert sc["rule"][:60] not in text
+    page = render_html(rep, make_results())
+    card = page[page.index(lb["score_title"]):]
+    assert card.index(heading) < card.index(lb["score_section"]) < card.index(lb["score_how"])
+    assert f"<details><summary class=th>{lb['score_how']}</summary>" in card
+
+
+def test_values_say_what_they_mean_without_decoding():
+    from dubeval.report import build_report
+    r = make_results()
+    r["timing_alignment"].update({"start_offset_sec": -0.8, "end_offset_sec": 0.0})
+    r["acoustic_metrics"].update({"original_silence_ratio": 0.168, "dubbed_silence_ratio": 0.202,
+                                  "dubbed_clipping_pct": 0.0})
+    rows = {m["id"]: m for s in build_report(r, "en")["sections"] for m in s["metrics"]}
+    assert rows["speech_offsets"]["display"] == "Against the original: starts 0.8 s early · ends on time"       # not "−0.8 s / +0.0 s"
+    assert rows["silence"]["display"] == "20.2% vs 16.8% original"                      # not "16.8% → 20.2%"
+    assert rows["clipping"]["display"] == "None"                                        # not "0.000%"
+    # a check that wasn't measured has no dash on its row: its reason is in the row and the Not measured list
+    assert all(m["display"] != "—" for m in rows.values() if m["level"] == "not_measured")
+
+
+def test_the_parts_have_names_that_say_what_they_hold():
+    from dubeval.report import build_report
+    titles = {s["id"]: s["title"] for s in build_report(make_results(), "en")["sections"]}
+    assert (titles["timing_audio"], titles["alignment"], titles["speech"]) == ("Length & sound", "Timing", "Speech & voice")
+
+
+def test_the_speech_timing_row_counts_only_the_moments_it_lists():
+    from dubeval.intervals import TIMING_MIN_SEC
+    r = make_results()
+    short = [{"start": 10.0 + i, "end": 10.0 + i + TIMING_MIN_SEC / 2, "kind": "dub_only"} for i in range(5)]
+    r["timing_alignment"]["mismatches"] = short
+    row = {m["id"]: m for s in build_report(r, "en")["sections"] for m in s["metrics"]}["speech_overlap"]
+    assert "Things to check" not in row["message"]          # five too short to list: it promised them before
+    r["timing_alignment"]["mismatches"] = short + [{"start": 20.0, "end": 21.5, "kind": "dub_only"}]
+    row = {m["id"]: m for s in build_report(r, "en")["sections"] for m in s["metrics"]}["speech_overlap"]
+    assert "short moment" not in row["message"]               # Good: the row lists no moments, so it promises none
+    r["timing_alignment"]["overlap_pct"] = 70.0
+    row = {m["id"]: m for s in build_report(r, "en")["sections"] for m in s["metrics"]}["speech_overlap"]
+    assert "1 short moment" in row["message"]
+    r["timing_alignment"]["mismatches"] = short                 # Needs review, none long enough: it says why none show
+    row = {m["id"]: m for s in build_report(r, "en")["sections"] for m in s["metrics"]}["speech_overlap"]
+    assert "too short to show on the timeline" in row["message"]
+
+
+def test_the_score_rule_is_short_lines():
+    rule = build_report(make_results(), "en")["score"]["rule"]
+    assert rule.count(chr(10)) == 5 and all(len(line) < 400 for line in rule.split(chr(10)))
+
+
+def test_language_names_follow_the_report_language():
+    r = make_results()
+    r["metadata"].update({"target_language": "es", "detected_source_language": "en"})
+    r["pipeline"]["target_language_code"] = "es"
+    ko = build_report(r, "ko")
+    assert (ko["project"]["source_language"], ko["project"]["target_language"]) == ("영어", "스페인어")
+    pt = build_report(r, "pt")
+    assert pt["project"]["target_language"] == "Espanhol"                 # capitalized where it starts a line
+
+
+def test_seconds_use_each_languages_unit():
+    rows = {m["id"]: m for s in build_report(make_results(), "ko")["sections"] for m in s["metrics"]}
+    assert rows["length_match"]["display"].split(" ")[0].endswith("초")
+
+
+def test_the_html_timeline_marks_the_moments_the_report_lists_and_says_what_it_shows():
+    r = make_results()
+    r["timing_alignment"]["mismatches"] = [{"start": 3.0 + i, "end": 3.2 + i, "kind": "dub_only"} for i in range(5)]
+    rep = build_report(r, "en")
+    page = render_html(rep, r)
+    timeline = page[page.index('aria-label="Speech timeline"'):]
+    timeline = timeline[:timeline.index("</svg>")]
+    assert timeline.count('fill="none" stroke=') == len(rep["moments"]) + 1     # each moment, plus the legend's swatch
+    assert "Moment to check" in timeline and "Dub speaking" in timeline
+    # the Passed heading counts the rows under it; information rows have their own
+    good = sum(1 for s in rep["sections"] for m in s["metrics"] if m["level"] == "good")
+    assert f"Passed ({good})</h2>" in page and "For information (" in page
+
+
+
+def _row(mid, level="good", **extra):
+    return {"id": mid, "label": mid, "level": level, "display": "", "message": "", "thresholds": "", "value": None,
+            "score_points": None, **extra}
+
+
+def _report_sections(**by_section):
+    return [{"id": sid, "title": sid, "metrics": rows} for sid, rows in by_section.items()]
+
+
+def _score_rows(level="good", **by_section):
+    from dubeval.i18n import t as i18n_t
+    from dubeval.report import _score
+    return _score(lambda key, **p: i18n_t(key, "en", **p), _report_sections(**by_section), level)
+
+
+BASE = dict(translation=[_row("translation_check")], alignment=[_row("speech_overlap"), _row("line_length")],
+            speech=[_row("clarity"), _row("language")], timing_audio=[_row("length_match")],
+            pairing=[_row("same_video")])
+
+
+def test_lip_sync_on_a_dub_that_isnt_lip_synced_doesnt_apply_but_turned_off_lowers_the_coverage():
+    na = _score_rows(**BASE, lipsync=[_row("lip_sync", "not_measured", absent="na")])
+    off = _score_rows(**BASE, lipsync=[_row("lip_sync", "not_measured", absent="missing")])
+    assert na["value"] == off["value"] == 100                     # both shared: the score itself is the same...
+    assert na["coverage"] == 100 and off["coverage"] == 95        # ...but only the one that was off is a gap
+    assert "Lip sync doesn't apply to this dub" in na["message"] and "were measured" not in na["message"]
+    assert "Lip sync wasn't checked" in off["message"] and "95% of the checks that apply to this dub were measured" in off["message"]
+    item = lambda sc: next(p for p in sc["parts"] if p["id"] == "lipsync")["items"][0]
+    assert item(na)["display"] == "Doesn't apply to this dub · no share" and item(na)["absent"] == "na"
+    assert item(off)["absent"] == "missing"
+
+
+def test_a_dub_without_speech_counts_its_speech_checks_as_zero_instead_of_sharing_them():
+    none = lambda mid: _row(mid, "not_measured", absent="dub")
+    sc = _score_rows("poor", translation=[none("translation_check")],
+                     alignment=[none("speech_overlap"), none("line_length")],
+                     speech=[_row("speech_found", "poor"), none("clarity"), none("language")],
+                     timing_audio=[_row("length_match")], pairing=[_row("same_video")],
+                     lipsync=[_row("lip_sync", "not_measured", absent="na")])
+    # Shared out, the length and same-video checks alone would have made it 100; counted as 0 it's 25 of 100, and the
+    # Poor "no speech" result costs 40 at the least: nothing left.
+    assert sc["raw"] == round(100 * (15 + 10) / 95, 1) and sc["value"] == 0 and not sc["provisional"]
+    assert "count as 0 instead of being shared" in sc["message"] and sc["coverage"] == 100
+    zero = next(p for p in sc["parts"] if p["id"] == "translation")["items"][0]
+    assert zero["display"].startswith("Counts as 0") and zero["points"] == 0
+
+
+def test_speech_that_couldnt_be_recognized_is_a_gap_not_the_dubs_fault_and_makes_the_score_provisional():
+    gap = lambda mid: _row(mid, "not_measured")                  # "missing": the default kind
+    sc = _score_rows("check", translation=[gap("translation_check")], alignment=[gap("speech_overlap")],
+                     speech=[gap("clarity"), _row("voice_quality")], timing_audio=[_row("length_match")],
+                     pairing=[_row("same_video")], lipsync=[_row("lip_sync")])
+    # a gap, never 0 (recognition failed, not the dub): with 38% measured there is no score at all, rather than 99
+    assert sc["value"] is None and sc["coverage"] == 38 and sc["provisional"]
+    assert all(i["absent"] in (None, "missing") for p in sc["parts"] for i in p["items"])
+    # with enough measured, the missing translation check makes it provisional, said once
+    part = _score_rows("check", **{**BASE, "translation": [gap("translation_check")]}, lipsync=[_row("lip_sync")])
+    assert part["message"].startswith("Provisional: the translation wasn't checked")
+    assert "Provisional: only" not in part["message"]
+
+
+def test_a_poor_result_outside_the_weighted_sections_still_costs_its_points():
+    # a file without sound has no weight in the sum, but it makes the dub unusable: 100 points
+    sc = _score_rows("poor", **BASE, lipsync=[_row("lip_sync")], integrity=[_row("file_check", "poor", display="No audio")])
+    assert sc["raw"] == 100 and sc["value"] == 0 and sc["lost"][0]["id"] == "file_check" and sc["lost"][0]["lost"] == 100
+    assert sc["lost"][0]["severity"] == "unusable" and sc["lost"][0]["why"] == "No audio · Poor: makes the dub unusable"
+
+
+def test_a_poor_result_costs_by_how_serious_it_is():
+    from dubeval.report import POOR_COSTS, POOR_SEVERITY
+    assert POOR_COSTS == {"unusable": 100, "serious": 40, "minor": 20}
+    # every check that can make a dub unusable, and the two the mix can fix; everything else is serious
+    assert {k for k, v in POOR_SEVERITY.items() if v == "unusable"} == {"speech_found", "language", "same_video", "file_check"}
+    assert {k for k, v in POOR_SEVERITY.items() if v == "minor"} == {"loudness_match", "silence"}
+    with_poor = lambda section, mid: _score_rows("poor", **{**BASE, section: [_row(mid, "poor", display="x")]},
+                                                 lipsync=[_row("lip_sync")])
+    loud = with_poor("timing_audio", "loudness_match")       # Length & sound has one check here: its share is 15
+    assert loud["lost"][0]["lost"] == 20 and loud["value"] == 80 and loud["lost"][0]["severity"] == "minor"
+    assert loud["lost"][0]["why"] == "x · Poor: the mix can fix it"
+    wrong = with_poor("speech", "language")                   # the wrong language: nothing deliverable
+    assert wrong["value"] == 0 and wrong["lost"][0]["lost"] == 100
+    timing = with_poor("alignment", "speech_overlap")         # serious: 40, as before
+    assert timing["lost"][0]["lost"] == 40 and timing["lost"][0]["severity"] == "serious"
+    # a minor problem whose share is more than 20 loses its share, never less: alone in Timing (25%) it loses 25
+    big = _score_rows("poor", **{**BASE, "alignment": [_row("silence", "poor")]}, lipsync=[_row("lip_sync")])
+    assert big["lost"][0]["lost"] == 25.0 and big["poor_cost"] == 0
+
+
+def test_each_reason_for_not_measuring_is_sorted_into_its_kind():
+    from dubeval.i18n import t as i18n_t
+    from dubeval.report import _apply_speech_problem, _lipsync, _similarity, _sound_sync
+    tr = lambda key, **p: i18n_t(key, "en", **p)
+    # lip sync: a dub without re-drawn lips has none to check; turned off or not downloaded is a gap
+    assert _lipsync(tr, {}, False)[0]["absent"] == "na"
+    assert _lipsync(tr, {}, True)[0]["absent"] == "missing"
+    assert _lipsync(tr, {"reason_key": "r.lips.no_download"}, True)[0]["absent"] == "missing"
+    # the lip check ran but had nothing to compare (too few faces, an original whose own lips don't line up)
+    assert _lipsync(tr, {"sync": {"measured": False, "reason_key": "r.sync_lips.few_moments",
+                                  "reason_params": {"n": 2}}}, True)[0]["absent"] == "na"
+    # voice similarity: another voice on purpose doesn't apply; the model not telling is a gap
+    assert _similarity(tr, {"measured": False, "reason_key": "r.vs.not_compared_human"})["absent"] == "na"
+    assert "absent" not in _similarity(tr, {"measured": False, "reason_key": "r.vs.no_model"})
+    # sound sync on a dub that replaces the background: nothing to measure it against
+    assert _sound_sync(tr, {"reason": "shared"})[0]["absent"] == "na"
+    # no speech in the dub: its speech checks count as 0; none in the original: nothing to dub, they don't apply
+    for kind, want in (("no_dub_speech", "dub"), ("no_original_speech", "na")):
+        sections = [{"id": "speech", "metrics": [{"id": "clarity", "level": "not_measured"}]},
+                    {"id": "translation", "metrics": [{"id": "translation_check", "level": "not_measured"}]}]
+        _apply_speech_problem(tr, sections, {"kind": kind}, "Spanish")
+        assert [m.get("absent") for s in sections for m in s["metrics"] if m["level"] == "not_measured"] == [want, want]
+
+
+def test_too_little_measured_gives_no_score_instead_of_a_number_built_on_a_quarter_of_the_checks():
+    gap = lambda mid: _row(mid, "not_measured")
+    sc = _score_rows("check", translation=[gap("translation_check")], alignment=[gap("speech_overlap")],
+                     speech=[gap("clarity"), gap("language")], timing_audio=[_row("length_match")],
+                     pairing=[_row("same_video")], lipsync=[gap("lip_sync")])
+    assert sc["value"] is None and sc["coverage"] == 25 and sc["display"] == "Too little measured"
+    assert sc["message"] == "Only 25% of the checks that apply to this dub could be measured, too little for a score (it takes 50%)."
+    # without a translation checker (70% measured) there still is one, provisional
+    no_judge = _score_rows("check", **{**BASE, "translation": [gap("translation_check")]}, lipsync=[_row("lip_sync")])
+    assert no_judge["value"] == 99 and no_judge["provisional"] and no_judge["coverage"] == 70
+
+
+def test_a_poor_result_dubeval_isnt_sure_of_costs_only_its_share():
+    # Little or unclear speech: a Poor row that doesn't make the verdict Poor (Needs review) loses its share, not 40.
+    rows = {**BASE, "translation": [_row("translation_check", "poor")]}
+    unsure = _score_rows("check", **rows, lipsync=[_row("lip_sync")])
+    sure = _score_rows("poor", **rows, lipsync=[_row("lip_sync")])
+    assert unsure["value"] == 70 and unsure["poor_cost"] == 0
+    assert sure["value"] == 60 and sure["poor_cost"] == 10
+
+
+
+def test_the_score_card_says_why_a_poor_row_lost_only_its_share_and_shows_no_table_without_a_score():
+    from dubeval.report import render_text
+    unsure = _score_rows("check", **{**BASE, "translation": [_row("translation_check", "poor", display="5.9 / 10")]},
+                         lipsync=[_row("lip_sync")])
+    assert unsure["lost"][0]["why"] == "5.9 / 10 · Poor, but DubEval isn't sure of it, so it loses only its share"
+    rep = build_report(make_results(), "en")
+    rep["score"] = {**rep["score"], "value": None, "display": "Too little measured", "message": "Only 26%."}
+    text = render_text(rep)
+    block = text[text.index("QUALITY SCORE"):]
+    block = block[:block.index("──")]
+    assert "Only 26%." in block and rep["labels"]["score_section"] not in block and rep["labels"]["score_none"] not in block

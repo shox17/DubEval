@@ -76,4 +76,8 @@ python qa.py serve                         # http://127.0.0.1:8000 · interactiv
 Jobs run in the background and are kept on disk, so ids stay valid across restarts. **Security:** without `DUBEVAL_API_TOKEN` the server only listens on this machine and only answers requests sent to `127.0.0.1` or `localhost`; set the token to listen on the network (`--host 0.0.0.0`), and send `Authorization: Bearer <token>` with every request except `/health`.
 
 ## Continuous integration
-`.github/workflows/tests.yml` runs the fast, offline suite on **Linux, macOS and Windows** (Python 3.14, CPU PyTorch) for every push and pull request, plus a secret scan. No secrets are needed.
+`.github/workflows/tests.yml` runs the fast, offline suite on **Linux, macOS and Windows** (Python 3.14, CPU PyTorch) for every push and pull request, plus a secret scan and a syntax check of every JavaScript file in the repository (the page and the desktop app have
+no tests of their own; each file is parsed the way it is loaded, as a module or a plain script). The fast suite does the
+same locally when Node.js is installed (`tests/test_web_scripts.py`; skipped without it): a syntax error once passed
+every Python test and left the app on its start-up screen. No secrets are needed. GitHub's CodeQL scans the Python, JavaScript and workflow files for security problems (its default setup,
+switched on in the repository's settings on 2026-11-20; there is no workflow file for it).

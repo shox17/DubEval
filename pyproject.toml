@@ -48,11 +48,9 @@ dependencies = [
 openai-whisper = ["openai-whisper>=20240930"]   # the original Whisper, as an alternative recognizer
 links = ["yt-dlp>=2024.1"]                       # evaluate videos from YouTube and other pages
 claude = ["anthropic>=0.40"]                     # Claude as the translation judge
-meaning = ["sentence-transformers>=3.0"]         # the meaning screen with the original BGE-M3 (PyTorch, ~4.4 GB);
-                                                 # without it the screen uses the ONNX pack (tools/build_meaning_onnx.py)
 api = ["fastapi>=0.110", "uvicorn>=0.27", "python-multipart>=0.0.9"]   # dubeval web, qa.py serve
-pack = ["torch>=2.2", "transformers>=4.40", "onnx>=1.17"]              # build the meaning screen's ONNX pack
-all = ["dubeval[openai-whisper,links,claude,meaning,api]"]
+pack = ["torch>=2.2", "onnx>=1.17"]              # rebuild the bundled graphs (tools/build_*_onnx.py)
+all = ["dubeval[openai-whisper,links,claude,api]"]
 dev = ["dubeval[all,pack]", "pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
@@ -66,4 +64,4 @@ Issues = "https://github.com/shox17/DubEval/issues"
 packages = ["dubeval"]
 
 [tool.setuptools.package-data]
-dubeval = ["models/*.onnx", "models/*.task", "models/README.md", "release_notes.json", "web/*", "web/fonts/*"]
+dubeval = ["models/*.onnx", "models/*.task", "models/README.md", "release_notes.json", "language_names.json", "web/*", "web/fonts/*"]
