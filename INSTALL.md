@@ -43,7 +43,7 @@ version for Intel Macs; run DubEval from source there.
    speed-up is Windows only, so speech recognition runs on the processor).
 
 **Updates:** as on Windows, from 0.1.7 on. A copy from before 0.1.7 (a test build) can't update itself: install
-0.1.7 over it once.
+the latest version over it once.
 
 **Uninstall:** drag DubEval from Applications to the Trash. Your evaluations, history, settings and keys stay in
 `~/Library/Application Support/DubEval`, and downloaded models in `~/.cache/dubeval`; delete those folders too to

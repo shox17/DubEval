@@ -78,8 +78,8 @@ refuse the bundled Python's libraries signed by their makers.
   entitlements. Everything is then sealed with the app.
 - **Updates** (since 0.1.7): as on Windows, from the release's `latest-mac.yml` and `.zip` (the `.dmg` is only the
   download). Squirrel.Mac installs only an update signed with the same Developer ID, so every Mac release must be signed
-  and notarized with ESTsoft's. A copy from before 0.1.7 (ad-hoc test builds) doesn't look for updates: install 0.1.7
-  over it once. The `.dmg`'s name has no version (`dmg.artifactName`: `DubEval-Mac.dmg`), so
+  and notarized with ESTsoft's. A copy from before 0.1.7 (ad-hoc test builds) doesn't look for updates: install the
+  latest release over it once. The `.dmg`'s name has no version (`dmg.artifactName`: `DubEval-Mac.dmg`), so
   `releases/latest/download/DubEval-Mac.dmg` always gives the newest one.
 - **The window:** macOS's three buttons sit in the page's top strip (`trafficLightPosition`), and the app has the
   standard app, Edit and Window menus: without an Edit menu, Cmd+C and Cmd+V do nothing.
